@@ -219,6 +219,17 @@ class GitHubLocalCache:
             )
             
             # 拉取最新代码
+            # Upstream release tags are occasionally recreated. Force-sync
+            # them before pulling so Git does not abort with
+            # "would clobber existing tag" and invalidate the analysis cache.
+            subprocess.run(
+                ["git", "fetch", "origin", "--tags", "--force", "--prune"],
+                cwd=str(self.cache_dir),
+                check=True,
+                capture_output=True,
+                timeout=120,
+                env=env,
+            )
             subprocess.run(
                 ["git", "pull", "origin", "main"],
                 cwd=str(self.cache_dir),
@@ -229,7 +240,7 @@ class GitHubLocalCache:
             )
             # 同时 fetch 新的 tags
             subprocess.run(
-                ["git", "fetch", "--tags"],
+                ["git", "fetch", "origin", "--tags", "--force", "--prune"],
                 cwd=str(self.cache_dir),
                 check=True,
                 capture_output=True,
@@ -248,6 +259,14 @@ class GitHubLocalCache:
                 try:
                     # 重试一次
                     subprocess.run(
+                        ["git", "fetch", "origin", "--tags", "--force", "--prune"],
+                        cwd=str(self.cache_dir),
+                        check=True,
+                        capture_output=True,
+                        timeout=120,
+                        env=env,
+                    )
+                    subprocess.run(
                         ["git", "pull", "origin", "main"],
                         cwd=str(self.cache_dir),
                         check=True,
@@ -256,7 +275,7 @@ class GitHubLocalCache:
                         env=env,
                     )
                     subprocess.run(
-                        ["git", "fetch", "--tags"],
+                        ["git", "fetch", "origin", "--tags", "--force", "--prune"],
                         cwd=str(self.cache_dir),
                         check=True,
                         capture_output=True,

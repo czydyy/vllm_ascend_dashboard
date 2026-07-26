@@ -245,7 +245,16 @@ class FailureAnalysisService:
         max_turns_val = max(3, min(int(agent_config.get("max_turns", 80)), 300))
         timeout_val = max(60, min(int(agent_config.get("timeout_seconds", 1800)), 7200))
         system_prompt = await self._get_system_prompt(db)
-        user_prompt = await self._build_job_context(job, db, max_turns=max_turns_val, timeout_seconds=timeout_val)
+        user_prompt = await self._build_job_context(
+            job,
+            db,
+            max_turns=max_turns_val,
+            timeout_seconds=timeout_val,
+            # The evidence pipeline must receive primary failure facts directly.
+            # A tool path alone allowed some investigations to finish without
+            # opening an otherwise valid downloaded Job log.
+            inline_logs=runtime == "custom_agent",
+        )
 
         # 濡傛灉涔嬪墠鏈夊け璐?鍗′綇鐨勮褰曪紝澶嶇敤鑰屼笉鏄彃鍏ユ柊璁板綍锛堥伩鍏?UNIQUE 鍐茬獊锛?
         if existing:
