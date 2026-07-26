@@ -42,6 +42,15 @@ class FailureAnalysisService:
             root = Path.cwd() / root
         return root.resolve()
 
+    @staticmethod
+    def _blocking_investigation_findings(program_validation: dict) -> list[dict]:
+        """Return evidence defects that make a report invalid, not insufficient."""
+        return [
+            item for item in program_validation.get("findings", [])
+            if item.get("severity") == "error"
+            and item.get("code") == "missing_failure_facts"
+        ]
+
     async def _get_llm_config(self, db: AsyncSession):
         stmt = select(LLMProviderConfig).where(LLMProviderConfig.is_active == True).limit(1)
         result = await db.execute(stmt)
@@ -663,11 +672,9 @@ class FailureAnalysisService:
         analysis.agent_steps = len(trace)
         await db.commit()
 
-        # Missing evidence lowers the final verdict to ``insufficient`` but is
-        # still a useful, auditable analysis result. Do not abort report
-        # rendering merely because the available CI history cannot support a
-        # hypothesis or regression boundary.
-        blocking_findings = []
+        # Missing primary log facts means data preparation failed. Do not
+        # render an empty ledger as a completed analysis report.
+        blocking_findings = self._blocking_investigation_findings(program_validation)
         if blocking_findings:
             analysis.validation_result = {
                 "verdict": "insufficient",
@@ -1069,9 +1076,9 @@ class FailureAnalysisService:
             lines.append(commit_diff)
 
         # 纭繚鏈湴 Git 浠撳簱宸?clone
-        from app.services.github_cache import ensure_repo_cloned, get_github_cache
-        ensure_repo_cloned()
-        repo_path = str(get_github_cache().cache_dir.resolve())
+        from app.services.github_cache import ensure_analysis_repos_ready
+        analysis_repos = await asyncio.to_thread(ensure_analysis_repos_ready, update=True)
+        repo_path = analysis_repos["vllm_ascend"]
         ref_value = tested_commit or (ci_result.head_sha if ci_result and ci_result.head_sha else "main")
 
         # 棰勬媺鍙栨墍鏈夊彲鐢ㄦ棩蹇楀埌鏈湴锛孋LI 鍙鏈湴鏂囦欢涓?curl
@@ -1118,6 +1125,9 @@ class FailureAnalysisService:
         lines.append("  日志来源是 GitHub Actions 下载到 backend/data 的 job/run 日志和 artifacts；不能登录 runner。")
         lines.append("  生产环境、当前 Job Runner 与本地分析宿主可能不同，不能混淆。")
         lines.append("")
+        lines.append(f"- vllm-ascend source repository: `{analysis_repos['vllm_ascend']}`")
+        lines.append(f"- vLLM upstream source repository: `{analysis_repos['vllm']}`")
+        lines.append("- Use vllm_git for upstream vLLM history/source; other git_* tools inspect vllm-ascend.")
         github_url = f"https://github.com/{settings.GITHUB_OWNER}/{settings.GITHUB_REPO}/actions/runs/{job.run_id}/job/{job.job_id}"
         lines.append(f"\n- **GitHub Job URL**: {github_url}")
         lines.append("\n请按 CI 失败分析报告模板输出中文报告。")
@@ -1926,17 +1936,40 @@ class FailureAnalysisService:
 
         # 1. Job log
         job_log_path = log_dir / f"{job.job_id}.log"
+        if job_log_path.exists() and job_log_path.stat().st_size == 0:
+            job_log_path.unlink()
+        job_log_errors: list[str] = []
         if not job_log_path.exists():
             job_url = f"https://api.github.com/repos/{settings.GITHUB_OWNER}/{settings.GITHUB_REPO}/actions/jobs/{job.job_id}/logs"
-            try:
-                async with aiohttp.ClientSession(timeout=request_timeout) as session:
-                    async with session.get(job_url, headers=headers) as resp:
-                        if resp.status == 200:
-                            job_log_path.write_bytes(await resp.read())
-            except Exception as e:
-                logger.warning("Failed to fetch job log: %s", e)
-        if job_log_path.exists():
+            for attempt in range(1, 4):
+                try:
+                    async with aiohttp.ClientSession(timeout=request_timeout) as session:
+                        async with session.get(job_url, headers=headers) as resp:
+                            if resp.status == 200:
+                                payload = await resp.read()
+                                if payload:
+                                    job_log_path.write_bytes(payload)
+                                    break
+                                job_log_errors.append(f"attempt {attempt}: HTTP 200 with empty body")
+                            else:
+                                body = (await resp.text(errors="replace"))[:500]
+                                job_log_errors.append(
+                                    f"attempt {attempt}: HTTP {resp.status}: {body}"
+                                )
+                except Exception as e:
+                    job_log_errors.append(
+                        f"attempt {attempt}: {type(e).__name__}: {e}"
+                    )
+                if attempt < 3:
+                    await asyncio.sleep(2 ** (attempt - 1))
+        if job_log_path.exists() and job_log_path.stat().st_size > 0:
             result["job_log"] = str(job_log_path)
+        else:
+            detail = "; ".join(job_log_errors) or "no cached file and no download response"
+            logger.error("Required job log unavailable for job %s: %s", job.job_id, detail)
+            raise RuntimeError(
+                f"Required GitHub job log unavailable for job {job.job_id}: {detail}"
+            )
 
         # 2. Run 鍏ㄩ儴鏃ュ織 ZIP
         run_zip_path = log_dir / f"run_{job.run_id}_logs.zip"
