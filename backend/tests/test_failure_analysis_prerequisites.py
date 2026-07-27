@@ -1,4 +1,5 @@
 from pathlib import Path
+import subprocess
 
 import pytest
 
@@ -60,3 +61,28 @@ def test_analysis_repository_preparation_requires_both_repositories(monkeypatch,
 
     with pytest.raises(RuntimeError, match="vllm"):
         github_cache.ensure_analysis_repos_ready()
+
+
+def test_github_cache_pull_resets_divergent_cache(monkeypatch, tmp_path):
+    cache = github_cache.GitHubLocalCache(
+        cache_dir=str(tmp_path / "repo"),
+        owner="vllm-project",
+        repo="vllm",
+    )
+    (cache.cache_dir / ".git").mkdir(parents=True)
+    calls = []
+
+    def fake_run(args, **kwargs):
+        calls.append(args)
+        if args[:3] == ["git", "pull", "origin"]:
+            raise subprocess.CalledProcessError(
+                128,
+                args,
+                stderr=b"fatal: Need to specify how to reconcile divergent branches.",
+            )
+        return subprocess.CompletedProcess(args, 0, stdout=b"", stderr=b"")
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+
+    assert cache.pull() is True
+    assert ["git", "reset", "--hard", "origin/main"] in calls
