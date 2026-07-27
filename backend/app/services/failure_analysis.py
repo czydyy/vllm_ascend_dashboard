@@ -997,6 +997,29 @@ class FailureAnalysisService:
         # 预先下载日志并抽取真正被测源码 ref。对矩阵 job，workflow 可能来自 main，
         # 但容器里 checkout 的 vllm-ascend 可能是 releases/vX.Y.Z。
         logs = await self._download_all_logs(job)
+        # Put the primary failure evidence before historical comparisons and
+        # commit diffs. Those sections can be large enough to push a log placed
+        # at the end of the prompt outside the model's effective context.
+        if inline_logs and logs.get("job_log"):
+            try:
+                from pathlib import Path
+
+                log_text = Path(logs["job_log"]).read_text(
+                    encoding="utf-8", errors="replace"
+                )
+                if len(log_text) > 20000:
+                    log_text = "...(truncated)...\n" + log_text[-20000:]
+                lines.append(
+                    "\n### Primary Job failure log (required evidence; read this first):"
+                    f"\n```text\n{log_text}\n```\n"
+                )
+                # The later cache section should list paths instead of adding
+                # the same 20k excerpt a second time.
+                inline_logs = False
+            except OSError as exc:
+                raise RuntimeError(
+                    f"Required Job log could not be read for prompt construction: {exc}"
+                ) from exc
         matrix_target_ref = self._infer_matrix_target_ref_from_job_name(job.job_name)
         tested_ref = self._extract_tested_repo_ref_from_log(logs.get("job_log"))
         tested_branch = tested_ref.get("branch") or matrix_target_ref
