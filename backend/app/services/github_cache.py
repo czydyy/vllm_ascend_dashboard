@@ -252,6 +252,8 @@ class GitHubLocalCache:
         except subprocess.CalledProcessError as e:
             stderr_msg = e.stderr.decode() if e.stderr else str(e)
             logger.error(f"Failed to pull repository: {stderr_msg}")
+            if "divergent branches" in stderr_msg or "need to specify how to reconcile" in stderr_msg.lower():
+                return self._reset_to_origin_main(env)
             # 如果是锁文件问题，尝试清理后重试
             if "lock" in stderr_msg.lower() or "another git process" in stderr_msg.lower():
                 logger.warning("Lock file detected, cleaning up and retrying...")
@@ -292,6 +294,49 @@ class GitHubLocalCache:
             return False
         except Exception as e:
             logger.error(f"Failed to pull repository: {str(e)}")
+            return False
+
+    def _reset_to_origin_main(self, env: dict) -> bool:
+        """Reset a divergent local cache back to origin/main.
+
+        These worktrees are disposable analysis caches. When Git refuses to
+        pull because local and remote main diverged, prefer a deterministic
+        reset over an interactive merge/rebase policy.
+        """
+        try:
+            logger.info("Resetting divergent repository cache: %s", self.cache_dir)
+            subprocess.run(
+                ["git", "fetch", "origin", "main", "--tags", "--force", "--prune"],
+                cwd=str(self.cache_dir),
+                check=True,
+                capture_output=True,
+                timeout=180,
+                env=env,
+            )
+            subprocess.run(
+                ["git", "reset", "--hard", "origin/main"],
+                cwd=str(self.cache_dir),
+                check=True,
+                capture_output=True,
+                timeout=60,
+                env=env,
+            )
+            subprocess.run(
+                ["git", "clean", "-fd"],
+                cwd=str(self.cache_dir),
+                check=True,
+                capture_output=True,
+                timeout=60,
+                env=env,
+            )
+            logger.info("Repository cache reset to origin/main successfully")
+            return True
+        except subprocess.CalledProcessError as e:
+            stderr_msg = e.stderr.decode() if e.stderr else str(e)
+            logger.error("Failed to reset repository cache: %s", stderr_msg[:500])
+            return False
+        except Exception as e:
+            logger.error("Failed to reset repository cache: %s", e)
             return False
 
     def fetch_full_history(self) -> bool:
