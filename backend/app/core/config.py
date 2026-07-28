@@ -94,6 +94,7 @@ class Settings(BaseSettings):
     SUPPORT_MATRIX_MODELS_PATH: str = "docs/source/user_guide/support_matrix/supported_models.md"
     SUPPORT_MATRIX_FEATURES_PATH: str = "docs/source/user_guide/support_matrix/supported_features.md"
     SUPPORT_MATRIX_COMPAT_PATH: str = "docs/source/user_guide/support_matrix/feature_matrix.md"
+    TEST_BOARD_CASE_MATRIX_PATH: str = "app/resources/test-board/e2e_feature_matrix.csv"
 
     # 测试覆盖率同步配置
     COVERAGE_SYNC_INTERVAL_MINUTES: int = Field(60, ge=10)  # ge=10，避免过频

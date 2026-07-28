@@ -5,12 +5,13 @@ import {
 import {
   BugOutlined, CheckCircleOutlined, WarningOutlined, ClockCircleOutlined,
   SyncOutlined, DashboardOutlined, BarChartOutlined, TeamOutlined, ApartmentOutlined, EditOutlined,
-  CodeOutlined, PercentageOutlined,
+  CodeOutlined, PercentageOutlined, TableOutlined,
 } from '@ant-design/icons'
 import { RadarChart, Radar, PolarGrid, PolarAngleAxis, PolarRadiusAxis, ResponsiveContainer } from 'recharts'
 import { useTestOverview, useTestCases, useFlakyCases, useFailureBreakdown, useOwnerMatrix, useModuleHealth, useTriggerSync, useTestSuites, useFilterOptions, useUpdateCase, useTriggerCoverageSync } from '../hooks/useTestBoard'
 import { useCurrentUser } from '../hooks/useCurrentUser'
 import type { TestCaseItem, FlakyCaseDetail, FailureBreakdown, OwnerMatrixItem, ModuleHealthItem, TestSuiteItem } from '../services/testBoard'
+import TestCaseFeatureMatrixTab from '../components/TestCaseFeatureMatrixTab'
 import E2ECoverageTab from '../components/coverage/E2ECoverageTab'
 import PRCoverageTab from '../components/coverage/PRCoverageTab'
 import './TestObservabilityDashboard.css'
@@ -715,6 +716,11 @@ function TestObservabilityDashboard() {
                 </Card>
               </div>
             ),
+          },
+          {
+            key: 'case-matrix',
+            label: <Space><TableOutlined /><span>测试用例</span></Space>,
+            children: <TestCaseFeatureMatrixTab />,
           },
           {
             key: 'e2e_coverage',
