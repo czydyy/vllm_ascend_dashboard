@@ -1,5 +1,8 @@
 # Custom MySQL Configuration for Production
 # Mount this file to: /etc/mysql/conf.d/custom.cnf
+#
+# Phase 0 前：binlog 注释，innodb_flush_log_at_trx_commit=2
+# Phase 0 后：binlog + GTID 开启，sync_binlog=1，innodb_flush_log_at_trx_commit=1
 
 [mysqld]
 # Character Set
@@ -23,21 +26,30 @@ max_heap_table_size = 64M
 # InnoDB Settings
 innodb_buffer_pool_size = 256M
 innodb_log_file_size = 64M
-innodb_flush_log_at_trx_commit = 2
+# Phase 0 改为 1：每次事务提交都刷盘，单机崩溃 RPO=0
+innodb_flush_log_at_trx_commit = 1
 innodb_flush_method = O_DIRECT
-
-# Query Cache (MySQL 5.7, disabled in 8.0)
-# query_cache_type = 1
-# query_cache_size = 32M
 
 # Logging
 slow_query_log = 1
 slow_query_log_file = /var/log/mysql/slow.log
 long_query_time = 2
 
-# Binary Logging (for replication/backup)
-# log_bin = /var/log/mysql/mysql-bin.log
-# server_id = 1
+# ============================================================
+# Binary Logging（Phase 0 开启）
+# ============================================================
+server_id = 1
+log_bin = /var/log/mysql/mysql-bin
+binlog_format = ROW
+sync_binlog = 1
+
+# GTID（Phase 0 开启，简化副本配置和主备切换）
+gtid_mode = ON
+enforce_gtid_consistency = ON
+
+# Binlog 保留与副本提升准备
+binlog_expire_logs_seconds = 604800   # 7 天
+log_replica_updates = ON              # 副本可能被提升为主库
 
 [mysql]
 default-character-set = utf8mb4

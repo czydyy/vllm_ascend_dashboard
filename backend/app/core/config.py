@@ -24,6 +24,11 @@ class Settings(BaseSettings):
     # 数据库配置
     DATABASE_URL: str = "mysql+aiomysql://dashboard:dashboard123@localhost:3306/vllm_dashboard"
 
+    # Phase B 拆分逻辑数据库后的独立 URL（第一阶段指向同一实例）
+    CONTROL_DATABASE_URL: str = ""
+    COLLECTION_DATABASE_URL: str = ""
+    TELEMETRY_DATABASE_URL: str = ""
+
     # JWT 配置
     JWT_SECRET: str
     JWT_ALGORITHM: str = "HS256"

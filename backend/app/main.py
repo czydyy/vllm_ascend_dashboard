@@ -50,6 +50,9 @@ from app.middleware.usage_tracking import UsageTrackingMiddleware
 from app.models import Base
 from app.services.scheduler import get_scheduler, start_scheduler_async, stop_scheduler_async
 
+# Scheduler 是否在 API 进程中启动（Phase A 拆出后设为 False）
+_API_START_SCHEDULER = os.environ.get("API_START_SCHEDULER", "false").lower() == "true"
+
 # 配置日志
 logging.basicConfig(
     level=getattr(logging, settings.LOG_LEVEL.upper(), logging.INFO),
@@ -373,27 +376,28 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.warning("setup_db_logging failed (non-fatal): %s", e)
 
-    # 启动数据同步调度器（含 DB 配置覆盖）
-    try:
-        await start_scheduler_async()
-        scheduler = get_scheduler()
-        logger.info("Scheduler started successfully")
-        logger.info(f"Scheduler running: {scheduler.scheduler.running}")
-        for job in scheduler.scheduler.get_jobs():
-            logger.info(f"Scheduled job: {job.id} - {job.name}, next run: {job.next_run_time}")
-    except Exception as e:
-        logger.error(f"Failed to start scheduler: {e}", exc_info=True)
+    # Phase A: Scheduler 拆出为独立进程后，API 默认不启动 Scheduler。
+    # 设置 API_START_SCHEDULER=true 可在过渡期保持兼容。
+    if _API_START_SCHEDULER:
+        try:
+            await start_scheduler_async()
+            scheduler = get_scheduler()
+            logger.info("Scheduler started (embedded mode)")
+            for job in scheduler.scheduler.get_jobs():
+                logger.info(f"Scheduled job: {job.id} - {job.name}, next run: {job.next_run_time}")
+        except Exception as e:
+            logger.error(f"Failed to start scheduler: {e}", exc_info=True)
 
     yield
 
-    # 关闭时清理资源
     logger.info("Shutting down application...")
 
-    try:
-        await stop_scheduler_async()
-        logger.info("Scheduler stopped successfully")
-    except Exception as e:
-        logger.error(f"Error stopping scheduler: {e}", exc_info=True)
+    if _API_START_SCHEDULER:
+        try:
+            await stop_scheduler_async()
+            logger.info("Scheduler stopped")
+        except Exception as e:
+            logger.error(f"Error stopping scheduler: {e}", exc_info=True)
 
     try:
         await engine.dispose()

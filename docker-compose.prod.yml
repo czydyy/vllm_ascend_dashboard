@@ -108,6 +108,8 @@ services:
     volumes:
       # Persistent MySQL data - survives container restarts
       - mysql_data:/var/lib/mysql
+      # Binlog bind mount（Phase 0：宿主机可直接访问，用于归档和 PITR）
+      - /data/mysql/binlog:/var/log/mysql
       # Optional: custom MySQL configuration
       - ./deploy/config/mysql.cnf:/etc/mysql/conf.d/custom.cnf:ro
       # Optional: initialization scripts
@@ -174,6 +176,59 @@ services:
         reservations:
           cpus: '0.25'
           memory: 128M
+    profiles:
+      - full
+
+  # ── Scheduler（Phase A 拆分后独立运行）──
+  scheduler:
+    image: ${IMAGE_REGISTRY:-ghcr.io/meng}/vllm-dashboard:${VERSION:-latest}
+    container_name: vllm-dashboard-scheduler
+    env_file:
+      - .env.production
+    environment:
+      - DATABASE_URL=mysql+aiomysql://${MYSQL_USER:-dashboard}:${MYSQL_PASSWORD}@mysql:3306/${MYSQL_DATABASE:-vllm_dashboard}
+    command: python -m app.scheduler
+    networks:
+      - dashboard-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import socket; s=socket.socket(); s.connect(('localhost',8000)); s.close()"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 512M
+    profiles:
+      - full
+
+  # ── Collector（Phase A 拆分后独立运行，可多实例）──
+  collector:
+    image: ${IMAGE_REGISTRY:-ghcr.io/meng}/vllm-dashboard:${VERSION:-latest}
+    container_name: vllm-dashboard-collector
+    env_file:
+      - .env.production
+    environment:
+      - DATABASE_URL=mysql+aiomysql://${MYSQL_USER:-dashboard}:${MYSQL_PASSWORD}@mysql:3306/${MYSQL_DATABASE:-vllm_dashboard}
+      - NODE_ID=collector-prod-1
+      - CAPABILITIES=python
+    command: python -m app.collector
+    volumes:
+      - backend_data:/app/data
+    networks:
+      - dashboard-network
+    restart: unless-stopped
+    depends_on:
+      mysql:
+        condition: service_healthy
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 1G
     profiles:
       - full
 
