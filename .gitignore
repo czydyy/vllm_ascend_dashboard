@@ -157,7 +157,18 @@ backend/scripts/match_failures_to_prs.py
 docs/AI-assisted-CI-issue-localization-report.md
 docs/superpowers/specs/2026-07-01-analysis-accuracy-eval.md
 docs/user-manual.md
+docs/架构演进与运维方案.md
 screenshots/
+
+# Binary docs & spreadsheets (analysis artifacts)
+*.docx
+*.xlsx
+
+# Temp case docs
+.tmp_case_doc/
+
+# Dashboard agent analysis exports
+看板Agent*.md
 
 # Agent temp / output files
 backend/eval_result.xlsx
@@ -171,6 +182,9 @@ summary_response.json
 
 # Temp monitoring / one-off scripts
 tmp_*.py
+.tmp_sheet_tool/
+trigger_analysis.sh
+docs/架构改进.md
 
 # Local verification / debug scripts
 backend/scripts/trigger_failure_analysis.py
