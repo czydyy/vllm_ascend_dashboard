@@ -181,7 +181,9 @@ services:
 
   # ── Scheduler（Phase A 拆分后独立运行）──
   scheduler:
-    image: ${IMAGE_REGISTRY:-ghcr.io/meng}/vllm-dashboard:${VERSION:-latest}
+    build:
+      context: ./backend
+      dockerfile: Dockerfile.prod
     container_name: vllm-dashboard-scheduler
     env_file:
       - .env.production
@@ -207,7 +209,9 @@ services:
 
   # ── Collector（Phase A 拆分后独立运行，可多实例）──
   collector:
-    image: ${IMAGE_REGISTRY:-ghcr.io/meng}/vllm-dashboard:${VERSION:-latest}
+    build:
+      context: ./backend
+      dockerfile: Dockerfile.prod
     container_name: vllm-dashboard-collector
     env_file:
       - .env.production
