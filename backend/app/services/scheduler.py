@@ -569,6 +569,26 @@ class DataSyncScheduler:
         if not self.github_client:
             self._initialize_github_client()
 
+        # Step 3: 创建 collection_tasks 记录（进度持久化）
+        from datetime import UTC
+        dedupe_key = f"ci_sync:scheduled:{datetime.now(UTC).strftime('%Y-%m-%dT%H:00')}"
+        task_id = None
+        db_session = SessionLocal()
+
+        try:
+            from app.services.task_manager import TaskManager
+            async with db_session as db:
+                task_id = await TaskManager.create_task(
+                    db, "ci_sync",
+                    {"days_back": settings.CI_SYNC_DAYS_BACK, "max_runs": settings.CI_SYNC_MAX_RUNS_PER_WORKFLOW},
+                    dedupe_key,
+                )
+                if task_id:
+                    await TaskManager.start_task(db, task_id, "scheduler")
+                    await db.commit()
+        except Exception as e:
+            logger.warning("Failed to create collection_task record (non-fatal): %s", e)
+
         async with SessionLocal() as db:
             try:
                 collector = CICollector(
@@ -629,11 +649,29 @@ class DataSyncScheduler:
                 logger.info(f"CI DATA SYNC JOB COMPLETED - Collected {collected} runs")
                 logger.info("=" * 60)
 
+                # Step 3: 标记任务完成
+                if task_id:
+                    try:
+                        from app.services.task_manager import TaskManager
+                        async with SessionLocal() as td:
+                            await TaskManager.complete_task(td, task_id)
+                            await td.commit()
+                    except Exception as te:
+                        logger.warning("Failed to complete collection_task (non-fatal): %s", te)
+
             except Exception as e:
                 logger.error("=" * 60)
                 logger.error(f"CI DATA SYNC JOB FAILED - Error: {e}", exc_info=True)
                 logger.error("=" * 60)
-                # async with 会自动 rollback 和 close
+                # 标记任务失败
+                if task_id:
+                    try:
+                        from app.services.task_manager import TaskManager
+                        async with SessionLocal() as td:
+                            await TaskManager.fail_task(td, task_id, str(e)[:500])
+                            await td.commit()
+                    except Exception as te:
+                        logger.warning("Failed to fail collection_task (non-fatal): %s", te)
                 raise
 
     async def _sync_pr_pipeline_job(self) -> None:
