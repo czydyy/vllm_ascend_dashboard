@@ -5,6 +5,12 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
+# 自动加载 .env.production 中的 MYSQL_ROOT_PASSWORD 等
+if [[ -f "$PROJECT_ROOT/.env.production" ]]; then
+    set -a
+    source "$PROJECT_ROOT/.env.production"
+    set +a
+fi
 BACKUP_DIR="${DASHBOARD_BACKUP_DIR:-$PROJECT_ROOT/backups}"
 MYSQL_CONTAINER="${DASHBOARD_MYSQL_CONTAINER:-vllm-dashboard-mysql}"
 RETENTION_DAYS=30
@@ -45,8 +51,9 @@ done
 
 # 如果三个逻辑库都不存在，回退到 MySQL 容器的默认数据库
 if [[ -z "${EXISTING_DBS// /}" ]]; then
-    default_db="$(docker exec "$MYSQL_CONTAINER" sh -c 'printf %s "${MYSQL_DATABASE:-}"')"
-    if [[ -n "$default_db" ]] && mysql_root_exec "SELECT 1 FROM information_schema.SCHEMATA WHERE SCHEMA_NAME='$default_db'" 2>/dev/null | grep -q 1; then
+    # 回退到 vllm_dashboard（Phase 0 拆分前单库名）
+    default_db="vllm_dashboard"
+    if mysql_root_exec "SELECT 1 FROM information_schema.SCHEMATA WHERE SCHEMA_NAME='$default_db'" 2>/dev/null | grep -q 1; then
         EXISTING_DBS="$default_db"
     fi
 fi
@@ -61,7 +68,7 @@ backup_file="$BACKUP_DIR/vllm_dashboard_${timestamp}.sql"
 metadata_file="$backup_file.meta"
 
 # 记录备份前状态
-pre_users="$(mysql_root_exec "SELECT COUNT(*) FROM users" 2>/dev/null || echo 0)"
+pre_users="$(mysql_root_exec "SELECT COUNT(*) FROM vllm_dashboard.users" 2>/dev/null || echo 0)"
 pre_tables_total=0
 for db in $EXISTING_DBS; do
     count="$(mysql_root_exec "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema='$db'" 2>/dev/null || echo 0)"
@@ -114,8 +121,10 @@ if $VERIFY_RESTORE; then
 
     docker exec "$MYSQL_CONTAINER" sh -c \
         'exec mysql -uroot -p"$MYSQL_ROOT_PASSWORD" -e "CREATE DATABASE \`$1\` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci"' sh "$verify_db"
+    # 去掉 GTID_PURGED 语句（verify 用独立临时库，不需要 GTID）
+    sed '/^SET @@GLOBAL.GTID_PURGED=/d' "$backup_file" | \
     docker exec -i "$MYSQL_CONTAINER" sh -c \
-        'exec mysql -uroot -p"$MYSQL_ROOT_PASSWORD" "$1"' sh "$verify_db" < "$backup_file"
+        'exec mysql -uroot -p"$MYSQL_ROOT_PASSWORD" "$1"' sh "$verify_db"
 
     # 验证用户数和表数
     backup_users=0

@@ -46,7 +46,7 @@ services:
       - .env.production
     environment:
       # Database connection (MySQL)
-      - DATABASE_URL=mysql+aiomysql://${MYSQL_USER:-dashboard}:${MYSQL_PASSWORD}@mysql:3306/${MYSQL_DATABASE:-vllm_dashboard}
+      - DATABASE_URL=mysql+aiomysql://${CONTROL_DB_USER:-control_svc}:${CONTROL_DB_PASSWORD}@mysql:3306/${MYSQL_DATABASE:-vllm_dashboard}
       # LiteLLM gateway
       - LITELLM_PROXY_URL=http://litellm:4000
       - LITELLM_MASTER_KEY=${LITELLM_MASTER_KEY:-sk-litellm-master-key-change-me}
@@ -186,7 +186,7 @@ services:
     env_file:
       - .env.production
     environment:
-      - DATABASE_URL=mysql+aiomysql://${MYSQL_USER:-dashboard}:${MYSQL_PASSWORD}@mysql:3306/${MYSQL_DATABASE:-vllm_dashboard}
+      - DATABASE_URL=mysql+aiomysql://${SCHEDULER_DB_USER:-scheduler_svc}:${SCHEDULER_DB_PASSWORD}@mysql:3306/${MYSQL_DATABASE:-vllm_dashboard}
     command: python -m app.scheduler
     networks:
       - dashboard-network
@@ -212,7 +212,7 @@ services:
     env_file:
       - .env.production
     environment:
-      - DATABASE_URL=mysql+aiomysql://${MYSQL_USER:-dashboard}:${MYSQL_PASSWORD}@mysql:3306/${MYSQL_DATABASE:-vllm_dashboard}
+      - DATABASE_URL=mysql+aiomysql://${COLLECTOR_DB_USER:-collector_svc}:${COLLECTOR_DB_PASSWORD}@mysql:3306/${MYSQL_DATABASE:-vllm_dashboard}
       - NODE_ID=collector-prod-1
       - CAPABILITIES=python
     command: python -m app.collector
