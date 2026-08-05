@@ -2,8 +2,8 @@
 Collector 独立进程入口。
 通过 `python -m app.collector` 启动。
 
-读取 NODE_ID 和 CAPABILITIES 环境变量，使用 CollectorWorker 基类
-对接现有 CICollector、PerformanceCollector 等具体采集逻辑。
+读取 NODE_ID 和 CAPABILITIES 环境变量，通过 FOR UPDATE SKIP LOCKED
+竞争领取 collection_tasks 中的任务并执行。
 """
 from __future__ import annotations
 
@@ -37,8 +37,6 @@ async def main():
         capabilities=capabilities,
         db_session_factory=SessionLocal,
     )
-
-    # 委托给 CollectorRunner 执行具体采集逻辑
     runner = CollectorRunner(worker)
     await runner.run()
 

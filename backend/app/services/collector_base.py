@@ -32,10 +32,14 @@ class CollectorWorker:
     采集 Worker 基类。
 
     用法：
+        async def my_executor(ctx: TaskContext, renew_fn):
+            ...  # 执行具体采集逻辑
+
         worker = CollectorWorker(
             node_id="collector-prod-1",
             capabilities=["python"],
             db_session_factory=SessionLocal,
+            task_executor=my_executor,
         )
         await worker.run()
     """
@@ -45,6 +49,7 @@ class CollectorWorker:
         node_id: str,
         capabilities: list[str],
         db_session_factory,
+        task_executor=None,
         max_concurrent: int = 3,
         lease_ttl: int = 60,
         renew_interval: int = 20,
@@ -54,6 +59,7 @@ class CollectorWorker:
         self.node_id = node_id
         self.capabilities = capabilities
         self._session_factory = db_session_factory
+        self._task_executor = task_executor or self._execute_with_lease
         self._max_concurrent = max_concurrent
         self._lease_ttl = lease_ttl
         self._renew_interval = renew_interval
@@ -67,6 +73,11 @@ class CollectorWorker:
 
     # ── 公共 API ──
 
+    async def run_with_executor(self, executor):
+        """使用自定义 executor 启动。"""
+        self._task_executor = executor
+        await self.run()
+
     async def run(self):
         """主循环：领取任务 → 执行 → 续约，直到收到 SIGTERM 后优雅退出。"""
         self._setup_signal_handlers()
@@ -77,7 +88,7 @@ class CollectorWorker:
             await self._semaphore.acquire()
             task_ctx = await self._claim_task()
             if task_ctx:
-                future = asyncio.ensure_future(self._execute_with_lease(task_ctx))
+                future = asyncio.ensure_future(self._task_executor(task_ctx, self._renew_lease))
                 self._futures[task_ctx.task_id] = future
                 self._task_contexts[task_ctx.task_id] = task_ctx
                 future.add_done_callback(
