@@ -46,7 +46,15 @@ import {
   getClusterSummary,
 } from '../services/resourceDashboard'
 import { useNpuMetrics, useNodeMetrics } from '../hooks/useResourceMetrics'
-import type { NpuMetricPoint, TopPodInfo, NodeMetricPoint } from '../services/resourceMetrics'
+import type {
+  ClusterNodeMetrics,
+  ClusterNpuMetrics,
+  NodeMetricPoint,
+  NodeMetricsResponse,
+  NpuMetricPoint,
+  NpuMetricsResponse,
+  TopPodInfo,
+} from '../services/resourceMetrics'
 
 const { Title, Text } = Typography
 
@@ -374,6 +382,111 @@ function buildNodeChartData(nodes: { node_name: string; metrics: NodeMetricPoint
   return Array.from(timeMap.values()).sort((a, b) => String(a.collected_at).localeCompare(String(b.collected_at)))
 }
 
+/**
+ * The trend API returns one series per Kubernetes cluster.  A3-560T is a
+ * separate cluster for collection purposes, but it belongs to the A3 pool in
+ * the dashboard.  Keep the API response untouched and aggregate the two
+ * series only for this view.
+ */
+function mergeNpuTrendClusters(data: NpuMetricsResponse | undefined): NpuMetricsResponse | undefined {
+  if (!data) return undefined
+
+  const groups = new Map<string, { isA3: boolean; clusters: ClusterNpuMetrics[] }>()
+  for (const cluster of data.clusters) {
+    const isA3 = isA3CardCluster(cluster.cluster_name)
+    const key = isA3 ? 'hardware:A3' : `cluster:${cluster.cluster_id}`
+    const group = groups.get(key)
+    if (group) {
+      group.clusters.push(cluster)
+    } else {
+      groups.set(key, { isA3, clusters: [cluster] })
+    }
+  }
+
+  return {
+    clusters: Array.from(groups.values()).map(({ isA3, clusters }) => {
+      const first = isA3
+        ? clusters.find(cluster => inferHardwareLabel(cluster.cluster_name) === 'A3') ?? clusters[0]
+        : clusters[0]
+      if (!isA3) return first
+
+      const pointMap = new Map<string, NpuMetricPoint>()
+      for (const cluster of clusters) {
+        for (const point of cluster.metrics) {
+          const existing = pointMap.get(point.collected_at)
+          if (existing) {
+            existing.npu_total += point.npu_total
+            existing.npu_used += point.npu_used
+            existing.npu_available += point.npu_available
+            existing.executing_pods_count += point.executing_pods_count
+            existing.pr_count += point.pr_count
+            existing.top_pods = existing.top_pods.concat(point.top_pods)
+          } else {
+            pointMap.set(point.collected_at, {
+              ...point,
+              top_pods: [...point.top_pods],
+            })
+          }
+        }
+      }
+
+      const metrics = Array.from(pointMap.values())
+        .sort((left, right) => left.collected_at.localeCompare(right.collected_at))
+        .map(point => ({
+          ...point,
+          // A simple average would make a small pool count as much as the
+          // larger pool.  Calculate the utilization from the merged totals.
+          npu_utilization: point.npu_total > 0 ? (point.npu_used / point.npu_total) * 100 : 0,
+          top_pods: point.top_pods
+            .slice()
+            .sort((left, right) => right.npu - left.npu)
+            .slice(0, 5),
+        }))
+
+      return {
+        cluster_id: first.cluster_id,
+        cluster_name: 'A3',
+        metrics,
+      }
+    }),
+  }
+}
+
+function mergeNodeTrendClusters(data: NodeMetricsResponse | undefined): NodeMetricsResponse | undefined {
+  if (!data) return undefined
+
+  const groups = new Map<string, { isA3: boolean; clusters: ClusterNodeMetrics[] }>()
+  for (const cluster of data.clusters) {
+    const isA3 = isA3CardCluster(cluster.cluster_name)
+    const key = isA3 ? 'hardware:A3' : `cluster:${cluster.cluster_id}`
+    const group = groups.get(key)
+    if (group) {
+      group.clusters.push(cluster)
+    } else {
+      groups.set(key, { isA3, clusters: [cluster] })
+    }
+  }
+
+  return {
+    clusters: Array.from(groups.values()).map(({ isA3, clusters }) => {
+      const first = isA3
+        ? clusters.find(cluster => inferHardwareLabel(cluster.cluster_name) === 'A3') ?? clusters[0]
+        : clusters[0]
+      const prefixNodes = isA3 && clusters.length > 1
+      return {
+        cluster_id: first.cluster_id,
+        cluster_name: isA3 ? 'A3' : first.cluster_name,
+        nodes: clusters.flatMap(cluster => cluster.nodes.map(node => ({
+          ...node,
+          // Node names are only unique within one cluster.  Prefix the source
+          // pool when A3 and A3-560T are displayed together.
+          node_name: prefixNodes ? `${cluster.cluster_name}/${node.node_name}` : node.node_name,
+        }))),
+      }
+    }),
+  }
+}
+
 function NodeTrendTooltipContent({ active, payload, label }: any) {
   if (!active || !payload || payload.length === 0) return null
   return (
@@ -478,9 +591,12 @@ function NpuTrendTab() {
     time_range: timeRange,
   })
 
+  const trendMetricsData = useMemo(() => mergeNpuTrendClusters(metricsData), [metricsData])
+  const trendNodeMetricsData = useMemo(() => mergeNodeTrendClusters(nodeMetricsData), [nodeMetricsData])
+
   const summaryRows = useMemo<NodeSummaryRow[]>(() => {
     const rows: NodeSummaryRow[] = []
-    for (const cluster of nodeMetricsData?.clusters || []) {
+    for (const cluster of trendNodeMetricsData?.clusters || []) {
       for (const node of cluster.nodes) {
         if (selectedNodes.length && !selectedNodes.includes(node.node_name)) continue
         const utils = node.metrics.map(m => m.npu_utilization)
@@ -500,7 +616,7 @@ function NpuTrendTab() {
     }
     return rows.sort((a, b) =>
       a.cluster_name.localeCompare(b.cluster_name) || a.node_name.localeCompare(b.node_name))
-  }, [nodeMetricsData, selectedNodes])
+  }, [trendNodeMetricsData, selectedNodes])
 
   const clusterSummaries = useMemo<ClusterSummary[]>(() => {
     const map = new Map<number, ClusterSummary & { nodeAvgs: number[] }>()
@@ -538,12 +654,12 @@ function NpuTrendTab() {
     return result
   }, [summaryRows])
 
-  const hasNodeData = (nodeMetricsData?.clusters || []).some(c => c.nodes.length > 0)
+  const hasNodeData = (trendNodeMetricsData?.clusters || []).some(c => c.nodes.length > 0)
 
   const chartData = useMemo(() => {
-    if (!metricsData?.clusters) return []
+    if (!trendMetricsData?.clusters) return []
     const allPoints: any[] = []
-    for (const cluster of metricsData.clusters) {
+    for (const cluster of trendMetricsData.clusters) {
       for (const point of cluster.metrics) {
         allPoints.push({
           collected_at: point.collected_at,
@@ -566,7 +682,7 @@ function NpuTrendTab() {
       Object.assign(existing, point)
     }
     return Array.from(timeMap.values()).sort((a, b) => a.collected_at.localeCompare(b.collected_at))
-  }, [metricsData, timeRange])
+  }, [trendMetricsData, timeRange])
 
   if (metricsLoading && !metricsData) {
     return (
@@ -670,7 +786,7 @@ function NpuTrendTab() {
         </Row>
       )}
 
-      {metricsData?.clusters && metricsData.clusters.length > 0 ? (
+      {trendMetricsData?.clusters && trendMetricsData.clusters.length > 0 ? (
         <Card title="NPU 利用率趋势">
           <ResponsiveContainer width="100%" height={320}>
             <LineChart data={chartData}>
@@ -689,7 +805,7 @@ function NpuTrendTab() {
               />
               <Tooltip content={<NpuTrendTooltipContent />} />
               <Legend formatter={renderLegend} />
-              {metricsData.clusters.map((cluster, index) => (
+              {trendMetricsData.clusters.map((cluster, index) => (
                 <Line
                   key={cluster.cluster_id}
                   type="monotone"
@@ -713,7 +829,7 @@ function NpuTrendTab() {
         </Card>
       )}
 
-      {metricsData?.clusters && metricsData.clusters.length > 0 && (
+      {trendMetricsData?.clusters && trendMetricsData.clusters.length > 0 && (
         <Card title="Pod / PR 数量趋势">
           <ResponsiveContainer width="100%" height={320}>
             <LineChart data={chartData}>
@@ -730,7 +846,7 @@ function NpuTrendTab() {
               />
               <Tooltip />
               <Legend formatter={renderLegend} />
-              {metricsData.clusters.map((cluster, index) => (
+              {trendMetricsData.clusters.map((cluster, index) => (
                 <Line
                   key={`pods-${cluster.cluster_id}`}
                   type="monotone"
@@ -743,7 +859,7 @@ function NpuTrendTab() {
                   hide={hiddenLines.has(`executing_pods_count_${cluster.cluster_id}`)}
                 />
               ))}
-              {metricsData.clusters.map((cluster, index) => (
+              {trendMetricsData.clusters.map((cluster, index) => (
                 <Line
                   key={`pr-${cluster.cluster_id}`}
                   type="monotone"
@@ -764,7 +880,7 @@ function NpuTrendTab() {
 
       {hasNodeData ? (
         <>
-          {nodeMetricsData?.clusters?.map(cluster => {
+          {trendNodeMetricsData?.clusters?.map(cluster => {
             const visibleNodes = selectedNodes.length
               ? cluster.nodes.filter(n => selectedNodes.includes(n.node_name))
               : cluster.nodes
