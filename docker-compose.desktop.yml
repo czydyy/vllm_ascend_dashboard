@@ -9,7 +9,7 @@ services:
     env_file:
       - .env
     environment:
-      DATABASE_URL: sqlite+aiosqlite:////app/data/app.db
+      DATABASE_URL: mysql+aiomysql://dashboard:dashboard123@mysql-replica:3306/vllm_dashboard
       ENVIRONMENT: production
       DEBUG: "false"
       LITELLM_PROXY_URL: http://vllm-litellm-dev:4000

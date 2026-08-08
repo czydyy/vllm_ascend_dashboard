@@ -79,15 +79,8 @@ docker compose -f docker-compose.prod.yml --env-file .env.production --profile f
 # 使用脚本备份（推荐）
 ./deploy.sh backup
 
-# 手动备份 SQLite 数据库
-docker cp vllm-dashboard-backend:/app/data/app.db ./backup/app.db.$(date +%Y%m%d)
-
 # 手动备份 MySQL 数据库
 docker exec vllm-dashboard-mysql mysqldump -u root -p${MYSQL_ROOT_PASSWORD} vllm_dashboard > backup/db.$(date +%Y%m%d).sql
-
-# 恢复 SQLite 数据库
-docker cp ./backup/app.db vllm-dashboard-backend:/app/data/app.db
-docker compose -f docker-compose.prod.yml --env-file .env.production restart backend
 
 # 恢复 MySQL 数据库
 docker exec -i vllm-dashboard-mysql mysql -u root -p${MYSQL_ROOT_PASSWORD} vllm_dashboard < backup/db.sql
@@ -97,7 +90,7 @@ docker exec -i vllm-dashboard-mysql mysql -u root -p${MYSQL_ROOT_PASSWORD} vllm_
 
 所有数据存储在 Docker 命名卷中，容器重启不会丢失：
 
-- `backend_data`: SQLite 数据库和应用数据
+- `backend_data`: 应用数据
 - `backend_logs`: 应用日志
 - `mysql_data`: MySQL 数据库文件
 
