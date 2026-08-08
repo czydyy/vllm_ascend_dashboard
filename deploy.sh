@@ -336,7 +336,7 @@ backup_data() {
         fi
     fi
 
-    # Backup backend data (SQLite, if used)
+    # Backup backend data
     if docker ps --format '{{.Names}}' | grep -q "$BACKEND_CONTAINER"; then
         log_info "Backing up backend data..."
         local temp_file="/tmp/backend_backup_$timestamp.tar.gz"

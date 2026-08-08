@@ -70,27 +70,27 @@ logger = logging.getLogger(__name__)
 
 async def init_db():
     """初始化数据库表"""
+    # 尝试建表；若库中已有完整 schema（如 Phase B 视图），则跳过
     try:
         async with engine.begin() as conn:
             await conn.run_sync(Base.metadata.create_all, checkfirst=True)
         logger.info("Database tables created successfully")
-
-        # 列级迁移：test_cases 新增 auto_issues_found 等字段（本 PR 范围）
-        await _migrate_test_case_columns()
-
-        # 初始化 LLM 提供商默认配置
-        await _init_llm_provider_configs()
-
-        # 同步 provider 配置到 LiteLLM 网关（生产环境）
-        await _sync_litellm_providers()
-
-        # Claude Code CLI 预热检查 —— 后台执行，不阻塞启动
-
-        # 清理启动前遗留的僵尸分析记录（>1h 还在 analyzing 的标记为 failed）
-        await _cleanup_stale_analyses()
     except Exception as e:
-        logger.error(f"Failed to create database tables: {e}", exc_info=True)
-        raise
+        logger.warning("Table creation skipped (DB may already have schema): %s", e)
+
+    # 列级迁移：test_cases 新增 auto_issues_found 等字段（本 PR 范围）
+    await _migrate_test_case_columns()
+
+    # 初始化 LLM 提供商默认配置
+    await _init_llm_provider_configs()
+
+    # 同步 provider 配置到 LiteLLM 网关（生产环境）
+    await _sync_litellm_providers()
+
+    # Claude Code CLI 预热检查 —— 后台执行，不阻塞启动
+
+    # 清理启动前遗留的僵尸分析记录（>1h 还在 analyzing 的标记为 failed）
+    await _cleanup_stale_analyses()
 
 
 async def _migrate_test_case_columns():
@@ -102,38 +102,31 @@ async def _migrate_test_case_columns():
         from sqlalchemy import text
         from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-        _is_sqlite = "sqlite" in str(engine.url)
-
         async_session = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
         async with async_session() as db:
             def _get_columns(sync_session):
-                if _is_sqlite:
-                    rows = sync_session.execute(text("PRAGMA table_info(test_cases)")).fetchall()
-                    return [r[1] for r in rows]
-                else:
-                    rows = sync_session.execute(text(
-                        "SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS "
-                        "WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'test_cases'"
-                    )).fetchall()
-                    return [r[0] for r in rows]
+                rows = sync_session.execute(text(
+                    "SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS "
+                    "WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'test_cases'"
+                )).fetchall()
+                return [r[0] for r in rows]
             existing_cols = await db.run_sync(_get_columns)
 
-            # (column_name, sqlite_type, mysql_type)
+            # (column_name, mysql_type)
             new_columns = [
-                ("lifetime_runs", "INTEGER DEFAULT 0", "INT DEFAULT 0"),
-                ("lifetime_failures", "INTEGER DEFAULT 0", "INT DEFAULT 0"),
-                ("issues_found", "INTEGER DEFAULT 0", "INT DEFAULT 0"),
-                ("suspected_test_issue_count", "INTEGER DEFAULT 0", "INT DEFAULT 0"),
-                ("is_flaky_manual", "BOOLEAN DEFAULT 0", "BOOLEAN DEFAULT FALSE"),
-                ("auto_issues_found", "INTEGER DEFAULT 0", "INT DEFAULT 0"),
-                ("auto_suspected_test_issue_count", "INTEGER DEFAULT 0", "INT DEFAULT 0"),
-                ("issues_found_override", "BOOLEAN DEFAULT 0", "BOOLEAN DEFAULT FALSE"),
+                ("lifetime_runs", "INT DEFAULT 0"),
+                ("lifetime_failures", "INT DEFAULT 0"),
+                ("issues_found", "INT DEFAULT 0"),
+                ("suspected_test_issue_count", "INT DEFAULT 0"),
+                ("is_flaky_manual", "BOOLEAN DEFAULT FALSE"),
+                ("auto_issues_found", "INT DEFAULT 0"),
+                ("auto_suspected_test_issue_count", "INT DEFAULT 0"),
+                ("issues_found_override", "BOOLEAN DEFAULT FALSE"),
             ]
 
             added = []
-            for col_name, sqlite_def, mysql_def in new_columns:
+            for col_name, col_type in new_columns:
                 if col_name not in existing_cols:
-                    col_type = sqlite_def if _is_sqlite else mysql_def
                     logger.info("Adding missing column '%s' to test_cases", col_name)
                     await db.execute(text(f"ALTER TABLE test_cases ADD COLUMN {col_name} {col_type}"))
                     added.append(col_name)
@@ -162,21 +155,15 @@ async def _migrate_test_case_columns():
             # 为 is_flaky_manual 创建索引（MySQL < 8.0.29 不支持 IF NOT EXISTS，先查再建）
             if "is_flaky_manual" in added:
                 try:
-                    if _is_sqlite:
+                    idx_exists = (await db.execute(text(
+                        "SELECT COUNT(*) FROM INFORMATION_SCHEMA.STATISTICS "
+                        "WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'test_cases' "
+                        "AND INDEX_NAME = 'ix_test_cases_is_flaky_manual'"
+                    ))).scalar()
+                    if not idx_exists:
                         await db.execute(text(
-                            "CREATE INDEX IF NOT EXISTS ix_test_cases_is_flaky_manual "
-                            "ON test_cases (is_flaky_manual)"
+                            "CREATE INDEX ix_test_cases_is_flaky_manual ON test_cases (is_flaky_manual)"
                         ))
-                    else:
-                        idx_exists = (await db.execute(text(
-                            "SELECT COUNT(*) FROM INFORMATION_SCHEMA.STATISTICS "
-                            "WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'test_cases' "
-                            "AND INDEX_NAME = 'ix_test_cases_is_flaky_manual'"
-                        ))).scalar()
-                        if not idx_exists:
-                            await db.execute(text(
-                                "CREATE INDEX ix_test_cases_is_flaky_manual ON test_cases (is_flaky_manual)"
-                            ))
                     await db.commit()
                 except Exception as idx_err:
                     logger.warning("is_flaky_manual index creation skipped (non-fatal): %s", idx_err)

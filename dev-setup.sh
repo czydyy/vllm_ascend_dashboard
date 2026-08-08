@@ -37,7 +37,7 @@ if [ ! -f .env ]; then
 GITHUB_TOKEN=${GITHUB_TOKEN}
 GITHUB_OWNER=vllm-project
 GITHUB_REPO=vllm-ascend
-DATABASE_URL=sqlite+aiosqlite:///./app.db
+DATABASE_URL=mysql+aiomysql://dashboard:dashboard123@127.0.0.1:3308/vllm_dashboard
 JWT_SECRET=local-dev-jwt-secret-123
 ENVIRONMENT=development
 DEBUG=true
@@ -81,7 +81,7 @@ docker run -d --name vllm-backend-dev \
   -p 8000:8000 \
   -v vllm_backend_data:/app/data \
   --env-file .env \
-  -e DATABASE_URL=sqlite+aiosqlite:////app/data/app.db \
+  --network vllm-dev-net \
   --entrypoint "" \
   vllm-dashboard-backend \
   /opt/venv/bin/uvicorn app.main:app --host 0.0.0.0 --port 8000
@@ -92,27 +92,16 @@ log "后端启动完成: http://localhost:8000"
 
 # ── 4. 创建管理员 ──
 echo ""
-echo "--- 创建管理员账号 ---"
-docker exec vllm-backend-dev python3 -c "
-import sqlite3, os, sys
-sys.path.insert(0, '/app')
-os.environ['GITHUB_TOKEN'] = 'init'
-os.environ['JWT_SECRET'] = 'init-init-init-init-init-init-init-init'
-os.environ['DATABASE_URL'] = 'sqlite+aiosqlite:////app/data/app.db'
-from app.core.security import hash_password
-conn = sqlite3.connect('/app/data/app.db')
-try:
-    conn.execute('SELECT 1 FROM users WHERE username=?', ('admin',)).fetchone()
-except:
-    conn.execute('CREATE TABLE IF NOT EXISTS users (id INTEGER PRIMARY KEY, username TEXT, password_hash TEXT, email TEXT, role TEXT, is_active INTEGER, created_at TEXT)')
-hashed = hash_password('admin123')
-conn.execute('INSERT OR IGNORE INTO users (username, password_hash, email, role, is_active, created_at) VALUES (?,?,?,?,?,datetime(\"now\"))',
-    ('admin', hashed, 'admin@local.dev', 'super_admin', 1))
-conn.commit()
-conn.close()
-print('admin / admin123')
-"
-log "管理员: admin / admin123"
+echo "--- 创建管理员账号（通过 API） ---"
+sleep 2
+ADMIN_RESPONSE=$(curl -s -X POST http://localhost:8000/api/v1/auth/register \
+  -H "Content-Type: application/json" \
+  -d '{"username":"admin","password":"admin123","email":"admin@local.dev"}')
+if echo "$ADMIN_RESPONSE" | grep -q "success\|created\|已存在\|exists\|already"; then
+    log "管理员: admin / admin123"
+else
+    warn "管理员创建可能失败（如已存在则忽略）: $ADMIN_RESPONSE"
+fi
 
 # ── 5. 安装前端依赖 ──
 echo ""
