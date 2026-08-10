@@ -58,7 +58,6 @@ def is_coverage_syncing() -> bool:
     return lock is not None and lock.locked()
 
 # 保留后台 Task 引用防止被 GC 回收（Python 官方警告）
-_bg_tasks: set[asyncio.Task] = set()
 
 # chompjs 可选（C 扩展在部分平台 DLL 加载失败，回退到字符串感知平衡括号计数）
 try:
@@ -1011,13 +1010,14 @@ async def sync_all_coverage(db: AsyncSession, source: str = "all") -> dict:
                                       "status": existing_lines.get("status")}
             else:
                 # 后台执行（独立 session + 自管 tar 清理），不阻塞本 job 返回
-                task = asyncio.create_task(_pr_lines_bg(tar_path, tar_sig, covdata_when))
-                _bg_tasks.add(task)
-                task.add_done_callback(_bg_tasks.discard)
+                result_lines = await sync_pr_lines(db, tar_path, tar_sig, covdata_when)
                 # breadth 下载的 tar 交给 bg 任务清理，此处不删除
                 tar_path = None
-                status["pr_lines"] = {"success": True, "status": "scheduled",
-                                      "tar_signature": tar_sig}
+                status["pr_lines"] = {
+                    "success": True,
+                    "status": result_lines.get("status", "ok"),
+                    "tar_signature": tar_sig,
+                }
 
         await _save_sync_status(db, status)
         await db.commit()
