@@ -408,102 +408,64 @@ async def get_ci_trends(
 @router.post("/sync", response_model=CISyncResponse)
 async def trigger_sync(
     current_user: CurrentSuperAdminUser,
-    days_back: int = Query(default=7, ge=1, le=90, description="从多少天前开始采集"),
-    max_runs_per_workflow: int = Query(default=100, ge=1, le=1000, description="每个 workflow 最多采集多少条记录"),
-    force_full_refresh: bool = Query(default=False, description="是否强制全量覆盖刷新"),
+    days_back: int = Query(default=7, ge=1, le=90),
+    max_runs_per_workflow: int = Query(default=100, ge=1, le=1000),
+    force_full_refresh: bool = Query(default=False),
 ):
-    """
-    手动触发数据同步（异步执行，立即返回）
+    """Enqueue a durable CI sync task for a Collector worker."""
+    from uuid import uuid4
 
-    需要超级管理员权限（super_admin）
+    from app.db.base import SessionLocal
+    from app.services.task_manager import TaskManager
 
-    Args:
-        days_back: 从多少天前开始采集（默认 7 天，最多 90 天）
-        max_runs_per_workflow: 每个 workflow 最多采集多少条记录（默认 100，最多 1000）
-        force_full_refresh: 是否强制全量覆盖刷新（默认 False，增量刷新）
-    """
-    try:
-        # 重置并初始化进度跟踪器
-        from app.services.sync_progress import get_sync_progress, reset_sync_progress
-        reset_sync_progress()
-
-        # 预先获取 workflow 数量并初始化进度
-        from sqlalchemy import select
-
-        from app.db.base import SessionLocal
-        from app.models import WorkflowConfig
-        
-        # 使用 async with 正确管理异步会话
-        async with SessionLocal() as db:
-            stmt = select(WorkflowConfig).where(WorkflowConfig.enabled == True)
-            result = await db.execute(stmt)
-            workflow_configs = result.scalars().all()
-            progress = get_sync_progress()
-            progress.total_workflows = len(workflow_configs)
-            progress.start()  # 开始同步状态
-
-        # 在后台异步执行同步任务
-        import asyncio
-        async def run_sync():
-            try:
-                scheduler = get_scheduler()
-                await scheduler.trigger_manual_sync(
-                    sync_type="ci",
-                    days_back=days_back,
-                    max_runs_per_workflow=max_runs_per_workflow,
-                    force_full_refresh=force_full_refresh,
-                )
-            except Exception as e:
-                logger.error(f"Background sync failed: {e}")
-                progress = get_sync_progress()
-                progress.fail(str(e))
-
-        # 启动后台任务（不等待）
-        asyncio.create_task(run_sync())
-
-        # 立即返回，让前端开始轮询进度
-        return CISyncResponse(
-            success=True,
-            message="Sync started, check progress via /ci/sync/progress",
-            collected_count=0,
+    async with SessionLocal() as db:
+        task_id = await TaskManager.create_task(
+            db,
+            "ci_sync",
+            {
+                "days_back": days_back,
+                "max_runs": max_runs_per_workflow,
+                "force_full_refresh": force_full_refresh,
+            },
+            f"ci_sync:manual:{uuid4()}",
+            required_capability="python",
+            priority=10,
         )
+        await db.commit()
 
-    except Exception as e:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Sync failed: {str(e)}",
-        )
-
-
-@router.get("/sync/status")
-async def get_sync_status():
-    """获取同步任务状态"""
-    try:
-        scheduler = get_scheduler()
-        jobs = scheduler.get_job_info()
-
-        return {
-            "scheduler_running": scheduler.scheduler.running,
-            "jobs": jobs,
-        }
-    except Exception as e:
-        return {
-            "scheduler_running": False,
-            "error": str(e),
-        }
+    if task_id is None:
+        return CISyncResponse(success=False, message="An equivalent CI sync task is already queued", collected_count=0)
+    return CISyncResponse(
+        success=True,
+        message=f"CI sync task {task_id} queued; check progress via the task status API",
+        collected_count=0,
+    )
 
 
 @router.get("/sync/progress")
 async def get_sync_progress_info():
-    """获取同步进度详情"""
-    try:
-        progress = get_sync_progress()
-        return progress.get_progress()
-    except Exception as e:
-        return {
-            "status": "error",
-            "error_message": str(e),
-        }
+    """Return the latest durable CI sync task status."""
+    from sqlalchemy import text
+    from app.db.base import SessionLocal
+
+    async with SessionLocal() as db:
+        row = (await db.execute(text("""
+            SELECT id, status, checkpoint_data, last_error, created_at, completed_at
+            FROM collection_tasks
+            WHERE task_type = 'ci_sync'
+            ORDER BY id DESC
+            LIMIT 1
+        """))).mappings().first()
+    if not row:
+        return {"status": "idle", "task_id": None, "error_message": None}
+    return {
+        "status": row["status"],
+        "task_id": row["id"],
+        "checkpoint": row["checkpoint_data"],
+        "error_message": row["last_error"],
+        "created_at": row["created_at"],
+        "completed_at": row["completed_at"],
+    }
 
 
 @router.get("/debug/workflows")
@@ -1788,3 +1750,5 @@ async def sync_test_cases_from_yaml(
         "created": total_created,
         "updated": total_updated,
     }
+
+

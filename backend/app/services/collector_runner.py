@@ -6,6 +6,7 @@ CollectorRunner：桥接 CollectorWorker 与具体采集逻辑。
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 from datetime import datetime
 
@@ -43,6 +44,9 @@ class CollectorRunner:
                 logger.error("Task %d not found", ctx.task_id)
                 return
             task_type, task_params = row
+            if isinstance(task_params, str):
+                task_params = json.loads(task_params)
+            task_params = task_params or {}
 
         logger.info("Executing task %d type=%s generation=%d", ctx.task_id, task_type, ctx.lease_generation)
 
@@ -51,7 +55,7 @@ class CollectorRunner:
 
         try:
             if task_type == "ci_sync":
-                await self._run_ci_sync(ctx)
+                await self._run_ci_sync(ctx, task_params)
             elif task_type == "model_sync":
                 await self._run_model_sync(ctx)
             else:
@@ -72,14 +76,15 @@ class CollectorRunner:
                 logger.warning("Task %d lease renewal failed", task_id)
                 return
 
-    async def _run_ci_sync(self, ctx: TaskContext):
+    async def _run_ci_sync(self, ctx: TaskContext, task_params: dict):
         """CI 数据同步。"""
         github = GitHubClient(settings.GITHUB_TOKEN)
         async with SessionLocal() as db:
             collector = CICollector(github, db)
             await collector.collect_workflow_runs(
-                days_back=settings.CI_SYNC_DAYS_BACK,
-                max_runs_per_workflow=settings.CI_SYNC_MAX_RUNS_PER_WORKFLOW,
+                days_back=int(task_params.get("days_back", settings.CI_SYNC_DAYS_BACK)),
+                max_runs_per_workflow=int(task_params.get("max_runs", settings.CI_SYNC_MAX_RUNS_PER_WORKFLOW)),
+                force_full_refresh=bool(task_params.get("force_full_refresh", False)),
             )
             # 采集完成后的数据管线（与 scheduler 全量路径共用 run_ci_post_sync）：
             # 刷新 WorkflowConfig.last_sync_at、更新本地仓库缓存、快照 nightly_config.yaml、
