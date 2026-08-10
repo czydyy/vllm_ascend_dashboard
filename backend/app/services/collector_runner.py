@@ -139,11 +139,13 @@ class CollectorRunner:
     async def _run_pr_sync(self, ctx: TaskContext, task_params: dict):
         """Synchronize pull-request pipeline data from GitHub."""
         github = GitHubClient(settings.GITHUB_TOKEN)
-        async with SessionLocal() as db:
-            collector = PRPipelineCollector(github, db)
-            await collector.collect_prs(
-                settings.GITHUB_OWNER,
-                settings.GITHUB_REPO,
-                days_back=int(task_params.get("days_back", 7)),
-            )
-        await github.close()
+        try:
+            async with SessionLocal() as db:
+                collector = PRPipelineCollector(github, db)
+                await collector.collect_prs(
+                    settings.GITHUB_OWNER,
+                    settings.GITHUB_REPO,
+                    days_back=int(task_params.get("days_back", 7)),
+                )
+        finally:
+            await github.close()
