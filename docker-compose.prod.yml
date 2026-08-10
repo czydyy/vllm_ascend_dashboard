@@ -156,9 +156,6 @@ services:
     container_name: vllm-dashboard-frontend
     environment:
       - VITE_API_BASE_URL=/api/v1
-    volumes:
-      # Optional: custom nginx configuration
-      - ./deploy/config/nginx.conf:/etc/nginx/conf.d/custom.conf:ro
     ports:
       - "${FRONTEND_PORT:-3000}:80"
     depends_on:
