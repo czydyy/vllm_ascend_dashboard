@@ -68,7 +68,7 @@ class CollectorRunner:
             elif task_type == "model_sync":
                 await self._run_model_sync(ctx)
             else:
-                logger.warning("Unknown task_type=%s for task %d", task_type, ctx.task_id)
+                raise ValueError(f"Unsupported collection task type: {task_type}")
         finally:
             renew_task.cancel()
             try:
