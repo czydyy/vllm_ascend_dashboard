@@ -17,6 +17,7 @@ from app.db.base import SessionLocal
 from app.services.ci_collector import CICollector
 from app.services.collector_base import CollectorWorker, TaskContext
 from app.services.github_client import GitHubClient
+from app.services.pr_pipeline_collector import PRPipelineCollector
 
 logger = logging.getLogger(__name__)
 
@@ -56,6 +57,8 @@ class CollectorRunner:
         try:
             if task_type == "ci_sync":
                 await self._run_ci_sync(ctx, task_params)
+            elif task_type == "pr_sync":
+                await self._run_pr_sync(ctx, task_params)
             elif task_type == "model_sync":
                 await self._run_model_sync(ctx)
             else:
@@ -98,3 +101,15 @@ class CollectorRunner:
         """模型报告同步。"""
         from app.services.model_sync_service import sync_all_models
         await sync_all_models()
+
+    async def _run_pr_sync(self, ctx: TaskContext, task_params: dict):
+        """Synchronize pull-request pipeline data from GitHub."""
+        github = GitHubClient(settings.GITHUB_TOKEN)
+        async with SessionLocal() as db:
+            collector = PRPipelineCollector(github, db)
+            await collector.collect_prs(
+                settings.GITHUB_OWNER,
+                settings.GITHUB_REPO,
+                days_back=int(task_params.get("days_back", 7)),
+            )
+        await github.close()

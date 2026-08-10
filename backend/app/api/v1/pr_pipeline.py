@@ -1,4 +1,3 @@
-import asyncio
 import logging
 
 from fastapi import APIRouter, HTTPException, Query, status
@@ -17,7 +16,6 @@ from app.schemas.pr_pipeline import (
     PRPipelineTrendsResponse,
     PullRequestResponse,
 )
-from app.services.pr_pipeline_collector import PRPipelineCollector
 from app.services.pr_pipeline_historical_collector import PRPipelineHistoricalCollector
 from app.services.pr_pipeline_service import PRPipelineService
 from app.services.github_client import GitHubClient
@@ -116,46 +114,57 @@ async def get_trends(
     return await service.get_trends(db, OWNER, REPO, days)
 
 
-# Track whether a sync is currently running
-_sync_running = False
-
-
 @router.post("/sync")
 async def sync_pr_pipeline(
     current_user: CurrentAdminUser,
     request: PRPipelineSyncRequest | None = None,
 ):
-    """Trigger PR pipeline sync in background. Returns immediately."""
-    global _sync_running
-    if _sync_running:
-        return {"message": "Sync already running, please wait", "running": True}
+    """Enqueue a durable PR pipeline synchronization task."""
+    from uuid import uuid4
+
+    from app.db.base import SessionLocal
+    from app.services.task_manager import TaskManager
 
     days_back = request.days_back if request else 7
-    _sync_running = True
-
-    async def _run_sync():
-        global _sync_running
-        from app.db.base import SessionLocal
-        async with SessionLocal() as db:
-            try:
-                github = GitHubClient(settings.GITHUB_TOKEN, OWNER, REPO)
-                collector = PRPipelineCollector(github, db)
-                count = await collector.collect_prs(OWNER, REPO, days_back=days_back)
-                await github.close()
-                logger.info(f"PR pipeline sync completed: {count} PRs synced")
-            except Exception as e:
-                logger.error(f"PR pipeline sync failed: {e}", exc_info=True)
-            finally:
-                _sync_running = False
-
-    asyncio.create_task(_run_sync())
-    return {"message": f"Sync started (days_back={days_back}), running in background"}
+    async with SessionLocal() as db:
+        task_id = await TaskManager.create_task(
+            db,
+            "pr_sync",
+            {"days_back": days_back},
+            f"pr_sync:manual:{uuid4()}",
+            required_capability="python",
+            priority=10,
+        )
+        await db.commit()
+    if task_id is None:
+        return {"message": "An equivalent PR sync task is already queued", "running": False}
+    return {"message": f"PR sync task {task_id} queued", "task_id": task_id, "running": True}
 
 
 @router.get("/sync/status")
 async def sync_status():
-    """Check if a sync is currently running."""
-    return {"running": _sync_running}
+    """Return the latest durable PR sync task status."""
+    from sqlalchemy import text
+    from app.db.base import SessionLocal
+
+    async with SessionLocal() as db:
+        row = (await db.execute(text("""
+            SELECT id, status, last_error, created_at, completed_at
+            FROM collection_tasks
+            WHERE task_type = 'pr_sync'
+            ORDER BY id DESC
+            LIMIT 1
+        """))).mappings().first()
+    if not row:
+        return {"running": False, "task_id": None, "status": "idle"}
+    return {
+        "running": row["status"] in {"pending", "running"},
+        "task_id": row["id"],
+        "status": row["status"],
+        "error": row["last_error"],
+        "created_at": row["created_at"],
+        "completed_at": row["completed_at"],
+    }
 
 
 @router.post("/historical-sync")
