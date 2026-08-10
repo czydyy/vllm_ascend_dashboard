@@ -61,6 +61,10 @@ class CollectorRunner:
                 await self._run_pr_sync(ctx, task_params)
             elif task_type == "failure_analysis":
                 await self._run_failure_analysis(ctx, task_params)
+            elif task_type == "issues_derivation":
+                await self._run_issues_derivation(ctx)
+            elif task_type == "coverage_sync":
+                await self._run_coverage_sync(ctx, task_params)
             elif task_type == "model_sync":
                 await self._run_model_sync(ctx)
             else:
@@ -118,6 +122,23 @@ class CollectorRunner:
                 force=force,
                 triggered_by=triggered_by,
             )
+
+    async def _run_issues_derivation(self, ctx: TaskContext):
+        """Derive test-board issue counts from durable worker execution."""
+        from app.services.issues_found_derivator import IssuesFoundDerivator
+
+        async with SessionLocal() as db:
+            result = await IssuesFoundDerivator(db).derive_all()
+            logger.info("issues derivation task %d completed: %s", ctx.task_id, result)
+
+    async def _run_coverage_sync(self, ctx: TaskContext, task_params: dict):
+        """Refresh coverage data from durable worker execution."""
+        from app.services.coverage_sync import sync_all_coverage
+
+        source = str(task_params.get("source", "all"))
+        async with SessionLocal() as db:
+            result = await sync_all_coverage(db, source=source)
+            logger.info("coverage sync task %d completed: %s", ctx.task_id, result)
 
     async def _run_pr_sync(self, ctx: TaskContext, task_params: dict):
         """Synchronize pull-request pipeline data from GitHub."""

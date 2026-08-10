@@ -3,8 +3,9 @@ import io
 import logging
 from datetime import UTC, datetime
 from typing import Literal
+from uuid import uuid4
 
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, Response, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -218,7 +219,6 @@ async def _run_derivation_background():
 @router.post("/sync")
 async def trigger_sync(
     request: TestBoardSyncRequest,
-    background_tasks: BackgroundTasks,
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
@@ -228,7 +228,16 @@ async def trigger_sync(
     svc = TestBoardService(db, gh)
     count = await svc.parse_ci_results(days_back=request.days_back, force=request.force)
     # CI 同步后在后台跑发现问题数推导，避免 HTTP 超时
-    background_tasks.add_task(_run_derivation_background)
+    from app.services.task_manager import TaskManager
+    await TaskManager.create_task(
+        db,
+        "issues_derivation",
+        {},
+        f"issues_derivation:{uuid4()}",
+        required_capability="python",
+        priority=10,
+    )
+    await db.commit()
     return {"success": True, "message": f"Parsed {count} test results", "count": count, "derivation": "scheduled in background"}
 
 
@@ -315,7 +324,6 @@ async def update_case(
 
 @router.post("/derive-issues")
 async def trigger_derive_issues(
-    background_tasks: BackgroundTasks,
     case_id: int | None = None,
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
@@ -336,8 +344,17 @@ async def trigger_derive_issues(
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="用例不存在")
         return {"success": True, "result": result}
     else:
-        background_tasks.add_task(_run_derivation_background)
-        return {"success": True, "result": "full derivation scheduled in background"}
+        from app.services.task_manager import TaskManager
+        task_id = await TaskManager.create_task(
+            db,
+            "issues_derivation",
+            {},
+            f"issues_derivation:{uuid4()}",
+            required_capability="python",
+            priority=10,
+        )
+        await db.commit()
+        return {"success": True, "task_id": task_id, "result": "full derivation queued"}
 
 
 # ---------------------------------------------------------------------------
@@ -407,24 +424,19 @@ async def get_coverage_status(user: CurrentUser, db: DbSession):
 @router.post("/coverage/sync")
 async def trigger_coverage_sync(
     request: CoverageSyncRequest,
-    background_tasks: BackgroundTasks,
     user: CurrentAdminUser,
 ):
     """手动触发覆盖率同步（admin+，用依赖注入鉴权）"""
-    from app.db.base import SessionLocal
-    from app.services.coverage_sync import is_coverage_syncing, sync_all_coverage
+    from app.services.task_manager import TaskManager
 
-    # 同步检查锁状态：BackgroundTasks 在响应发送后执行，锁冲突需在此返回 409
-    if is_coverage_syncing():
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="coverage sync in progress")
-
-    async def _run_sync():
-        try:
-            async with SessionLocal() as db:
-                result = await sync_all_coverage(db, source=request.source)
-                logger.info("coverage sync (manual) done: %s", result)
-        except Exception as e:
-            logger.error("coverage sync (manual) failed: %s", e, exc_info=True)
-
-    background_tasks.add_task(_run_sync)
-    return {"success": True, "message": f"coverage sync ({request.source}) scheduled in background"}
+    async with SessionLocal() as db:
+        task_id = await TaskManager.create_task(
+            db,
+            "coverage_sync",
+            {"source": request.source},
+            f"coverage_sync:{request.source}:{uuid4()}",
+            required_capability="python",
+            priority=10,
+        )
+        await db.commit()
+    return {"success": True, "task_id": task_id, "message": f"coverage sync ({request.source}) queued"}
