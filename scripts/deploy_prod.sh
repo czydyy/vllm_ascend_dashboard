@@ -4,6 +4,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
+MIGRATE_SCRIPT="$SCRIPT_DIR/migrate_prod.sh"
 COMPOSE_FILE="${DASHBOARD_COMPOSE_FILE:-$PROJECT_ROOT/docker-compose.prod.yml}"
 ENV_FILE="${DASHBOARD_ENV_FILE:-$PROJECT_ROOT/.env.production}"
 BACKUP_DIR="${DASHBOARD_BACKUP_DIR:-$PROJECT_ROOT/backups}"
@@ -127,17 +128,7 @@ step "4/9 Build new images"
 compose build backend frontend || die "image build failed; running services were not changed"
 
 step "5/9 Run explicit MySQL migration"
-# The backend service connects as control_svc, which only has DML privileges
-# (SELECT/INSERT/UPDATE/DELETE) on vllm_dashboard — no ALTER/CREATE/INDEX.
-# Schema migration needs DDL, so override DATABASE_URL to root for this one-off
-# run. The root password is read from the running mysql container (same pattern
-# as mysql_root()), and forwarded via `-e DATABASE_URL` (no value) so it is
-# inherited from the shell environment rather than echoed in the process args.
-MYSQL_ROOT_PW="$(docker exec "$MYSQL_CONTAINER" sh -c 'printf %s "$MYSQL_ROOT_PASSWORD"')"
-[[ -n "$MYSQL_ROOT_PW" ]] || die "could not read MYSQL_ROOT_PASSWORD from $MYSQL_CONTAINER"
-if ! DATABASE_URL="mysql+aiomysql://root:${MYSQL_ROOT_PW}@mysql:3306/${DATABASE_NAME}" \
-     compose run --rm --no-deps -e DATABASE_URL \
-     --entrypoint /opt/venv/bin/python backend scripts/migrate_mysql_schema.py; then
+if ! bash "$MIGRATE_SCRIPT"; then
     warn "migration failed; restoring verified database backup"
     restore_database "$backup_file"
     die "migration failed and database was restored"
