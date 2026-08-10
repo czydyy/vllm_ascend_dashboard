@@ -15,13 +15,18 @@ logger = logging.getLogger(__name__)
 engine_kwargs = {
     "echo": False,
     "connect_args": {},
-    "pool_size": 20,
-    "max_overflow": 20,
-    "pool_timeout": 60,
+    "pool_size": settings.DB_POOL_SIZE,
+    "max_overflow": settings.DB_MAX_OVERFLOW,
+    "pool_timeout": settings.DB_POOL_TIMEOUT,
     "pool_recycle": 3600,
     "pool_pre_ping": True,
 }
-logger.info("MySQL connection pooling enabled (pool_size=5, max_overflow=10)")
+logger.info(
+    "MySQL connection pooling enabled (pool_size=%s, max_overflow=%s, pool_timeout=%ss)",
+    settings.DB_POOL_SIZE,
+    settings.DB_MAX_OVERFLOW,
+    settings.DB_POOL_TIMEOUT,
+)
 
 engine = create_async_engine(settings.DATABASE_URL, **engine_kwargs)
 

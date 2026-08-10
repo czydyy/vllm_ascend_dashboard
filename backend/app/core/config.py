@@ -23,6 +23,9 @@ class Settings(BaseSettings):
 
     # 数据库配置
     DATABASE_URL: str = "mysql+aiomysql://dashboard:dashboard123@localhost:3306/vllm_dashboard"
+    DB_POOL_SIZE: int = 5
+    DB_MAX_OVERFLOW: int = 5
+    DB_POOL_TIMEOUT: int = 60
 
     # Phase B 拆分逻辑数据库后的独立 URL（第一阶段指向同一实例）
     CONTROL_DATABASE_URL: str = ""
