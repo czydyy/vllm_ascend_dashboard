@@ -2,7 +2,6 @@
 CI 数据 API 路由
 Phase 2: 实现数据采集和展示
 """
-import asyncio
 import json
 import logging
 import os
@@ -43,11 +42,6 @@ from app.utils.ci_filters import build_workflow_time_filter
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
-
-# Keep strong references to long-running analyses. asyncio only keeps weak
-# references to Tasks, so an unreferenced background analysis may disappear
-# after producing files but before committing its final database state.
-_failure_analysis_tasks: set[asyncio.Task] = set()
 
 
 @router.get("/workflows", response_model=list[str])
@@ -956,9 +950,6 @@ async def analyze_failed_job(
     force: bool = Query(default=False, description="强制重新分析"),
 ):
     """触发失败分析（异步后台执行，立即返回，前端轮询 GET 接口获取结果）"""
-    from sqlalchemy import delete, text
-
-    from app.db.base import SessionLocal
     from app.models import CIJob, JobFailureAnalysis
     from app.services.failure_analysis import FailureAnalysisService
 
@@ -1015,29 +1006,21 @@ async def analyze_failed_job(
     await db.commit()
     await db.refresh(placeholder)
 
-    # 4. 后台异步执行实际分析
-    async def _run_analysis():
-        async with SessionLocal() as bg_db:
-            svc = FailureAnalysisService()
-            try:
-                await svc.analyze_failed_job(job_id=job_id, db=bg_db, force=force, triggered_by="manual")
-            except Exception as e:
-                logger.error(f"Background analysis failed for job {job_id}: {e}")
-                # 确保状态更新为 failed，避免僵尸记录
-                try:
-                    from sqlalchemy import update
-                    await bg_db.execute(
-                        update(JobFailureAnalysis)
-                        .where(JobFailureAnalysis.job_id == job_id)
-                        .values(analysis_status="failed", error_message=str(e)[:500])
-                    )
-                    await bg_db.commit()
-                except Exception as db_e:
-                    logger.error(f"Failed to update analysis status for job {job_id}: {db_e}")
+    # 4. Enqueue durable analysis work for a Collector worker.
+    from uuid import uuid4
+    from app.services.task_manager import TaskManager
 
-    task = asyncio.create_task(_run_analysis())
-    _failure_analysis_tasks.add(task)
-    task.add_done_callback(_failure_analysis_tasks.discard)
+    task_id = await TaskManager.create_task(
+        db,
+        "failure_analysis",
+        {"job_id": job_id, "force": force, "triggered_by": "manual"},
+        f"failure_analysis:{job_id}:{uuid4()}",
+        required_capability="python",
+        priority=20,
+    )
+    await db.commit()
+    # Preserve the existing API contract: the caller receives the durable
+    # placeholder and can poll the normal analysis endpoint for completion.
     return placeholder
 
 

@@ -59,6 +59,8 @@ class CollectorRunner:
                 await self._run_ci_sync(ctx, task_params)
             elif task_type == "pr_sync":
                 await self._run_pr_sync(ctx, task_params)
+            elif task_type == "failure_analysis":
+                await self._run_failure_analysis(ctx, task_params)
             elif task_type == "model_sync":
                 await self._run_model_sync(ctx)
             else:
@@ -101,6 +103,21 @@ class CollectorRunner:
         """模型报告同步。"""
         from app.services.model_sync_service import sync_all_models
         await sync_all_models()
+
+    async def _run_failure_analysis(self, ctx: TaskContext, task_params: dict):
+        """Run one failure analysis from the durable task queue."""
+        from app.services.failure_analysis import FailureAnalysisService
+
+        job_id = int(task_params["job_id"])
+        force = bool(task_params.get("force", False))
+        triggered_by = str(task_params.get("triggered_by", "manual"))
+        async with SessionLocal() as db:
+            await FailureAnalysisService().analyze_failed_job(
+                job_id=job_id,
+                db=db,
+                force=force,
+                triggered_by=triggered_by,
+            )
 
     async def _run_pr_sync(self, ctx: TaskContext, task_params: dict):
         """Synchronize pull-request pipeline data from GitHub."""
