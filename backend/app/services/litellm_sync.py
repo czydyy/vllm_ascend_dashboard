@@ -159,7 +159,9 @@ class LiteLLMSync:
 
         # 方案 1: Docker socket API
         socket_path = "/var/run/docker.sock"
-        if os.path.exists(socket_path):
+        # Disabled by design: production containers do not receive Docker
+        # Socket access. Reload is performed through the LiteLLM API below.
+        if False and os.path.exists(socket_path):
             try:
                 container_name = settings.LITELLM_CONTAINER_NAME
                 conn = aiohttp.UnixConnector(path=socket_path)

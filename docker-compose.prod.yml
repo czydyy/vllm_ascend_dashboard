@@ -16,9 +16,10 @@ services:
       - LITELLM_MASTER_KEY=${LITELLM_MASTER_KEY:-sk-litellm-master-key-change-me}
       - STORE_MODEL_IN_DB=false
     entrypoint: []
-    command: ["litellm", "--config", "/app/config.yaml", "--port", "4000"]
+    command: ["litellm", "--config", "/app/litellm_config.yaml", "--port", "4000"]
     volumes:
-      - ./deploy/config/litellm_config.yaml:/app/config.yaml
+      # Backend writes the same runtime file after provider changes.
+      - ./deploy/config/litellm_config.yaml:/app/litellm_config.yaml
     expose:
       - "4000"
     networks:
@@ -65,10 +66,8 @@ services:
       # Persistent data directory - survives container restarts
       # This includes /app/data/repos for git cache
       - backend_data:/app/data
-      # LiteLLM config shared volume
+      # LiteLLM runtime config shared with the gateway container
       - ./deploy/config/litellm_config.yaml:/app/litellm_config.yaml
-      # Docker socket (for LiteLLM restart on provider change)
-      - /var/run/docker.sock:/var/run/docker.sock
       # Log files
       - backend_logs:/app/logs
     # Do NOT expose backend port to public - only accessible via nginx proxy
