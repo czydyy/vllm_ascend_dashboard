@@ -23,7 +23,49 @@ env:
   IMAGE_NAME_FRONTEND: ${{ github.repository }}-frontend
 
 jobs:
+  quality:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          version: "0.6.14"
+
+      - name: Backend checks
+        working-directory: backend
+        run: |
+          uv sync --dev
+          uv run ruff check app scripts
+          uv run pytest tests/test_production_database_scripts.py tests/test_startup_migrations.py -q
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9.15.9
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+          cache-dependency-path: frontend/pnpm-lock.yaml
+
+      - name: Frontend checks
+        working-directory: frontend
+        run: |
+          pnpm install --frozen-lockfile
+          pnpm lint
+          pnpm test -- --run
+          pnpm build
+
   build-and-push:
+    needs: quality
     runs-on: ubuntu-latest
     permissions:
       contents: read
