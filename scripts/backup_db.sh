@@ -44,6 +44,7 @@ docker inspect "$MYSQL_CONTAINER" >/dev/null 2>&1 || die "MySQL container is una
 # 检测实际存在的数据库
 EXISTING_DBS=""
 for db in $DATABASES; do
+    [[ "$db" =~ ^[a-zA-Z0-9_]+$ ]] || die "unsafe database name: $db"
     if mysql_root_exec "SELECT 1 FROM information_schema.SCHEMATA WHERE SCHEMA_NAME='$db'" 2>/dev/null | grep -q 1; then
         EXISTING_DBS="$EXISTING_DBS $db"
     fi
@@ -68,11 +69,16 @@ backup_file="$BACKUP_DIR/vllm_dashboard_${timestamp}.sql"
 metadata_file="$backup_file.meta"
 
 # 记录备份前状态
-pre_users="$(mysql_root_exec "SELECT COUNT(*) FROM vllm_dashboard.users" 2>/dev/null || echo 0)"
+pre_users=0
 pre_tables_total=0
 for db in $EXISTING_DBS; do
     count="$(mysql_root_exec "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema='$db'" 2>/dev/null || echo 0)"
     pre_tables_total=$((pre_tables_total + count))
+    if mysql_root_exec "SELECT 1 FROM information_schema.tables WHERE table_schema='$db' AND table_name='users'" 2>/dev/null | grep -q 1; then
+        users="$(mysql_root_exec "SELECT COUNT(*) FROM \`$db\`.users" 2>/dev/null || echo 0)"
+        [[ "$users" =~ ^[0-9]+$ ]] || die "live database user count is invalid for $db: $users"
+        pre_users=$((pre_users + users))
+    fi
 done
 [[ "$pre_users" =~ ^[0-9]+$ ]] && (( pre_users > 0 )) || die "live database user count is invalid: $pre_users"
 [[ "$pre_tables_total" -gt 0 ]] || die "live database table count is invalid: $pre_tables_total"
