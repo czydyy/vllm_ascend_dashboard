@@ -16,6 +16,7 @@ import json
 import logging
 import os
 import re
+import shlex
 import subprocess
 from pathlib import Path
 from urllib.parse import urlparse
@@ -573,13 +574,31 @@ def run_bash(command: str) -> str:
         if d in command.lower():
             return f"Error: 禁止执行包含 '{d}' 的危险命令"
 
+    # Parse a single executable invocation. Never pass model-controlled text
+    # through a shell: blacklist checks do not stop substitutions or chaining.
+    if re.search(r"[;&|<>`$()]", command):
+        return "Error: shell operators and substitutions are not allowed"
+    try:
+        args = shlex.split(command, posix=True)
+    except ValueError as exc:
+        return f"Error: invalid command syntax: {exc}"
+    if not args:
+        return "Error: command is required"
+    allowed = {
+        "awk", "cat", "cloc", "diff", "find", "git", "grep", "head",
+        "ls", "npm", "pnpm", "pytest", "rg", "sed", "sort", "tail", "wc",
+    }
+    executable = Path(args[0]).name.lower()
+    if executable not in allowed:
+        return f"Error: executable '{executable}' is not allowed"
+
     if not Path(repo_path).is_dir():
         return f"Error: Agent repository does not exist: {repo_path}"
 
     try:
         result = subprocess.run(
-            command,
-            shell=True,
+            args,
+            shell=False,
             capture_output=True,
             text=True,
             encoding="utf-8",
