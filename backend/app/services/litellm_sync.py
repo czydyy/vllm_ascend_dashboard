@@ -5,10 +5,8 @@ LiteLLM Provider 同步服务
 写入共享卷后触发热加载。前台页面修改 provider 后重启 backend 即可生效。
 """
 import logging
-import os
 from pathlib import Path
 from typing import Optional
-from urllib.parse import quote
 
 import aiohttp
 
@@ -154,29 +152,9 @@ class LiteLLMSync:
         return len(model_list)
 
     async def _reload(self) -> bool:
-        """重启 LiteLLM 容器使其读取新配置"""
-        import aiohttp
-
-        # 方案 1: Docker socket API
-        socket_path = "/var/run/docker.sock"
-        # Disabled by design: production containers do not receive Docker
-        # Socket access. Reload is performed through the LiteLLM API below.
-        if False and os.path.exists(socket_path):
-            try:
-                container_name = settings.LITELLM_CONTAINER_NAME
-                conn = aiohttp.UnixConnector(path=socket_path)
-                async with aiohttp.ClientSession(connector=conn) as s:
-                    async with s.post(
-                        f"http://localhost/containers/{quote(container_name, safe='')}/restart",
-                        timeout=aiohttp.ClientTimeout(total=10),
-                    ) as r:
-                        if r.status in (204, 200):
-                            logger.info("LiteLLM restarted via Docker API")
-                            return True
-            except Exception as e:
-                logger.debug("Docker socket restart failed: %s", e)
-
-        # 方案 2: LiteLLM API 热加载
+        """Reload LiteLLM through its management API."""
+        if not self.litellm_url:
+            return False
         try:
             headers = {"Authorization": f"Bearer {self.master_key}"}
             async with aiohttp.ClientSession() as s:
@@ -194,7 +172,6 @@ class LiteLLMSync:
         logger.warning("LiteLLM needs a manual restart to pick up the new config")
         return False
 
-
 _litellm_sync: Optional[LiteLLMSync] = None
 
 
@@ -203,3 +180,4 @@ def get_litellm_sync() -> LiteLLMSync:
     if _litellm_sync is None:
         _litellm_sync = LiteLLMSync()
     return _litellm_sync
+
