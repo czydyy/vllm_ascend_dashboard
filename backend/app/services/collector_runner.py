@@ -88,20 +88,16 @@ class CollectorRunner:
     async def _run_ci_sync(self, ctx: TaskContext, task_params: dict):
         """CI 数据同步。"""
         github = GitHubClient(settings.GITHUB_TOKEN)
-        async with SessionLocal() as db:
-            collector = CICollector(github, db)
-            await collector.collect_workflow_runs(
-                days_back=int(task_params.get("days_back", settings.CI_SYNC_DAYS_BACK)),
-                max_runs_per_workflow=int(task_params.get("max_runs", settings.CI_SYNC_MAX_RUNS_PER_WORKFLOW)),
-                force_full_refresh=bool(task_params.get("force_full_refresh", False)),
-            )
-            # 采集完成后的数据管线（与 scheduler 全量路径共用 run_ci_post_sync）：
-            # 刷新 WorkflowConfig.last_sync_at、更新本地仓库缓存、快照 nightly_config.yaml、
-            # 物化每日失败记录。COLLECTOR_MODE 下 scheduler 只建任务不执行，若不在此补跑，
-            # 这些步骤永远不会触发（失败用例跟踪因此曾长期无新数据）。
-            from app.services.scheduler import get_scheduler
-
-            await get_scheduler().run_ci_post_sync(db)
+        try:
+            async with SessionLocal() as db:
+                collector = CICollector(github, db)
+                await collector.collect_workflow_runs(
+                    days_back=int(task_params.get("days_back", settings.CI_SYNC_DAYS_BACK)),
+                    max_runs_per_workflow=int(task_params.get("max_runs", settings.CI_SYNC_MAX_RUNS_PER_WORKFLOW)),
+                    force_full_refresh=bool(task_params.get("force_full_refresh", False)),
+                )
+        finally:
+            await github.close()
 
     async def _run_model_sync(self, ctx: TaskContext):
         """模型报告同步。"""
