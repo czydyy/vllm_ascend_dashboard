@@ -147,7 +147,15 @@ async def sync_status():
 
     async with SessionLocal() as db:
         row = (await db.execute(text("""
-            SELECT id, status, last_error, created_at, completed_at
+            SELECT
+                id,
+                status,
+                last_error,
+                created_at,
+                CASE
+                    WHEN status IN ('completed', 'failed', 'dead') THEN updated_at
+                    ELSE NULL
+                END AS completed_at
             FROM collection_tasks
             WHERE task_type = 'pr_sync'
             ORDER BY id DESC

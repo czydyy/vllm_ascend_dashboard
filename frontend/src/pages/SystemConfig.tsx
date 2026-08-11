@@ -223,7 +223,7 @@ function SystemConfig() {
   const [ciSyncForm] = Form.useForm()
   const [elapsedTime, setElapsedTime] = useState(0)
   const [systemStatus, setSystemStatus] = useState<any>(null)
-  const { data: progress } = useSyncProgress(isSyncing)
+  const { data: progress, error: progressError } = useSyncProgress(isSyncing)
   
   // 模型同步配置
   const [isModelSyncModalVisible, setIsModelSyncModalVisible] = useState(false)
@@ -641,12 +641,20 @@ function SystemConfig() {
       queryClient.invalidateQueries({ queryKey: ['ci-workflows'] })
       queryClient.invalidateQueries({ queryKey: ['ci-runs'] })
       queryClient.invalidateQueries({ queryKey: ['ci-stats'] })
-    } else if (progress?.status === 'failed' && isSyncing) {
-      message.error(`同步失败：${progress.error_message}`)
+    } else if (progress && ['failed', 'dead'].includes(progress.status) && isSyncing) {
+      message.error(`同步失败：${progress.error_message || '任务已终止'}`)
       setIsSyncing(false)
       setElapsedTime(0)
     }
   }, [progress, isSyncing, queryClient, syncConfigForm])
+
+  useEffect(() => {
+    if (progressError && isSyncing) {
+      message.error('无法获取同步任务状态，请检查后端服务日志')
+      setIsSyncing(false)
+      setElapsedTime(0)
+    }
+  }, [progressError, isSyncing])
 
   useEffect(() => {
     if (config?.sync_config?.model_sync_config) {

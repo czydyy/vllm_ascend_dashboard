@@ -442,7 +442,16 @@ async def get_sync_progress_info():
 
     async with SessionLocal() as db:
         row = (await db.execute(text("""
-            SELECT id, status, checkpoint_data, last_error, created_at, completed_at
+            SELECT
+                id,
+                status,
+                checkpoint_data,
+                last_error,
+                created_at,
+                CASE
+                    WHEN status IN ('completed', 'failed', 'dead') THEN updated_at
+                    ELSE NULL
+                END AS completed_at
             FROM collection_tasks
             WHERE task_type = 'ci_sync'
             ORDER BY id DESC
@@ -450,11 +459,25 @@ async def get_sync_progress_info():
         """))).mappings().first()
     if not row:
         return {"status": "idle", "task_id": None, "error_message": None}
+    checkpoint = row["checkpoint_data"] or {}
+    if isinstance(checkpoint, str):
+        try:
+            checkpoint = json.loads(checkpoint)
+        except json.JSONDecodeError:
+            checkpoint = {}
+    if not isinstance(checkpoint, dict):
+        checkpoint = {}
     return {
         "status": row["status"],
         "task_id": row["id"],
-        "checkpoint": row["checkpoint_data"],
-        "error_message": row["last_error"],
+        "checkpoint": checkpoint,
+        "progress_percentage": checkpoint.get("progress_percentage", 0),
+        "total_workflows": checkpoint.get("total_workflows", 0),
+        "completed_workflows": checkpoint.get("completed_workflows", 0),
+        "current_workflow": checkpoint.get("current_workflow"),
+        "total_collected": checkpoint.get("total_collected", 0),
+        "workflow_details": checkpoint.get("workflow_details", {}),
+        "error_message": row["last_error"] or checkpoint.get("error_message"),
         "created_at": row["created_at"],
         "completed_at": row["completed_at"],
     }

@@ -86,6 +86,8 @@ export interface SyncStatus {
 
 export interface SyncProgress {
   status: string
+  task_id?: number | null
+  checkpoint?: Record<string, unknown> | null
   progress_percentage: number
   total_workflows: number
   completed_workflows: number

@@ -179,7 +179,7 @@ function CIBoardConfig() {
   const [systemStatus, setSystemStatus] = useState<any>(null)
 
   // 获取同步进度（每 2 秒轮询）
-  const { data: progress } = useSyncProgress(isSyncing)
+  const { data: progress, error: progressError } = useSyncProgress(isSyncing)
 
   // 本地计时器，每秒更新已用时间
   useEffect(() => {
@@ -206,12 +206,20 @@ function CIBoardConfig() {
       queryClient.invalidateQueries({ queryKey: ['ci-stats'] })
       queryClient.invalidateQueries({ queryKey: ['ci-trends'] })
       queryClient.invalidateQueries({ queryKey: ['workflow-latest-results'] })
-    } else if (progress?.status === 'failed' && isSyncing) {
-      message.error(`同步失败：${progress.error_message}`)
+    } else if (progress && ['failed', 'dead'].includes(progress.status) && isSyncing) {
+      message.error(`同步失败：${progress.error_message || '任务已终止'}`)
       setIsSyncing(false)
       setElapsedTime(0)
     }
   }, [progress, isSyncing, queryClient])
+
+  useEffect(() => {
+    if (progressError && isSyncing) {
+      message.error('无法获取同步任务状态，请检查后端服务日志')
+      setIsSyncing(false)
+      setElapsedTime(0)
+    }
+  }, [progressError, isSyncing])
 
   // 获取系统状态
   useEffect(() => {
