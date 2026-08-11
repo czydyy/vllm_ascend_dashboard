@@ -7,7 +7,6 @@ requiring every optional integration (scheduler, Kubernetes, and so on).
 from importlib import import_module
 
 _EXPORTS = {
-    "CICollector": ("shared.services.ci_collector", "CICollector"),
     "GitHubAPIError": ("shared.services.github_client", "GitHubAPIError"),
     "GitHubClient": ("shared.services.github_client", "GitHubClient"),
     "GitHubRateLimitError": ("shared.services.github_client", "GitHubRateLimitError"),

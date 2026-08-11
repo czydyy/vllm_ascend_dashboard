@@ -13,7 +13,6 @@ from sqlalchemy import bindparam, text
 
 from shared.core.config import settings
 from shared.db.base import SessionLocal
-from shared.services.ci_collector import CICollector
 from shared.services.github_client import GitHubClient
 
 logger = logging.getLogger(__name__)
@@ -836,6 +835,30 @@ class DataSyncScheduler:
             logger.error("CI post-sync: populate daily failure records failed: %s", e)
 
     async def _sync_ci_data_job(self) -> None:
+        """Queue CI synchronization; Collector owns GitHub I/O and all writes."""
+        from shared.services.task_manager import TaskManager
+
+        params = {
+            "days_back": settings.CI_SYNC_DAYS_BACK,
+            "max_runs": settings.CI_SYNC_MAX_RUNS_PER_WORKFLOW,
+            "force_full_refresh": settings.CI_SYNC_FORCE_FULL_REFRESH,
+        }
+        dedupe_key = f"ci_sync:scheduled:{datetime.now(UTC).strftime('%Y-%m-%dT%H:%M')}"
+        async with SessionLocal() as db:
+            task_id = await TaskManager.create_task(
+                db,
+                "ci_sync",
+                params,
+                dedupe_key,
+                required_capability="python",
+            )
+            await db.commit()
+        if task_id:
+            logger.info("Queued CI synchronization task %d", task_id)
+        else:
+            logger.info("CI synchronization is already queued or running")
+
+    async def _legacy_sync_ci_data_job(self) -> None:
         """CI 数据同步任务"""
         logger.info("=" * 60)
         logger.info("CI DATA SYNC JOB STARTED")

@@ -490,8 +490,20 @@ async def debug_workflows():
             workflows = result.get("workflows", [])
 
             # 检查配置的 workflow 是否存在
-            from shared.services.ci_collector import CICollector
-            configured_workflows = CICollector.WORKFLOW_FILES
+            from shared.db.base import SessionLocal
+            from shared.models import WorkflowConfig
+            from sqlalchemy import select
+
+            async with SessionLocal() as db:
+                configured_workflows = list(
+                    (
+                        await db.execute(
+                            select(WorkflowConfig.workflow_file).where(
+                                WorkflowConfig.enabled == True
+                            )
+                        )
+                    ).scalars()
+                )
 
             workflow_names = [w["path"].split("/")[-1] for w in workflows]
 

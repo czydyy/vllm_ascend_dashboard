@@ -14,7 +14,7 @@ from sqlalchemy import text
 
 from shared.core.config import settings
 from shared.db.base import SessionLocal
-from shared.services.ci_collector import CICollector
+from collector.ci import CICollector
 from .worker import CollectorWorker, TaskContext
 from shared.services.github_client import GitHubClient
 from shared.services.pr_pipeline_collector import PRPipelineCollector
