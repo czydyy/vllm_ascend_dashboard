@@ -84,7 +84,7 @@ services:
       DATABASE_URL: mysql+aiomysql://${MYSQL_USER:-dashboard}:${MYSQL_PASSWORD}@mysql:3306/${MYSQL_DATABASE:-vllm_dashboard}
       ENVIRONMENT: development
       DATA_DIR: /app/data
-    command: python -m scheduler.run
+    command: python -m scheduler
     volumes:
       - dev_backend_data:/app/data
     depends_on:
@@ -104,7 +104,7 @@ services:
       DATA_DIR: /app/data
       NODE_ID: collector-dev-1
       CAPABILITIES: python
-    command: python -m collector.run
+    command: python -m collector
     volumes:
       - dev_backend_data:/app/data
     depends_on:

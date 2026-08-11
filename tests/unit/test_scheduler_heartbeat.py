@@ -163,7 +163,7 @@ async def test_write_heartbeat_serializes_running_and_jobs(monkeypatch):
     """write_heartbeat 把 scheduler.running + 各 job next_run_time 写入心跳行。"""
     from shared.models import SchedulerHeartbeat
     from shared.services import scheduler as sched_mod
-    from shared.scheduler_service import DataSyncScheduler
+    from scheduler.service import DataSyncScheduler
 
     session = FakeSession(heartbeat=None)  # 首次写入 → db.add
     # write_heartbeat 用的是 scheduler.py 顶部 import 的 SessionLocal（模块级绑定），
@@ -197,7 +197,7 @@ async def test_write_heartbeat_serializes_running_and_jobs(monkeypatch):
 async def test_write_heartbeat_force_running_false_on_shutdown(monkeypatch):
     """关闭时 force_running=False → 即使 scheduler 仍在运行，心跳也写 False。"""
     from shared.services import scheduler as sched_mod
-    from shared.scheduler_service import DataSyncScheduler
+    from scheduler.service import DataSyncScheduler
 
     session = FakeSession(heartbeat=None)
     monkeypatch.setattr(sched_mod, "SessionLocal", lambda: session)

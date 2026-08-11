@@ -9,6 +9,7 @@ from datetime import UTC, datetime, date, timedelta, timezone
 from apscheduler.events import EVENT_JOB_ERROR, EVENT_JOB_EXECUTED
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.interval import IntervalTrigger
+from sqlalchemy import bindparam, text
 
 from shared.core.config import settings
 from shared.db.base import SessionLocal
@@ -181,6 +182,19 @@ class DataSyncScheduler:
             logger.info("Scheduler heartbeat scheduled every 20s")
         except Exception as e:
             logger.error(f"Failed to add heartbeat job: {e}", exc_info=True)
+
+        # Control-plane events are durable MySQL commands emitted by the API.
+        # They replace cross-process mutation of this APScheduler instance.
+        try:
+            self.scheduler.add_job(
+                self._consume_control_events,
+                trigger=IntervalTrigger(seconds=5),
+                id="scheduler_control_plane",
+                name="Scheduler Control Plane",
+                replace_existing=True,
+            )
+        except Exception as e:
+            logger.error("Failed to add control-plane consumer: %s", e, exc_info=True)
 
         # NPU 指标采集任务 - 默认每 1 分钟执行
         try:
@@ -393,6 +407,50 @@ class DataSyncScheduler:
         对 aiomysql 安全 —— 使用当前事件循环，不会创建新循环。
         """
         try:
+            runtime_config = await _read_config_async("scheduler_runtime_config")
+            if runtime_config:
+                field_map = {
+                    "ci_sync_interval_minutes": "CI_SYNC_INTERVAL_MINUTES",
+                    "ci_sync_days_back": "CI_SYNC_DAYS_BACK",
+                    "ci_sync_max_runs_per_workflow": "CI_SYNC_MAX_RUNS_PER_WORKFLOW",
+                    "ci_sync_force_full_refresh": "CI_SYNC_FORCE_FULL_REFRESH",
+                    "model_sync_interval_minutes": "MODEL_SYNC_INTERVAL_MINUTES",
+                    "model_sync_days_back": "MODEL_SYNC_DAYS_BACK",
+                    "model_sync_runs_limit": "MODEL_SYNC_RUNS_LIMIT",
+                    "project_dashboard_cache_interval_minutes": "PROJECT_DASHBOARD_CACHE_INTERVAL_MINUTES",
+                    "data_retention_days": "DATA_RETENTION_DAYS",
+                }
+                for config_key, setting_name in field_map.items():
+                    if config_key in runtime_config:
+                        setattr(settings, setting_name, runtime_config[config_key])
+
+                self.scheduler.add_job(
+                    self._sync_ci_data_job,
+                    trigger=IntervalTrigger(minutes=settings.CI_SYNC_INTERVAL_MINUTES),
+                    id="ci_data_sync",
+                    name="CI Data Sync",
+                    replace_existing=True,
+                )
+                self.scheduler.add_job(
+                    self._update_project_dashboard_cache_job,
+                    trigger=IntervalTrigger(
+                        minutes=settings.PROJECT_DASHBOARD_CACHE_INTERVAL_MINUTES
+                    ),
+                    id="project_dashboard_cache_update",
+                    name="Project Dashboard Cache Update",
+                    replace_existing=True,
+                )
+                self.scheduler.add_job(
+                    self._sync_model_reports_job,
+                    trigger=IntervalTrigger(minutes=settings.MODEL_SYNC_INTERVAL_MINUTES),
+                    id="model_report_sync",
+                    name="Model Report Sync",
+                    replace_existing=True,
+                )
+        except Exception as e:
+            logger.warning("Failed to apply scheduler runtime config: %s", e)
+
+        try:
             schedule_config = await _read_config_async('daily_summary_schedule')
             if schedule_config:
                 self._timezone = schedule_config.get('timezone', 'Asia/Shanghai')
@@ -424,6 +482,38 @@ class DataSyncScheduler:
                 self.update_resource_metrics_schedule(int(metrics_config['interval_minutes']))
         except Exception as e:
             logger.warning(f"Failed to apply DB metrics interval: {e}")
+
+    async def _consume_control_events(self) -> None:
+        """Acknowledge durable API commands, then reload this process's schedule."""
+        try:
+            async with SessionLocal() as db:
+                async with db.begin():
+                    result = await db.execute(
+                        text(
+                            """
+                            SELECT event_id FROM control_outbox
+                            WHERE processed_at IS NULL
+                              AND aggregate_type = 'scheduler'
+                              AND event_type = 'scheduler.config.reload'
+                            ORDER BY created_at
+                            LIMIT 25 FOR UPDATE SKIP LOCKED
+                            """
+                        )
+                    )
+                    event_ids = [row[0] for row in result.fetchall()]
+                    if event_ids:
+                        await db.execute(
+                            text(
+                                "UPDATE control_outbox SET processed_at = NOW() "
+                                "WHERE event_id IN :event_ids"
+                            ).bindparams(bindparam("event_ids", expanding=True)),
+                            {"event_ids": event_ids},
+                        )
+            if event_ids:
+                await self.apply_db_config_overrides()
+                logger.info("Applied %d scheduler control-plane events", len(event_ids))
+        except Exception as e:
+            logger.warning("Scheduler control-plane poll failed: %s", e)
 
     def update_report_schedule(
         self, enabled: bool = True, cron_hour: int = 8, cron_minute: int = 30

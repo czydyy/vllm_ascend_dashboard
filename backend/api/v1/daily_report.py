@@ -116,19 +116,6 @@ async def update_report_config(
         await _write_config(db, REPORT_CONFIG_KEY, report_config, "每日运行报告配置")
         await db.commit()
 
-        # 调度器重载新的时间配置
-        try:
-            from shared.scheduler_service import get_scheduler
-            sched = get_scheduler()
-            if sched and sched.scheduler.running:
-                sched.update_report_schedule(
-                    enabled=report_config.get("report_enabled", settings.REPORT_ENABLED),
-                    cron_hour=report_config.get("report_schedule_hour", settings.REPORT_SCHEDULE_HOUR),
-                    cron_minute=report_config.get("report_schedule_minute", settings.REPORT_SCHEDULE_MINUTE),
-                )
-        except Exception as e:
-            logger.warning("Failed to reschedule report job: %s", e)
-
         logger.info(f"Report/SMTP config updated by {current_user.username}: {list(updates.keys())}")
 
         return DailyReportConfigResponse(

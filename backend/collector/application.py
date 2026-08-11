@@ -1,6 +1,6 @@
 """
 Collector 独立进程入口。
-通过 `python -m app.collector` 启动。
+通过 `python -m collector` 启动。
 
 读取 NODE_ID 和 CAPABILITIES 环境变量，通过 FOR UPDATE SKIP LOCKED
 竞争领取 collection_tasks 中的任务并执行。
@@ -20,7 +20,7 @@ logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
     stream=sys.stdout,
 )
-logger = logging.getLogger("app.collector")
+logger = logging.getLogger("collector")
 
 
 async def main():
@@ -29,8 +29,8 @@ async def main():
     capabilities = [c.strip() for c in capabilities_str.split(",") if c.strip()]
 
     from shared.db.base import SessionLocal
-    from .collector_base import CollectorWorker
-    from .collector_runner import CollectorRunner
+    from .worker import CollectorWorker
+    from .executor import CollectorRunner
 
     worker = CollectorWorker(
         node_id=node_id,

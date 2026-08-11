@@ -6,7 +6,7 @@ and persistence code remain importable from the application package.
 
 import asyncio
 
-from .runner import main
+from .application import main
 
 
 if __name__ == "__main__":

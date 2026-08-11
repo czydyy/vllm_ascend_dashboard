@@ -10,7 +10,6 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
-from apscheduler.triggers.interval import IntervalTrigger
 
 from api.deps import get_current_active_admin_user, get_current_active_super_admin_user, get_current_user, get_db
 from shared.core.config import settings
@@ -226,7 +225,7 @@ async def update_sync_config(
     同时更新运行时配置和 .env 文件
     """
     from shared.core.config_manager import update_env_config
-    from shared.scheduler_service import get_scheduler
+    from shared.services.scheduler_config import persist_scheduler_runtime_config
 
     updates = []
     env_updates = {}
@@ -299,27 +298,6 @@ async def update_sync_config(
         env_updates['ci_sync_interval_minutes'] = ci_sync_interval_minutes
         updates.append(f"CI 同步间隔：{ci_sync_interval_minutes}分钟")
 
-        # 重新配置调度器
-        try:
-            scheduler = get_scheduler()
-            # 显式移除旧任务再添加，确保 Trigger 完全更新
-            try:
-                scheduler.scheduler.remove_job('ci_data_sync')
-            except Exception:
-                pass
-            scheduler.scheduler.add_job(
-                scheduler._sync_ci_data_job,
-                trigger=IntervalTrigger(minutes=ci_sync_interval_minutes),
-                id='ci_data_sync',
-                name='CI Data Sync',
-            )
-            updates.append("调度器已重新配置")
-        except Exception as e:
-            raise HTTPException(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail=f"重新配置调度器失败：{str(e)}",
-            )
-
     if ci_sync_days_back is not None:
         settings.CI_SYNC_DAYS_BACK = ci_sync_days_back
         env_updates['ci_sync_days_back'] = ci_sync_days_back
@@ -345,51 +323,11 @@ async def update_sync_config(
         env_updates['project_dashboard_cache_interval_minutes'] = project_dashboard_cache_interval_minutes
         updates.append(f"Project Dashboard 缓存更新间隔：{project_dashboard_cache_interval_minutes}分钟")
 
-        # 重新配置调度器
-        try:
-            scheduler = get_scheduler()
-            try:
-                scheduler.scheduler.remove_job('project_dashboard_cache_update')
-            except Exception:
-                pass
-            scheduler.scheduler.add_job(
-                scheduler._update_project_dashboard_cache_job,
-                trigger=IntervalTrigger(minutes=project_dashboard_cache_interval_minutes),
-                id='project_dashboard_cache_update',
-                name='Project Dashboard Cache Update',
-            )
-            updates.append("Project Dashboard 调度器已重新配置")
-        except Exception as e:
-            raise HTTPException(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail=f"重新配置调度器失败：{str(e)}",
-            )
-
     # 模型同步配置更新
     if model_sync_interval_minutes is not None:
         settings.MODEL_SYNC_INTERVAL_MINUTES = model_sync_interval_minutes
         env_updates['model_sync_interval_minutes'] = model_sync_interval_minutes
         updates.append(f"模型同步间隔：{model_sync_interval_minutes}分钟")
-
-        # 重新配置调度器
-        try:
-            scheduler = get_scheduler()
-            try:
-                scheduler.scheduler.remove_job('model_report_sync')
-            except Exception:
-                pass
-            scheduler.scheduler.add_job(
-                scheduler._sync_model_reports_job,
-                trigger=IntervalTrigger(minutes=model_sync_interval_minutes),
-                id='model_report_sync',
-                name='Model Report Sync',
-            )
-            updates.append("模型同步调度器已重新配置")
-        except Exception as e:
-            raise HTTPException(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail=f"重新配置调度器失败：{str(e)}",
-            )
 
     if model_sync_days_back is not None:
         settings.MODEL_SYNC_DAYS_BACK = model_sync_days_back
@@ -416,6 +354,9 @@ async def update_sync_config(
                 logger.warning("Failed to update .env file")
         except Exception as e:
             logger.error(f"Failed to update .env file: {e}")
+
+    await persist_scheduler_runtime_config(env_updates)
+    updates.append("scheduler configuration reload queued")
 
     return {
         "success": True,
@@ -467,9 +408,6 @@ async def get_system_status(
 
     from shared.db.base import SessionLocal
     from shared.models import SchedulerHeartbeat, WorkflowConfig
-    from shared.scheduler_service import get_scheduler
-
-    scheduler = get_scheduler()
 
     # 一次 DB 读取：调度器心跳 + 最近同步时间
     async with SessionLocal() as db:
@@ -515,17 +453,9 @@ async def get_system_status(
         cache_next_sync = _to_iso(hb_cache)
         daily_summary_next_sync = _to_iso(hb_daily)
     else:
-        # 无心跳行：嵌入式模式（API_START_SCHEDULER=true）或表尚未建立
-        # 回退到进程内 APScheduler 状态
-        running = bool(scheduler.scheduler.running)
-        ci_job = scheduler.scheduler.get_job('ci_data_sync')
-        model_job = scheduler.scheduler.get_job('model_report_sync')
-        cache_job = scheduler.scheduler.get_job('project_dashboard_cache_update')
-        daily_summary_job = scheduler.scheduler.get_job('daily_summary_task')
-        ci_next_sync = _to_iso(ci_job.next_run_time if ci_job else None)
-        model_next_sync = _to_iso(model_job.next_run_time if model_job else None)
-        cache_next_sync = _to_iso(cache_job.next_run_time if cache_job else None)
-        daily_summary_next_sync = _to_iso(daily_summary_job.next_run_time if daily_summary_job else None)
+        # Scheduler 是独立进程；没有持久化心跳即表示 API 无法确认其存活。
+        running = False
+        ci_next_sync = model_next_sync = cache_next_sync = daily_summary_next_sync = None
 
     return {
         "scheduler": {
@@ -802,20 +732,6 @@ async def update_daily_summary_config(
                 db.add(projects_config)
         
         await db.commit()
-
-        # 更新调度器
-        try:
-            from shared.scheduler_service import get_scheduler
-            scheduler = get_scheduler()
-            scheduler.update_daily_summary_schedule(
-                enabled=config.get('enabled', True),
-                cron_hour=config.get('cron_hour', 8),
-                cron_minute=config.get('cron_minute', 0),
-                timezone=config.get('timezone', 'Asia/Shanghai'),
-            )
-            logger.info("Daily summary scheduler updated successfully")
-        except Exception as e:
-            logger.error(f"Failed to update daily summary scheduler: {e}")
 
         return {
             "success": True,

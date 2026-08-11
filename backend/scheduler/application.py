@@ -1,6 +1,6 @@
 """
 Scheduler 独立进程入口。
-通过 `python -m app.scheduler` 启动，与 API 进程解耦。
+通过 `python -m scheduler` 启动，与 API 进程解耦。
 """
 from __future__ import annotations
 
@@ -18,7 +18,7 @@ logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
     stream=sys.stdout,
 )
-logger = logging.getLogger("app.scheduler")
+logger = logging.getLogger("scheduler")
 
 SHUTDOWN = False
 
@@ -37,7 +37,7 @@ async def main():
         except NotImplementedError:
             signal.signal(sig, _handle_shutdown)
 
-    from shared.scheduler_service import get_scheduler, start_scheduler_async, stop_scheduler_async
+    from scheduler.service import get_scheduler, start_scheduler_async, stop_scheduler_async
 
     await start_scheduler_async()
     scheduler = get_scheduler()

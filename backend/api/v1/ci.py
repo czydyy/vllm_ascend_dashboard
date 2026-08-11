@@ -36,7 +36,6 @@ from shared.schemas import (
     NightlyTestCaseUpdate,
     WorkflowLatestResult,
 )
-from shared.scheduler_service import get_scheduler
 from shared.utils.ci_filters import build_workflow_time_filter
 
 logger = logging.getLogger(__name__)

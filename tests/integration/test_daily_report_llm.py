@@ -169,7 +169,7 @@ def _patch_scheduler_job(mock_session, mock_send=None):
     mock_session_factory = MagicMock(return_value=mock_cm)
 
     patches = [
-        patch("shared.scheduler_service.settings"),
+        patch("scheduler.service.settings"),
         patch("sqlalchemy.ext.asyncio.create_async_engine", return_value=mock_engine),
         patch("sqlalchemy.orm.sessionmaker", return_value=mock_session_factory),
     ]
@@ -190,7 +190,7 @@ class TestSendDailyReportJobSmtpDedup:
         Before the fix, lines 729-735 issued a second identical SELECT for
         smtp_config. This test fails if the duplicate is reintroduced.
         """
-        from shared.scheduler_service import DataSyncScheduler
+        from scheduler.service import DataSyncScheduler
 
         scheduler = DataSyncScheduler.__new__(DataSyncScheduler)
 
@@ -203,7 +203,7 @@ class TestSendDailyReportJobSmtpDedup:
         for p in patches:
             p.start()
         try:
-            import shared.scheduler_service as sched_mod
+            import scheduler.service as sched_mod
             sched_mod.settings.REPORT_ENABLED = True
             sched_mod.settings.DATABASE_URL = "mysql+aiomysql://dashboard:dashboard123@localhost:3306/vllm_dashboard_test"
 
@@ -221,7 +221,7 @@ class TestSendDailyReportJobSmtpDedup:
     @pytest.mark.asyncio
     async def test_skips_when_no_recipients(self):
         """Job must return early when report_recipients is empty."""
-        from shared.scheduler_service import DataSyncScheduler
+        from scheduler.service import DataSyncScheduler
 
         scheduler = DataSyncScheduler.__new__(DataSyncScheduler)
 
@@ -234,7 +234,7 @@ class TestSendDailyReportJobSmtpDedup:
         for p in patches:
             p.start()
         try:
-            import shared.scheduler_service as sched_mod
+            import scheduler.service as sched_mod
             sched_mod.settings.REPORT_ENABLED = True
             sched_mod.settings.DATABASE_URL = "mysql+aiomysql://dashboard:dashboard123@localhost:3306/vllm_dashboard_test"
 

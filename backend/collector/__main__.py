@@ -6,7 +6,7 @@ tasks; it is deployed independently from API and scheduler processes.
 
 import asyncio
 
-from .runner import main
+from .application import main
 
 
 if __name__ == "__main__":

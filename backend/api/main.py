@@ -48,10 +48,6 @@ from shared.core.logging import setup_db_logging
 from shared.db.base import engine
 from shared.middleware.usage_tracking import UsageTrackingMiddleware
 from shared.models import Base
-from shared.scheduler_service import get_scheduler, start_scheduler_async, stop_scheduler_async
-
-# Scheduler 是否在 API 进程中启动（Phase A 拆出后设为 False）
-_API_START_SCHEDULER = os.environ.get("API_START_SCHEDULER", "false").lower() == "true"
 # Database DDL is allowed only for local development. Production migrations
 # must be executed by the explicit release/migration job before the API starts.
 _AUTO_MIGRATE = os.environ.get(
@@ -440,28 +436,9 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.warning("setup_db_logging failed (non-fatal): %s", e)
 
-    # Phase A: Scheduler 拆出为独立进程后，API 默认不启动 Scheduler。
-    # 设置 API_START_SCHEDULER=true 可在过渡期保持兼容。
-    if _API_START_SCHEDULER:
-        try:
-            await start_scheduler_async()
-            scheduler = get_scheduler()
-            logger.info("Scheduler started (embedded mode)")
-            for job in scheduler.scheduler.get_jobs():
-                logger.info(f"Scheduled job: {job.id} - {job.name}, next run: {job.next_run_time}")
-        except Exception as e:
-            logger.error(f"Failed to start scheduler: {e}", exc_info=True)
-
     yield
 
     logger.info("Shutting down application...")
-
-    if _API_START_SCHEDULER:
-        try:
-            await stop_scheduler_async()
-            logger.info("Scheduler stopped")
-        except Exception as e:
-            logger.error(f"Error stopping scheduler: {e}", exc_info=True)
 
     try:
         await engine.dispose()
