@@ -45,6 +45,7 @@ htmlcov/
 
 # Type checking
 .mypy_cache/
+.ruff_cache/
 
 # Backend specific
 backend/app.db

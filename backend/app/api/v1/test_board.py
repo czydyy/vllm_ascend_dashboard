@@ -44,14 +44,21 @@ async def get_db():
 
 
 def get_github():
-    return GitHubClient(token=settings.GITHUB_TOKEN, owner=settings.GITHUB_OWNER, repo=settings.GITHUB_REPO) if settings.GITHUB_TOKEN else None
+    return (
+        GitHubClient(
+            token=settings.GITHUB_TOKEN, owner=settings.GITHUB_OWNER, repo=settings.GITHUB_REPO
+        )
+        if settings.GITHUB_TOKEN
+        else None
+    )
 
 
 @router.get("/overview", response_model=TestOverviewResponse)
 async def get_overview(
     days: int = Query(7, ge=1, le=90),
     include_stale: bool = Query(False, description="是否包含已退出用例"),
-    db: AsyncSession = Depends(get_db), user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
 ):
     svc = TestBoardService(db)
     data = await svc.get_overview(days=days, include_stale=include_stale)
@@ -61,20 +68,32 @@ async def get_overview(
 @router.get("/suites")
 async def get_suites(
     include_stale: bool = Query(False, description="是否包含已退出用例"),
-    db: AsyncSession = Depends(get_db), user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
 ):
     svc = TestBoardService(db)
     return await svc.get_suites(include_stale=include_stale)
 
 
 @router.get("/filter-options")
-async def get_filter_options(db: AsyncSession = Depends(get_db), user: User = Depends(get_current_user)):
+async def get_filter_options(
+    db: AsyncSession = Depends(get_db), user: User = Depends(get_current_user)
+):
     from sqlalchemy import distinct, select
 
     from app.models.test_board import TestCase
-    test_types = (await db.execute(select(distinct(TestCase.test_type)).where(TestCase.test_type.isnot(None)))).all()
-    suites = (await db.execute(select(distinct(TestCase.test_suite)).where(TestCase.test_suite.isnot(None)))).all()
-    hardwares = (await db.execute(select(distinct(TestCase.hardware)).where(TestCase.hardware.isnot(None)))).all()
+
+    test_types = (
+        await db.execute(select(distinct(TestCase.test_type)).where(TestCase.test_type.isnot(None)))
+    ).all()
+    suites = (
+        await db.execute(
+            select(distinct(TestCase.test_suite)).where(TestCase.test_suite.isnot(None))
+        )
+    ).all()
+    hardwares = (
+        await db.execute(select(distinct(TestCase.hardware)).where(TestCase.hardware.isnot(None)))
+    ).all()
     return {
         "test_types": [r[0] for r in test_types],
         "suites": [r[0] for r in suites],
@@ -84,26 +103,47 @@ async def get_filter_options(db: AsyncSession = Depends(get_db), user: User = De
 
 @router.get("/cases")
 async def get_cases(
-    test_type: str | None = None, suite_name: str | None = None, module_name: str | None = None,
-    hardware: str | None = None, result: str | None = None, health_level: str | None = None,
-    is_flaky: bool | None = None, owner: str | None = None,
+    test_type: str | None = None,
+    suite_name: str | None = None,
+    module_name: str | None = None,
+    hardware: str | None = None,
+    result: str | None = None,
+    health_level: str | None = None,
+    is_flaky: bool | None = None,
+    owner: str | None = None,
     include_stale: bool = Query(False, description="是否包含已退出用例"),
-    sort: str = "health_score", order: str = "desc",
-    page: int = 1, per_page: int = 20,
-    db: AsyncSession = Depends(get_db), user: User = Depends(get_current_user),
+    sort: str = "health_score",
+    order: str = "desc",
+    page: int = 1,
+    per_page: int = 20,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
 ):
-    filters = {"test_type": test_type, "test_suite": suite_name, "module_name": module_name,
-               "hardware": hardware, "result": result, "health_level": health_level,
-               "is_flaky": is_flaky, "owner": owner, "sort": sort, "order": order}
+    filters = {
+        "test_type": test_type,
+        "test_suite": suite_name,
+        "module_name": module_name,
+        "hardware": hardware,
+        "result": result,
+        "health_level": health_level,
+        "is_flaky": is_flaky,
+        "owner": owner,
+        "sort": sort,
+        "order": order,
+    }
     filters = {k: v for k, v in filters.items() if v is not None}
     svc = TestBoardService(db)
-    data = await svc.get_cases(filters=filters, page=page, per_page=per_page, include_stale=include_stale)
+    data = await svc.get_cases(
+        filters=filters, page=page, per_page=per_page, include_stale=include_stale
+    )
     data["items"] = [TestCaseResponse.model_validate(item) for item in data["items"]]
     return data
 
 
 @router.get("/cases/{case_id}")
-async def get_case_detail(case_id: int, db: AsyncSession = Depends(get_db), user: User = Depends(get_current_user)):
+async def get_case_detail(
+    case_id: int, db: AsyncSession = Depends(get_db), user: User = Depends(get_current_user)
+):
     svc = TestBoardService(db)
     data = await svc.get_case_detail(case_id)
     if not data:
@@ -114,16 +154,21 @@ async def get_case_detail(case_id: int, db: AsyncSession = Depends(get_db), user
 
 @router.get("/runs")
 async def get_runs(
-    test_case_id: int | None = None, result: str | None = None,
-    days: int = 30, page: int = 1, per_page: int = 20,
+    test_case_id: int | None = None,
+    result: str | None = None,
+    days: int = 30,
+    page: int = 1,
+    per_page: int = 20,
     format: str | None = None,
-    db: AsyncSession = Depends(get_db), user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
 ):
     from datetime import timedelta
 
     from sqlalchemy import desc, func, select
 
     from app.models.test_board import TestRun
+
     cutoff = datetime.now(UTC) - timedelta(days=days)
     stmt = select(TestRun).where(TestRun.started_at >= cutoff)
     if test_case_id:
@@ -137,35 +182,77 @@ async def get_runs(
     if format == "csv":
         output = io.StringIO()
         writer = csv.writer(output)
-        writer.writerow(["id", "test_case_id", "result", "duration_seconds", "failure_category", "head_sha", "started_at"])
+        writer.writerow(
+            [
+                "id",
+                "test_case_id",
+                "result",
+                "duration_seconds",
+                "failure_category",
+                "head_sha",
+                "started_at",
+            ]
+        )
         for item in items:
-            writer.writerow([item.id, item.test_case_id, item.result, item.duration_seconds, item.failure_category, item.head_sha, item.started_at])
-        return Response(content=output.getvalue(), media_type="text/csv", headers={"Content-Disposition": "attachment; filename=test_runs.csv"})
+            writer.writerow(
+                [
+                    item.id,
+                    item.test_case_id,
+                    item.result,
+                    item.duration_seconds,
+                    item.failure_category,
+                    item.head_sha,
+                    item.started_at,
+                ]
+            )
+        return Response(
+            content=output.getvalue(),
+            media_type="text/csv",
+            headers={"Content-Disposition": "attachment; filename=test_runs.csv"},
+        )
     return {"total": total, "items": items, "page": page, "page_size": per_page}
 
 
 @router.get("/flaky")
 async def get_flaky(
-    min_flip_rate: float = 0.01, days: int = 30,
-    suite_name: str | None = None, module_name: str | None = None,
-    sort: str = "flip_rate", order: str = "desc",
-    page: int = 1, per_page: int = 20,
-    db: AsyncSession = Depends(get_db), user: User = Depends(get_current_user),
+    min_flip_rate: float = 0.01,
+    days: int = 30,
+    suite_name: str | None = None,
+    module_name: str | None = None,
+    sort: str = "flip_rate",
+    order: str = "desc",
+    page: int = 1,
+    per_page: int = 20,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
 ):
     filters = {"suite_name": suite_name, "module_name": module_name, "sort": sort, "order": order}
     filters = {k: v for k, v in filters.items() if v is not None}
     svc = TestBoardService(db)
-    return await svc.get_flaky_cases(min_flip_rate=min_flip_rate, days=days, filters=filters, page=page, per_page=per_page)
+    return await svc.get_flaky_cases(
+        min_flip_rate=min_flip_rate, days=days, filters=filters, page=page, per_page=per_page
+    )
 
 
 @router.get("/failures")
-async def get_failures(days: int = 30, category: str | None = None, suite_name: str | None = None, db: AsyncSession = Depends(get_db), user: User = Depends(get_current_user)):
+async def get_failures(
+    days: int = 30,
+    category: str | None = None,
+    suite_name: str | None = None,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
     svc = TestBoardService(db)
     return await svc.get_failure_breakdown(days=days, category=category, suite_name=suite_name)
 
 
 @router.get("/duration")
-async def get_duration(days: int = 30, suite_name: str | None = None, db: AsyncSession = Depends(get_db), user: User = Depends(get_current_user)):
+async def get_duration(
+    days: int = 30,
+    suite_name: str | None = None,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
     svc = TestBoardService(db)
     return await svc.get_duration_analysis(days=days, suite_name=suite_name)
 
@@ -187,19 +274,34 @@ async def get_case_matrix(user: User = Depends(get_current_user)):
     try:
         return get_case_feature_matrix()
     except FileNotFoundError as exc:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="测试用例矩阵文件不存在") from exc
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="测试用例矩阵文件不存在"
+        ) from exc
 
 
 @router.get("/trends")
-async def get_trends(days: int = 30, db: AsyncSession = Depends(get_db), user: User = Depends(get_current_user)):
+async def get_trends(
+    days: int = 30, db: AsyncSession = Depends(get_db), user: User = Depends(get_current_user)
+):
     from datetime import timedelta
 
     from sqlalchemy import select
 
     from app.models.test_board import TestSuiteSnapshot
-    stmt = select(TestSuiteSnapshot).where(TestSuiteSnapshot.snapshot_date >= (datetime.now(UTC) - timedelta(days=days)).strftime("%Y-%m-%d")).order_by(TestSuiteSnapshot.snapshot_date)
+
+    stmt = (
+        select(TestSuiteSnapshot)
+        .where(
+            TestSuiteSnapshot.snapshot_date
+            >= (datetime.now(UTC) - timedelta(days=days)).strftime("%Y-%m-%d")
+        )
+        .order_by(TestSuiteSnapshot.snapshot_date)
+    )
     snapshots = list((await db.execute(stmt)).scalars().all())
-    health_trend = [{"date": s.snapshot_date, "score": s.health_score, "level": s.health_level} for s in snapshots]
+    health_trend = [
+        {"date": s.snapshot_date, "score": s.health_score, "level": s.health_level}
+        for s in snapshots
+    ]
     pass_rate_trend = [{"date": s.snapshot_date, "rate": s.pass_rate} for s in snapshots]
     return {"health_trend": health_trend, "pass_rate_trend": pass_rate_trend}
 
@@ -209,6 +311,7 @@ async def _run_derivation_background():
     try:
         from app.db.base import SessionLocal
         from app.services.issues_found_derivator import IssuesFoundDerivator
+
         async with SessionLocal() as db:
             result = await IssuesFoundDerivator(db).derive_all()
             logger.info("background derivation done: %s", result)
@@ -229,6 +332,7 @@ async def trigger_sync(
     count = await svc.parse_ci_results(days_back=request.days_back, force=request.force)
     # CI 同步后在后台跑发现问题数推导，避免 HTTP 超时
     from app.services.task_manager import TaskManager
+
     await TaskManager.create_task(
         db,
         "issues_derivation",
@@ -238,15 +342,27 @@ async def trigger_sync(
         priority=10,
     )
     await db.commit()
-    return {"success": True, "message": f"Parsed {count} test results", "count": count, "derivation": "scheduled in background"}
+    return {
+        "success": True,
+        "message": f"Parsed {count} test results",
+        "count": count,
+        "derivation": "scheduled in background",
+    }
 
 
 @router.post("/annotate")
-async def annotate_failure(request: FailureAnnotationRequest, db: AsyncSession = Depends(get_db), user: User = Depends(get_current_user)):
+async def annotate_failure(
+    request: FailureAnnotationRequest,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
     from app.models.test_board import FailureAnnotation
+
     annotation = FailureAnnotation(
-        test_run_id=request.test_run_id, annotated_category=request.annotated_category,
-        annotated_by=request.annotated_by, annotation_source="manual",
+        test_run_id=request.test_run_id,
+        annotated_category=request.annotated_category,
+        annotated_by=request.annotated_by,
+        annotation_source="manual",
     )
     db.add(annotation)
     await db.commit()
@@ -316,7 +432,8 @@ async def update_case(
     if changes:
         logger.info(
             "test_case_metadata_updated: user=%s case_id=%s changes=%s",
-            user.username, case_id,
+            user.username,
+            case_id,
             {k: {"from": v[0], "to": v[1]} for k, v in changes.items()},
         )
     return TestCaseResponse.model_validate(case)
@@ -337,6 +454,7 @@ async def trigger_derive_issues(
     if user.role not in ("admin", "super_admin"):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="需要管理员权限")
     from app.services.issues_found_derivator import IssuesFoundDerivator
+
     if case_id:
         derivator = IssuesFoundDerivator(db)
         result = await derivator.derive_single(case_id)
@@ -345,6 +463,7 @@ async def trigger_derive_issues(
         return {"success": True, "result": result}
     else:
         from app.services.task_manager import TaskManager
+
         task_id = await TaskManager.create_task(
             db,
             "issues_derivation",
@@ -354,89 +473,3 @@ async def trigger_derive_issues(
             priority=10,
         )
         await db.commit()
-        return {"success": True, "task_id": task_id, "result": "full derivation queued"}
-
-
-# ---------------------------------------------------------------------------
-# 测试覆盖率（E2E 特性覆盖 + PR 流水线覆盖率）
-# ---------------------------------------------------------------------------
-class CoverageSyncRequest(BaseModel):
-    source: Literal["all", "e2e", "pr_breadth", "pr_lines"] = "all"
-
-
-@router.get("/coverage/e2e")
-async def get_e2e_coverage(user: CurrentUser, db: DbSession):
-    """E2E 特性覆盖数据"""
-    from app.services.coverage_sync import get_e2e_coverage as _get
-    return await _get(db)
-
-
-@router.get("/coverage/pr-pipeline/breadth")
-async def get_pr_breadth(
-    user: CurrentUser, db: DbSession,
-    page: int = Query(1, ge=1), per_page: int = Query(50, ge=1, le=500),
-    module: str | None = None, sort: str | None = None, order: str = "desc",
-    format: str | None = None,
-):
-    """PR 覆盖广度矩阵"""
-    from app.services.coverage_sync import get_pr_breadth as _get
-    result = await _get(db, page=page, per_page=per_page, module=module, sort=sort, order=order, fmt=format)
-    if format == "csv" and "csv" in result:
-        return Response(content=result["csv"], media_type="text/csv",
-                        headers={"Content-Disposition": "attachment; filename=pr_coverage_breadth.csv"})
-    return result
-
-
-@router.get("/coverage/pr-pipeline/lines")
-async def get_pr_lines(
-    user: CurrentUser, db: DbSession,
-    page: int = Query(1, ge=1), per_page: int = Query(50, ge=1, le=500),
-    sort: str | None = None, order: str = "desc", format: str | None = None,
-):
-    """PR 行覆盖率%"""
-    from app.services.coverage_sync import get_pr_lines as _get
-    result = await _get(db, page=page, per_page=per_page, sort=sort, order=order, fmt=format)
-    if format == "csv" and "csv" in result:
-        return Response(content=result["csv"], media_type="text/csv",
-                        headers={"Content-Disposition": "attachment; filename=pr_coverage_lines.csv"})
-    return result
-
-
-@router.get("/coverage/pr-pipeline/source")
-async def get_pr_source(user: CurrentUser, db: DbSession, path: str = Query(...)):
-    """文件源码 + 逐行覆盖数据（代码浏览器）"""
-    from app.services.coverage_sync import get_pr_source as _get
-    try:
-        return await _get(db, path)
-    except FileNotFoundError as e:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e)) from e
-    except ValueError as e:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
-
-
-@router.get("/coverage/status")
-async def get_coverage_status(user: CurrentUser, db: DbSession):
-    """同步状态"""
-    from app.services.coverage_sync import get_sync_status as _get
-    return await _get(db)
-
-
-@router.post("/coverage/sync")
-async def trigger_coverage_sync(
-    request: CoverageSyncRequest,
-    user: CurrentAdminUser,
-):
-    """手动触发覆盖率同步（admin+，用依赖注入鉴权）"""
-    from app.services.task_manager import TaskManager
-
-    async with SessionLocal() as db:
-        task_id = await TaskManager.create_task(
-            db,
-            "coverage_sync",
-            {"source": request.source},
-            f"coverage_sync:{request.source}:{uuid4()}",
-            required_capability="python",
-            priority=10,
-        )
-        await db.commit()
-    return {"success": True, "task_id": task_id, "message": f"coverage sync ({request.source}) queued"}

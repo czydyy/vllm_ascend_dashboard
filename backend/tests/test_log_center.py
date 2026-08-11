@@ -10,21 +10,19 @@ Coverage:
   - CLI log file parsing
   - Failure analysis file parsing
 """
-import json
 import logging
 import os
 import sys
 import tempfile
-import time
-from datetime import UTC, datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import patch
 
 import pytest
 import pytest_asyncio
 from fastapi.testclient import TestClient
 from sqlalchemy import text
-from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 # Ensure settings validation passes before any app imports
 os.environ.setdefault(
@@ -38,14 +36,14 @@ backend_dir = str(Path(__file__).resolve().parent.parent)
 if backend_dir not in sys.path:
     sys.path.insert(0, backend_dir)
 
-from app.models import Base  # noqa: E402
+from app.models import AppLog  # noqa: E402
 from app.schemas.logs import LogQueryRequest  # noqa: E402
 from app.services.log_service import (  # noqa: E402
     LogService,
     _parse_cli_log_file,
     _parse_failure_analysis_file,
 )
-
+from tests.mysql_test_db import create_test_engine, reset_tables  # noqa: E402
 
 # ============================================================================
 # Helpers
@@ -108,29 +106,9 @@ def _make_failure_report(
 
 @pytest_asyncio.fixture
 async def db_with_app_logs():
-    """Isolated in-memory database with the app_logs table."""
-    engine = create_async_engine(
-        "sqlite+aiosqlite:///:memory:",
-        echo=False,
-    )
-    async with engine.begin() as conn:
-        await conn.run_sync(
-            lambda sync_conn: sync_conn.execute(
-                text(
-                    "CREATE TABLE app_logs ("
-                    "  id INTEGER PRIMARY KEY AUTOINCREMENT,"
-                    "  timestamp DATETIME NOT NULL,"
-                    "  level VARCHAR(10) NOT NULL,"
-                    "  module VARCHAR(200),"
-                    "  function_name VARCHAR(200),"
-                    "  line_number INT,"
-                    "  message TEXT NOT NULL,"
-                    "  traceback TEXT,"
-                    "  created_at DATETIME DEFAULT CURRENT_TIMESTAMP"
-                    ")"
-                )
-            )
-        )
+    """Isolated MySQL database with the app_logs table."""
+    engine = create_test_engine()
+    await reset_tables(engine, [AppLog.__table__])
 
     session_factory = async_sessionmaker(
         engine, class_=AsyncSession, expire_on_commit=False
@@ -792,7 +770,6 @@ class TestDBLogHandler:
         """Calling setup_db_logging twice should not double-register."""
         from app.core.logging import setup_db_logging
 
-        root_before = len(logging.getLogger().handlers)
         setup_db_logging()
         count_after_first = len(logging.getLogger().handlers)
         setup_db_logging()

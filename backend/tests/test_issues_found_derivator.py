@@ -19,14 +19,14 @@ os.environ.setdefault("GITHUB_OWNER", "vllm-ascend")
 os.environ.setdefault("GITHUB_REPO", "vllm-ascend")
 
 import pytest
-from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
-from sqlalchemy.pool import StaticPool
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from app.models import Base, PullRequest
+from app.models import PullRequest
 from app.models.test_board import TestCase, TestRun
 from app.schemas.test_board import TestCaseResponse
 from app.services.issues_found_derivator import IssuesFoundDerivator
 from tests.conftest import make_test_case, make_test_run
+from tests.mysql_test_db import create_test_engine, reset_tables
 
 
 def _make_run(
@@ -43,21 +43,15 @@ def _make_run(
 
 @pytest.fixture
 async def rich_db():
-    """In-memory SQLite with test_board + pull_requests tables."""
+    """Dedicated MySQL fixture with test-board and pull-request tables."""
     from app.models import CIResult, JobOwner
     from app.models.test_board import TestSuiteSnapshot
 
-    engine = create_async_engine("sqlite+aiosqlite:///:memory:", poolclass=StaticPool)
-    async with engine.begin() as conn:
-        await conn.run_sync(
-            lambda sync_conn: Base.metadata.create_all(
-                sync_conn, tables=[
-                    CIResult.__table__, JobOwner.__table__,
-                    TestCase.__table__, TestRun.__table__, TestSuiteSnapshot.__table__,
-                    PullRequest.__table__,
-                ]
-            )
-        )
+    engine = create_test_engine()
+    await reset_tables(engine, [
+        CIResult.__table__, JobOwner.__table__, TestCase.__table__,
+        TestRun.__table__, TestSuiteSnapshot.__table__, PullRequest.__table__,
+    ])
     sf = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
     async with sf() as session:
         yield session

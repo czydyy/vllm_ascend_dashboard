@@ -17,32 +17,27 @@ os.environ.setdefault("GITHUB_OWNER", "vllm-ascend")
 os.environ.setdefault("GITHUB_REPO", "vllm-ascend")
 
 import pytest
-from sqlalchemy import select, func
-from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
-from sqlalchemy.pool import StaticPool
+from sqlalchemy import func, select
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.models.test_board import TestCase, TestRun
 from app.schemas.test_board import TestCaseResponse
+from app.services.test_board_service import TestBoardService
 from app.services.test_health_calculator import TestHealthCalculator
-from app.services.test_board_service import TestBoardService, _active_case_filter
 from tests.conftest import make_test_case, make_test_run
+from tests.mysql_test_db import create_test_engine, reset_tables
 
 
 @pytest.fixture
 async def rich_db():
-    from app.models import Base, CIResult, JobOwner
+    from app.models import CIResult, JobOwner
     from app.models.test_board import TestSuiteSnapshot
 
-    engine = create_async_engine("sqlite+aiosqlite:///:memory:", poolclass=StaticPool)
-    async with engine.begin() as conn:
-        await conn.run_sync(
-            lambda sync_conn: Base.metadata.create_all(
-                sync_conn, tables=[
-                    CIResult.__table__, JobOwner.__table__,
-                    TestCase.__table__, TestRun.__table__, TestSuiteSnapshot.__table__,
-                ]
-            )
-        )
+    engine = create_test_engine()
+    await reset_tables(engine, [
+        CIResult.__table__, JobOwner.__table__, TestCase.__table__,
+        TestRun.__table__, TestSuiteSnapshot.__table__,
+    ])
     sf = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
     async with sf() as session:
         yield session

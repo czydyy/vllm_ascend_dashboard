@@ -4,38 +4,25 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest_asyncio
-from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
-from sqlalchemy.pool import StaticPool
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 backend_dir = str(Path(__file__).resolve().parent.parent)
 if backend_dir not in sys.path:
     sys.path.insert(0, backend_dir)
 
-from app.models import Base, CIResult, PullRequest, WorkflowConfig  # noqa: E402
+from app.models import CIResult, PullRequest, WorkflowConfig  # noqa: E402
 from app.models.test_board import TestCase, TestRun, TestSuiteSnapshot  # noqa: E402
+from tests.mysql_test_db import create_test_engine, reset_tables  # noqa: E402
 
 
 @pytest_asyncio.fixture
 async def db_session():
-    """Create an isolated in-memory database with the required tables."""
-    engine = create_async_engine(
-        "sqlite+aiosqlite:///:memory:",
-        echo=False,
-        poolclass=StaticPool,
-    )
-    async with engine.begin() as conn:
-        await conn.run_sync(
-            lambda sync_conn: Base.metadata.create_all(
-                sync_conn, tables=[
-                    PullRequest.__table__,
-                    CIResult.__table__,
-                    WorkflowConfig.__table__,
-                    TestCase.__table__,
-                    TestRun.__table__,
-                    TestSuiteSnapshot.__table__,
-                ]
-            )
-        )
+    """Create an isolated MySQL database fixture with the required tables."""
+    engine = create_test_engine()
+    await reset_tables(engine, [
+        PullRequest.__table__, CIResult.__table__, WorkflowConfig.__table__,
+        TestCase.__table__, TestRun.__table__, TestSuiteSnapshot.__table__,
+    ])
 
     session_factory = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
     async with session_factory() as session:

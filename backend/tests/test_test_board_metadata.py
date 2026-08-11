@@ -21,13 +21,13 @@ os.environ.setdefault("GITHUB_REPO", "vllm-ascend")
 
 import pytest
 from sqlalchemy import select, text
-from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
-from sqlalchemy.pool import StaticPool
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.models.test_board import TestCase as _TC
 from app.schemas.test_board import TestCaseResponse, TestCaseUpdateRequest
 from app.services.test_health_calculator import TestHealthCalculator
 from tests.conftest import make_test_case, make_test_run
+from tests.mysql_test_db import create_test_engine, reset_tables
 
 
 class TestFlakyManualProtection:
@@ -265,8 +265,7 @@ class TestPatchUpdateLogic:
 async def app_client(rich_db):
     """构造一个覆盖了 get_db / get_current_user 的真实 ASGI 测试客户端。
 
-    使用自带的 rich_db（内存 SQLite），不依赖 conftest 的 MySQL fixture，
-    便于本地与 CI 一致运行。采用最小 FastAPI app（仅挂载 test_board 路由），
+    使用专用 MySQL rich_db fixture。采用最小 FastAPI app（仅挂载 test_board 路由），
     避免 app.main 的中间件触发 MySQL 连接。
     """
     from fastapi import FastAPI
@@ -411,23 +410,15 @@ class TestPatchEndpoint:
 
 @pytest.fixture
 async def rich_db():
-    """自带内存 SQLite 库，包含 test_board 相关全部表，供本模块所有 DB 测试使用。
-
-    不依赖 conftest 的 MySQL db_session，本地与 CI 一致运行。
-    """
-    from app.models import Base, CIResult, JobOwner
+    """Dedicated MySQL fixture for test-board metadata tests."""
+    from app.models import CIResult, JobOwner
     from app.models.test_board import TestCase, TestRun, TestSuiteSnapshot
 
-    engine = create_async_engine("sqlite+aiosqlite:///:memory:", poolclass=StaticPool)
-    async with engine.begin() as conn:
-        await conn.run_sync(
-            lambda sync_conn: Base.metadata.create_all(
-                sync_conn, tables=[
-                    CIResult.__table__, JobOwner.__table__,
-                    TestCase.__table__, TestRun.__table__, TestSuiteSnapshot.__table__,
-                ]
-            )
-        )
+    engine = create_test_engine()
+    await reset_tables(engine, [
+        CIResult.__table__, JobOwner.__table__, TestCase.__table__,
+        TestRun.__table__, TestSuiteSnapshot.__table__,
+    ])
     sf = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
     async with sf() as session:
         yield session
@@ -518,7 +509,6 @@ class TestBackfillLogic:
 
     @pytest.mark.asyncio
     async def test_backfill_counts_runs_and_failures(self, rich_db):
-        from app.models.test_board import TestCase as TC
 
         case = make_test_case(test_name="bf_case", test_suite="Nightly-A2")
         case.lifetime_runs = 0

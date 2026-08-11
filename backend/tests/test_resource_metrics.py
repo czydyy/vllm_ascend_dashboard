@@ -7,15 +7,13 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import pytest_asyncio
-from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
-from sqlalchemy.pool import StaticPool
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 backend_dir = str(Path(__file__).resolve().parent.parent)
 if backend_dir not in sys.path:
     sys.path.insert(0, backend_dir)
 
 from app.models import (  # noqa: E402
-    Base,
     KubernetesClusterConfig,
     ProjectDashboardConfig,
     ResourceNodeMetrics,
@@ -23,28 +21,17 @@ from app.models import (  # noqa: E402
 )
 from app.schemas.resource_metrics import RESOURCE_METRICS_CONFIG_KEY  # noqa: E402
 from app.services.resource_metrics import ResourceMetricsService  # noqa: E402
+from tests.mysql_test_db import create_test_engine, reset_tables  # noqa: E402
 
 
 @pytest_asyncio.fixture
 async def db_session():
-    """Create an isolated in-memory database with resource metrics tables."""
-    engine = create_async_engine(
-        "sqlite+aiosqlite:///:memory:",
-        echo=False,
-        poolclass=StaticPool,
-    )
-    async with engine.begin() as conn:
-        await conn.run_sync(
-            lambda sync_conn: Base.metadata.create_all(
-                sync_conn,
-                tables=[
-                    KubernetesClusterConfig.__table__,
-                    ResourceNpuMetrics.__table__,
-                    ResourceNodeMetrics.__table__,
-                    ProjectDashboardConfig.__table__,
-                ],
-            )
-        )
+    """Create an isolated MySQL database with resource metrics tables."""
+    engine = create_test_engine()
+    await reset_tables(engine, [
+        KubernetesClusterConfig.__table__, ResourceNpuMetrics.__table__,
+        ResourceNodeMetrics.__table__, ProjectDashboardConfig.__table__,
+    ])
 
     session_factory = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
     async with session_factory() as session:

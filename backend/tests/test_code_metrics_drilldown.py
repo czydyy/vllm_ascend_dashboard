@@ -1,6 +1,6 @@
 """代码度量下钻明细 API 集成测试。
 
-使用 SQLite 内存数据库验证 /code-metrics/files, /functions, /drilldown 端点。
+使用专用 MySQL 测试数据库验证 /code-metrics/files, /functions, /drilldown 端点。
 """
 import sys
 from datetime import date
@@ -9,7 +9,7 @@ from pathlib import Path
 import pytest
 import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
-from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+from sqlalchemy.ext.asyncio import async_sessionmaker
 
 backend_dir = str(Path(__file__).resolve().parent.parent)
 if backend_dir not in sys.path:
@@ -19,13 +19,13 @@ from app.api.deps import get_db  # noqa: E402
 from app.core.security import create_access_token  # noqa: E402
 from app.main import app  # noqa: E402
 from app.models import Base, CodeComplexityDetail, CodeMetricsSnapshot, User  # noqa: E402
+from tests.mysql_test_db import create_test_engine, reset_tables  # noqa: E402
 
 
 @pytest_asyncio.fixture
 async def test_engine():
-    engine = create_async_engine("sqlite+aiosqlite:///:memory:", echo=False)
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
+    engine = create_test_engine()
+    await reset_tables(engine, Base.metadata.tables.values())
     yield engine
     await engine.dispose()
 
