@@ -1,0 +1,117 @@
+# Single local development topology for Windows, Linux, and macOS.
+# Start it through ./dev-setup.ps1 or ./dev-setup.sh so .env.local is created
+# with a non-default JWT secret when needed.
+services:
+  mysql:
+    image: mysql:8.0
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-vllm_dashboard}
+      MYSQL_USER: ${MYSQL_USER:-dashboard}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD}
+    ports:
+      - "${DEV_MYSQL_PORT:-3308}:3306"
+    volumes:
+      - dev_mysql_data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-p${MYSQL_ROOT_PASSWORD}"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+
+  litellm:
+    image: ghcr.io/berriai/litellm:main-latest
+    environment:
+      LITELLM_MASTER_KEY: ${LITELLM_MASTER_KEY}
+      STORE_MODEL_IN_DB: "false"
+    entrypoint: []
+    command: ["litellm", "--config", "/app/litellm_config.yaml", "--port", "4000"]
+    volumes:
+      - ./deploy/config/litellm_config.yaml:/app/litellm_config.yaml
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import socket; s=socket.socket(); s.connect(('localhost',4000)); s.close()"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile.prod
+    env_file:
+      - .env.local
+    environment:
+      DATABASE_URL: mysql+aiomysql://${MYSQL_USER:-dashboard}:${MYSQL_PASSWORD}@mysql:3306/${MYSQL_DATABASE:-vllm_dashboard}
+      ENVIRONMENT: development
+      DEBUG: "true"
+      AUTO_MIGRATE: "true"
+      DATA_DIR: /app/data
+      LITELLM_PROXY_URL: http://litellm:4000
+      LITELLM_MASTER_KEY: ${LITELLM_MASTER_KEY}
+      AGENT_SERVICE_ENABLED: "false"
+      AGENT_PROXY_ONLY: "true"
+      AGENT_PROXY_ALLOWED_HOSTS: litellm
+    ports:
+      - "${DEV_BACKEND_PORT:-8000}:8000"
+    volumes:
+      - dev_backend_data:/app/data
+      - ./deploy/config/litellm_config.yaml:/app/litellm_config.yaml
+    depends_on:
+      mysql:
+        condition: service_healthy
+      litellm:
+        condition: service_healthy
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile.prod
+      args:
+        VITE_API_BASE_URL: /api/v1
+    ports:
+      - "${DEV_FRONTEND_PORT:-3000}:80"
+    depends_on:
+      backend:
+        condition: service_started
+
+  scheduler:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile.prod
+    env_file:
+      - .env.local
+    environment:
+      DATABASE_URL: mysql+aiomysql://${MYSQL_USER:-dashboard}:${MYSQL_PASSWORD}@mysql:3306/${MYSQL_DATABASE:-vllm_dashboard}
+      ENVIRONMENT: development
+      DATA_DIR: /app/data
+    command: python -m app.scheduler
+    volumes:
+      - dev_backend_data:/app/data
+    depends_on:
+      mysql:
+        condition: service_healthy
+    profiles: ["workers"]
+
+  collector:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile.prod
+    env_file:
+      - .env.local
+    environment:
+      DATABASE_URL: mysql+aiomysql://${MYSQL_USER:-dashboard}:${MYSQL_PASSWORD}@mysql:3306/${MYSQL_DATABASE:-vllm_dashboard}
+      ENVIRONMENT: development
+      DATA_DIR: /app/data
+      NODE_ID: collector-dev-1
+      CAPABILITIES: python
+    command: python -m app.collector
+    volumes:
+      - dev_backend_data:/app/data
+    depends_on:
+      mysql:
+        condition: service_healthy
+    profiles: ["workers"]
+
+volumes:
+  dev_mysql_data:
+  dev_backend_data:

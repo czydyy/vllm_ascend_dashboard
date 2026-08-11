@@ -58,11 +58,11 @@ git clone https://github.com/vllm-project/vllm-ascend-dashboard.git
 cd vllm-ascend-dashboard
 
 # 2. 配置环境变量
-cp .env.example .env
+./dev-setup.sh
 # 编辑 .env 文件，设置 GITHUB_TOKEN 等
 
 # 3. 启动开发环境
-docker-compose up -d
+# Windows PowerShell: .\dev-setup.ps1
 
 # 4. 访问服务
 # 前端：http://localhost:3000
