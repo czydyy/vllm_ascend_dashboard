@@ -20,7 +20,7 @@ from shared.models import (  # noqa: E402
     ResourceNodeMetrics,
     ResourceNpuMetrics,
 )
-from shared.schemas.resource_metrics import RESOURCE_METRICS_CONFIG_KEY  # noqa: E402
+from contracts.schemas.resource_metrics import RESOURCE_METRICS_CONFIG_KEY  # noqa: E402
 from shared.read_models.resource_metrics import ResourceMetricsQueryService  # noqa: E402
 from collector.resource_metrics import ResourceMetricsCollector  # noqa: E402
 from tests.mysql_test_db import create_test_engine, reset_tables  # noqa: E402

@@ -12,7 +12,7 @@ from api.deps import get_current_active_admin_user, get_current_user
 from api.deps import get_db as get_db_session
 from infrastructure.db.base import get_db
 from shared.models import User
-from shared.schemas import (
+from contracts.schemas import (
     PRActionRequest,
     ProjectDashboardConfigUpdate,
     TagComparisonRequest,

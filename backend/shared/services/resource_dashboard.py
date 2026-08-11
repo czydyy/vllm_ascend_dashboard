@@ -6,7 +6,7 @@ from typing import Any
 
 from infrastructure.core.config import settings
 from shared.models import KubernetesClusterConfig
-from shared.schemas import (
+from contracts.schemas import (
     ClusterResourceSummary,
     ResourceDashboardResponse,
     ResourceNodeInfo,

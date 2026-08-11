@@ -14,7 +14,7 @@ from api.deps import get_current_active_admin_user, get_current_active_super_adm
 from infrastructure.core.config import settings
 from infrastructure.core.email import DEFAULT_SMTP_CONFIG, SMTP_CONFIG_KEY, get_smtp_config
 from shared.models import ProjectDashboardConfig, User
-from shared.schemas.daily_report import (
+from contracts.schemas.daily_report import (
     DailyReportConfigResponse,
     DailyReportConfigUpdate,
     DailyReportHistoryResponse,

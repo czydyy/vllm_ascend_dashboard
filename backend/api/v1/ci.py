@@ -16,7 +16,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from api.deps import CurrentAdminUser, CurrentSuperAdminUser, CurrentUser, DbSession
 from infrastructure.core.config import settings
 from shared.models import CIJob, CIResult, DailyFailureRecord, JobFailureAnalysis, JobOwner, NightlyTestCase, User, WorkflowConfig
-from shared.schemas import (
+from contracts.schemas import (
     CIDailyReport,
     CIJobDetailResponse,
     CIJobResponse,

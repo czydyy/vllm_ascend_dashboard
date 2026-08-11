@@ -8,7 +8,7 @@ from sqlalchemy import select, func, distinct, text, inspect
 from api.deps import CurrentAdminUser, DbSession
 from infrastructure.db.base import engine
 from shared.models import User, UserLoginLog, FeatureUsageLog, Base
-from shared.schemas import LoginStatsResponse, FeatureUsageStatsResponse, FeatureUsageTrendPoint
+from contracts.schemas import LoginStatsResponse, FeatureUsageStatsResponse, FeatureUsageTrendPoint
 
 router = APIRouter()
 logger = logging.getLogger(__name__)

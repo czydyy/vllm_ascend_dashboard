@@ -8,7 +8,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from api.deps import CurrentAdminUser, CurrentUser, DbSession
-from shared.schemas.issue_diagnosis import IssueDiagnosisRequest
+from contracts.schemas.issue_diagnosis import IssueDiagnosisRequest
 from shared.services.issue_diagnosis import IssueDiagnosisService
 
 logger = logging.getLogger(__name__)

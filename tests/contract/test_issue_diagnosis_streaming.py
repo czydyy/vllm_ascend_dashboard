@@ -2,7 +2,7 @@ import pytest
 from pydantic import ValidationError
 from types import SimpleNamespace
 
-from shared.schemas.issue_diagnosis import IssueDiagnosisRequest
+from contracts.schemas.issue_diagnosis import IssueDiagnosisRequest
 from shared.services.issue_diagnosis import IssueDiagnosisService
 from shared.services import llm_client as llm_client_module
 

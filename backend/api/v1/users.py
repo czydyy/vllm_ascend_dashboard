@@ -10,7 +10,7 @@ from sqlalchemy import select
 from api.deps import CurrentAdminUser, CurrentSuperAdminUser, DbSession
 from infrastructure.core.security import hash_password
 from shared.models import User
-from shared.schemas import Message, PasswordReset, UserCreate, UserResponse, UserUpdate
+from contracts.schemas import Message, PasswordReset, UserCreate, UserResponse, UserUpdate
 
 logger = logging.getLogger(__name__)
 

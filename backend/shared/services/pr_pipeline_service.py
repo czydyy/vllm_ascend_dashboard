@@ -10,7 +10,7 @@ from sqlalchemy.types import Unicode
 from infrastructure.core.config import settings
 from shared.models import PullRequest
 from shared.utils.company_detector import detect_company
-from shared.schemas.pr_pipeline import (
+from contracts.schemas.pr_pipeline import (
     PRPipelineContributor,
     PRPipelineContributorsResponse,
     PRPipelineKanban,

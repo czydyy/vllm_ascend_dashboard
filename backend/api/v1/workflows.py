@@ -7,7 +7,7 @@ from sqlalchemy import select
 
 from api.deps import DbSession
 from shared.models import WorkflowConfig
-from shared.schemas import WorkflowConfigCreate, WorkflowConfigResponse, WorkflowConfigUpdate
+from contracts.schemas import WorkflowConfigCreate, WorkflowConfigResponse, WorkflowConfigUpdate
 
 router = APIRouter()
 

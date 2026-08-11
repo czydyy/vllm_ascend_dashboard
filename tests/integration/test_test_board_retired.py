@@ -21,7 +21,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from shared.models.test_board import TestCase, TestRun
-from shared.schemas.test_board import TestCaseResponse
+from contracts.schemas.test_board import TestCaseResponse
 from shared.services.test_board_service import TestBoardService
 from shared.services.test_health_calculator import TestHealthCalculator
 from tests.conftest import make_test_case, make_test_run

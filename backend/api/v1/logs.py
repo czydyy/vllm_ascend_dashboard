@@ -7,7 +7,7 @@ from urllib.parse import unquote
 from fastapi import APIRouter, HTTPException, status
 
 from api.deps import DbSession
-from shared.schemas.logs import (
+from contracts.schemas.logs import (
     LogEntryResponse,
     LogQueryRequest,
     LogQueryResponse,

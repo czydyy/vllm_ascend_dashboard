@@ -4,7 +4,7 @@ from fastapi import APIRouter, HTTPException, Query, status
 
 from api.deps import CurrentAdminUser, CurrentUser, DbSession
 from infrastructure.core.config import settings
-from shared.schemas.pr_pipeline import (
+from contracts.schemas.pr_pipeline import (
     PRPipelineContributor,
     PRPipelineContributorsResponse,
     PRPipelineHistoricalSyncRequest,

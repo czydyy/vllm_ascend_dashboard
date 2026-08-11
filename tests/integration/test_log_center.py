@@ -37,7 +37,7 @@ if backend_dir not in sys.path:
     sys.path.insert(0, backend_dir)
 
 from shared.models import AppLog  # noqa: E402
-from shared.schemas.logs import LogQueryRequest  # noqa: E402
+from contracts.schemas.logs import LogQueryRequest  # noqa: E402
 from shared.services.log_service import (  # noqa: E402
     LogService,
     _parse_cli_log_file,

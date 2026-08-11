@@ -4,7 +4,7 @@ from typing import Annotated
 from fastapi import APIRouter, Query
 
 from api.deps import CurrentAdminUser, CurrentSuperAdminUser, CurrentUser, DbSession
-from shared.schemas import (
+from contracts.schemas import (
     NpuMetricsResponse,
     NodeMetricsResponse,
     ResourceMetricsConfigResponse,

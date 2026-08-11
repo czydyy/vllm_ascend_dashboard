@@ -5,7 +5,7 @@ from sqlalchemy import select
 
 from api.deps import CurrentUser, DbSession
 from shared.models import AlertCondition, AlertConditionGroup, AlertHistory as AlertHistoryModel, AlertRule
-from shared.schemas import (
+from contracts.schemas import (
     AlertConditionCreate,
     AlertConditionResponse,
     AlertConditionGroupCreate,

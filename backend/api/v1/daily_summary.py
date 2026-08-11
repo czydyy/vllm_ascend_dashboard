@@ -10,7 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from api.deps import get_current_user, get_current_active_super_admin_user, get_db
 from shared.models import User
-from shared.schemas.daily_summary import (
+from contracts.schemas.daily_summary import (
     GenerateSummaryRequest, FetchDataRequest,
     DailySummaryResponse, DailySummaryListResponse, DailySummaryListItem,
     FetchDataResponse, GenerateSummaryResponse,

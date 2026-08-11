@@ -14,7 +14,7 @@ from infrastructure.core.security import (
     decode_token, hash_ip, hash_password, verify_password,
 )
 from shared.models import User, UserLoginLog, TokenBlacklist
-from shared.schemas import LoginRequest, Message, PasswordChange, RegisterRequest, Token, UserResponse
+from contracts.schemas import LoginRequest, Message, PasswordChange, RegisterRequest, Token, UserResponse
 from shared.services.rate_limiter import check_rate_limit
 
 router = APIRouter()

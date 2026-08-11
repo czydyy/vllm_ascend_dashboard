@@ -16,7 +16,7 @@ from typing import Optional
 from sqlalchemy import text
 
 from infrastructure.core.config import settings
-from shared.schemas.logs import (
+from contracts.schemas.logs import (
     LogEntryMetadata,
     LogEntryResponse,
     LogQueryRequest,

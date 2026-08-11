@@ -11,7 +11,7 @@ from shared.models import (
     ResourceNodeMetrics,
     ResourceNpuMetrics,
 )
-from shared.schemas.resource_metrics import RESOURCE_METRICS_CONFIG_KEY
+from contracts.schemas.resource_metrics import RESOURCE_METRICS_CONFIG_KEY
 
 logger = logging.getLogger(__name__)
 

@@ -9,7 +9,7 @@ from sqlalchemy import and_, case, func, select
 
 from api.deps import DbSession
 from shared.models import CIJob, JobOwner, WorkflowConfig
-from shared.schemas import (
+from contracts.schemas import (
     CIJobResponse,
     JobOwnerCreate,
     JobOwnerResponse,

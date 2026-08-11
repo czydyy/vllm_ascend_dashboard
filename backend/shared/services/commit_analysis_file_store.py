@@ -5,7 +5,7 @@ from pathlib import Path
 from typing import Any
 
 from infrastructure.core.config import settings
-from shared.schemas.commit_analysis import CommitAnalysisStatus
+from contracts.schemas.commit_analysis import CommitAnalysisStatus
 
 PROJECT_PATTERN = re.compile(r"^[a-zA-Z0-9_-]+$")
 SHA_PATTERN = re.compile(r"^[a-fA-F0-9]{7,64}$")

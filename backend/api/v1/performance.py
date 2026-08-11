@@ -8,7 +8,7 @@ from sqlalchemy import select
 
 from api.deps import DbSession
 from shared.models import PerformanceData
-from shared.schemas import Message, PerformanceComparison, PerformanceDataResponse
+from contracts.schemas import Message, PerformanceComparison, PerformanceDataResponse
 
 router = APIRouter()
 

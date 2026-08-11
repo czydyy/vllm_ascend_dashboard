@@ -3,7 +3,7 @@ from datetime import date as DateType
 from fastapi import APIRouter, HTTPException, Query, status
 
 from api.deps import CurrentAdminUser, CurrentSuperAdminUser, CurrentUser, DbSession
-from shared.schemas.commit_analysis import (
+from contracts.schemas.commit_analysis import (
     CommitAnalysisAssignRequest,
     CommitAnalysisBatchItem,
     CommitAnalysisBatchRequest,

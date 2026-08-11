@@ -5,7 +5,7 @@ from sqlalchemy import select
 
 from api.deps import CurrentAdminUser, CurrentUser, DbSession
 from shared.models import KubernetesClusterConfig
-from shared.schemas import (
+from contracts.schemas import (
     ClusterResourceSummary,
     KubernetesClusterCreate,
     KubernetesClusterResponse,

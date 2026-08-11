@@ -21,7 +21,7 @@ from infrastructure.core.config import settings
 from infrastructure.db.base import SessionLocal
 from shared.models import User
 from shared.models.test_board import TestCase
-from shared.schemas.test_board import (
+from contracts.schemas.test_board import (
     FailureAnnotationRequest,
     TestBoardSyncRequest,
     TestCaseFeatureMatrixResponse,
