@@ -66,6 +66,9 @@ COPY backend/scheduler/ ./scheduler/
 COPY backend/collector/ ./collector/
 COPY backend/infrastructure/ ./infrastructure/
 COPY backend/contracts/ ./contracts/
+COPY backend/agent/ ./agent/
+COPY backend/reporting/ ./reporting/
+COPY backend/tooling/ ./tooling/
 COPY backend/resources/ ./resources/
 COPY backend/templates/ ./templates/
 
