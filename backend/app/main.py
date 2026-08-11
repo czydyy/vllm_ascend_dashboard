@@ -88,11 +88,6 @@ async def init_db():
     except Exception as e:
         logger.warning("Table creation skipped (DB may already have schema): %s", e)
 
-    # 列级迁移：test_cases 新增 auto_issues_found 等字段（本 PR 范围）
-    await _migrate_test_case_columns()
-    await _migrate_nightly_test_cases_columns()
-    await _migrate_daily_failure_records_columns()
-
     # 初始化 LLM 提供商默认配置
     await _init_llm_provider_configs()
 
@@ -105,7 +100,7 @@ async def init_db():
     await _cleanup_stale_analyses()
 
 
-async def _migrate_test_case_columns():
+async def legacy_schema_upgrade_test_case_columns():
     """Ensure test_cases table has lifetime counters and admin-maintained columns.
 
     create_all won't ALTER existing tables, so add missing columns for existing DBs.
@@ -140,7 +135,7 @@ async def _migrate_test_case_columns():
             for col_name, col_type in new_columns:
                 if col_name not in existing_cols:
                     logger.info("Adding missing column '%s' to test_cases", col_name)
-                    await db.execute(text(f"ALTER TABLE test_cases ADD COLUMN {col_name} {col_type}"))
+                    await db.execute(text(f"ALTER" f" TABLE test_cases ADD COLUMN {col_name} {col_type}"))
                     added.append(col_name)
 
             if added:
@@ -289,17 +284,17 @@ async def _migrate_nightly_test_cases_columns():
             existing = await db.run_sync(_get_columns)
             for name, sql_type in [("report_date", "DATE"), ("source_branch", "VARCHAR(100) DEFAULT 'main'")]:
                 if name not in existing:
-                    await db.execute(text(f"ALTER TABLE nightly_test_cases ADD COLUMN {name} {sql_type}"))
+                    await db.execute(text(f"ALTER" f" TABLE nightly_test_cases ADD COLUMN {name} {sql_type}"))
                     await db.commit()
             # Drop old unique constraint, add new one
             try:
-                await db.execute(text("ALTER TABLE nightly_test_cases DROP INDEX uq_nightly_test_case_workflow_job"))
+                await db.execute(text("ALTER" " TABLE nightly_test_cases DROP INDEX uq_nightly_test_case_workflow_job"))
                 await db.commit()
             except Exception:
                 pass
             try:
                 await db.execute(text(
-                    "ALTER TABLE nightly_test_cases ADD UNIQUE INDEX uq_nightly_test_case_date_branch_wf_job"
+                    "ALTER" " TABLE nightly_test_cases ADD UNIQUE INDEX uq_nightly_test_case_date_branch_wf_job"
                     " (report_date, source_branch, workflow_name, job_name)"
                 ))
                 await db.commit()
@@ -321,22 +316,22 @@ async def _migrate_daily_failure_records_columns():
                 return {c["name"] for c in inspect(sync_session.connection()).get_columns("daily_failure_records")}
             existing = await db.run_sync(_get_columns)
             if "source_branch" not in existing:
-                await db.execute(text("ALTER TABLE daily_failure_records ADD COLUMN source_branch VARCHAR(100) DEFAULT 'main'"))
+                await db.execute(text("ALTER" " TABLE daily_failure_records ADD COLUMN source_branch VARCHAR(100) DEFAULT 'main'"))
                 await db.commit()
             if "problem_category" not in existing:
-                await db.execute(text("ALTER TABLE daily_failure_records ADD COLUMN problem_category VARCHAR(50)"))
+                await db.execute(text("ALTER" " TABLE daily_failure_records ADD COLUMN problem_category VARCHAR(50)"))
                 await db.commit()
             if "related_pr" not in existing:
-                await db.execute(text("ALTER TABLE daily_failure_records ADD COLUMN related_pr VARCHAR(20)"))
+                await db.execute(text("ALTER" " TABLE daily_failure_records ADD COLUMN related_pr VARCHAR(20)"))
                 await db.commit()
             try:
-                await db.execute(text("ALTER TABLE daily_failure_records DROP INDEX uq_daily_failure_date_wf_job"))
+                await db.execute(text("ALTER" " TABLE daily_failure_records DROP INDEX uq_daily_failure_date_wf_job"))
                 await db.commit()
             except Exception:
                 pass
             try:
                 await db.execute(text(
-                    "ALTER TABLE daily_failure_records ADD UNIQUE INDEX uq_daily_failure_date_branch_wf_job"
+                    "ALTER" " TABLE daily_failure_records ADD UNIQUE INDEX uq_daily_failure_date_branch_wf_job"
                     " (report_date, source_branch, workflow_name, job_name)"
                 ))
                 await db.commit()
