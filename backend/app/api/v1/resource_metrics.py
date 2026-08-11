@@ -95,7 +95,7 @@ async def update_metrics_config(
         retention_days=config_update.retention_days,
     )
 
-    from app.services.scheduler import get_scheduler
+    from shared.scheduler_service import get_scheduler
     scheduler = get_scheduler()
     scheduler.update_resource_metrics_schedule(updated["interval_minutes"])
 

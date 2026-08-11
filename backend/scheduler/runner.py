@@ -37,7 +37,7 @@ async def main():
         except NotImplementedError:
             signal.signal(sig, _handle_shutdown)
 
-    from app.services.scheduler import get_scheduler, start_scheduler_async, stop_scheduler_async
+    from shared.scheduler_service import get_scheduler, start_scheduler_async, stop_scheduler_async
 
     await start_scheduler_async()
     scheduler = get_scheduler()

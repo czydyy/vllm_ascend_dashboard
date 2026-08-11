@@ -18,11 +18,11 @@ _EXPORTS = {
         "app.services.startup_command_generator",
         "StartupCommandGenerator",
     ),
-    "DataSyncScheduler": ("app.services.scheduler", "DataSyncScheduler"),
-    "get_scheduler": ("app.services.scheduler", "get_scheduler"),
-    "start_scheduler": ("app.services.scheduler", "start_scheduler"),
-    "start_scheduler_async": ("app.services.scheduler", "start_scheduler_async"),
-    "stop_scheduler": ("app.services.scheduler", "stop_scheduler"),
+    "DataSyncScheduler": ("shared.scheduler_service", "DataSyncScheduler"),
+    "get_scheduler": ("shared.scheduler_service", "get_scheduler"),
+    "start_scheduler": ("shared.scheduler_service", "start_scheduler"),
+    "start_scheduler_async": ("shared.scheduler_service", "start_scheduler_async"),
+    "stop_scheduler": ("shared.scheduler_service", "stop_scheduler"),
 }
 
 __all__ = list(_EXPORTS)

@@ -118,7 +118,7 @@ async def update_report_config(
 
         # 调度器重载新的时间配置
         try:
-            from app.services.scheduler import get_scheduler
+            from shared.scheduler_service import get_scheduler
             sched = get_scheduler()
             if sched and sched.scheduler.running:
                 sched.update_report_schedule(

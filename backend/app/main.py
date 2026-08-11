@@ -48,7 +48,7 @@ from app.core.logging import setup_db_logging
 from app.db.base import engine
 from app.middleware.usage_tracking import UsageTrackingMiddleware
 from app.models import Base
-from app.services.scheduler import get_scheduler, start_scheduler_async, stop_scheduler_async
+from shared.scheduler_service import get_scheduler, start_scheduler_async, stop_scheduler_async
 
 # Scheduler 是否在 API 进程中启动（Phase A 拆出后设为 False）
 _API_START_SCHEDULER = os.environ.get("API_START_SCHEDULER", "false").lower() == "true"

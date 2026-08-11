@@ -279,7 +279,7 @@ class TestGetSources:
             {
                 "ts": datetime.now(UTC).strftime("%Y-%m-%d %H:%M:%S"),
                 "level": "INFO",
-                "mod": "app.services.scheduler",
+                "mod": "shared.scheduler_service",
                 "msg": "Scheduler started",
             },
         )

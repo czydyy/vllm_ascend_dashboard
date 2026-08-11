@@ -226,7 +226,7 @@ async def update_sync_config(
     同时更新运行时配置和 .env 文件
     """
     from app.core.config_manager import update_env_config
-    from app.services.scheduler import get_scheduler
+    from shared.scheduler_service import get_scheduler
 
     updates = []
     env_updates = {}
@@ -467,7 +467,7 @@ async def get_system_status(
 
     from app.db.base import SessionLocal
     from app.models import SchedulerHeartbeat, WorkflowConfig
-    from app.services.scheduler import get_scheduler
+    from shared.scheduler_service import get_scheduler
 
     scheduler = get_scheduler()
 
@@ -805,7 +805,7 @@ async def update_daily_summary_config(
 
         # 更新调度器
         try:
-            from app.services.scheduler import get_scheduler
+            from shared.scheduler_service import get_scheduler
             scheduler = get_scheduler()
             scheduler.update_daily_summary_schedule(
                 enabled=config.get('enabled', True),

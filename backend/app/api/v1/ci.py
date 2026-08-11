@@ -36,7 +36,7 @@ from app.schemas import (
     NightlyTestCaseUpdate,
     WorkflowLatestResult,
 )
-from app.services.scheduler import get_scheduler
+from shared.scheduler_service import get_scheduler
 from app.utils.ci_filters import build_workflow_time_filter
 
 logger = logging.getLogger(__name__)
@@ -1732,4 +1732,3 @@ async def sync_test_cases_from_yaml(
         "created": total_created,
         "updated": total_updated,
     }
-
