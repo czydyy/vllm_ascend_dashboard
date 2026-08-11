@@ -92,7 +92,9 @@ def switch_apps_to_replica():
     logger.info("Switching apps to replica: %s", new_url)
     out, err = run_ssh(f"cd {PROJECT_DIR} && "
                        f"sed -i 's|DATABASE_URL=.*|DATABASE_URL={new_url}|' .env.production && "
-                       f"docker compose -f docker-compose.prod.yml up -d --force-recreate --no-build backend scheduler collector 2>&1")
+                       f"docker compose --env-file .env.production "
+                       f"-f deploy/compose/production/compose.yml --profile full "
+                       f"up -d --force-recreate --no-build backend scheduler collector 2>&1")
     logger.info("Switch result: %s", out[:200] if out else err[:200])
 
 
