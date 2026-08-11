@@ -1119,10 +1119,12 @@ async def get_pr_breadth(db: AsyncSession, page: int = 1, per_page: int = 50,
 
 def _csv_safe(val: Any) -> Any:
     """防止 CSV 公式注入：以 =/+/-/@ 开头的单元格前缀 ' """
-    s = str(val) if val is not None else ""
+    if val is None:
+        return ""
+    s = str(val)
     if s and s[0] in ("=", "+", "-", "@"):
         return "'" + s
-    return s
+    return val
 
 
 def _breadth_csv(data: dict, module: str | None) -> str:
