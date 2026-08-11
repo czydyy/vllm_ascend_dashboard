@@ -177,7 +177,7 @@ class CollectorRunner:
 
     async def _run_resource_metrics_collect(self, ctx: TaskContext):
         """Collect node and NPU metrics from the Collector execution role."""
-        from collector.services.alert_evaluator import AlertEvaluator
+        from collector.alert_evaluator import AlertEvaluator
         from collector.resource_metrics import ResourceMetricsCollector
 
         async with SessionLocal() as db:

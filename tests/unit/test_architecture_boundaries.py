@@ -47,3 +47,7 @@ def test_api_never_depends_on_collector_implementation() -> None:
 
 def test_reporting_never_depends_on_http_api() -> None:
     _assert_no_role_imports("reporting", ("api",))
+
+
+def test_collector_has_no_generic_services_bucket() -> None:
+    assert not (BACKEND / "collector" / "services").exists()
