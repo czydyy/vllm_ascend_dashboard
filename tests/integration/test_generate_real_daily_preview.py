@@ -1,6 +1,6 @@
 from types import SimpleNamespace
 
-from scripts.generate_real_daily_preview import _has_exact_snapshot
+from operations.maintenance.generate_real_daily_preview import _has_exact_snapshot
 
 
 def test_exact_preview_requires_saved_ai_content_and_snapshot():

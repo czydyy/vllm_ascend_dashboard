@@ -85,9 +85,8 @@ RUN mkdir -p /home/appuser/.claude/skills \
     && cp -r ./.agents/skills/* /home/appuser/.claude/skills/ \
     && chown -R appuser:appuser /home/appuser/.claude
 
-# Copy scripts directory
-COPY database/migrations/ ./scripts/migration/
-COPY database/bootstrap.py ./scripts/init_db.py
+# Keep database bootstrap and migrations under their source-aligned package.
+COPY database/ ./database/
 
 # Copy entrypoint script
 COPY backend/api/docker-entrypoint.sh /docker-entrypoint.sh

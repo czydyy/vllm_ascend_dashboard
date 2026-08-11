@@ -30,7 +30,7 @@ def test_deploy_script_enforces_backup_migration_health_and_login_order():
 
 
 def test_application_startup_does_not_alter_existing_schema():
-    main_source = (ROOT / "backend" / "app" / "main.py").read_text(encoding="utf-8")
+    main_source = (ROOT / "backend" / "api" / "main.py").read_text(encoding="utf-8")
     assert "ALTER TABLE" not in main_source
     assert "_migrate_test_case_columns" not in main_source
 
@@ -40,7 +40,7 @@ def test_production_uses_one_explicit_migration_command():
     migration = (ROOT / "database" / "migrations" / "migrate.py").read_text(encoding="utf-8")
     initializer = (ROOT / "database" / "bootstrap.py").read_text(encoding="utf-8")
 
-    assert "scripts/migration/migrate.py" in production_entrypoint
+    assert "database/migrations/migrate.py" in production_entrypoint
     assert "scripts/init_db.py" not in production_entrypoint
     assert "migrate_mysql_schema" in migration
     assert "migrate_phase_a" in migration

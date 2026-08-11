@@ -1,4 +1,4 @@
-#!/bin/bash
+﻿#!/bin/bash
 set -e
 
 # 颜色定义
@@ -288,7 +288,7 @@ start_docker() {
 
     # 初始化数据库
     log_info "初始化数据库..."
-    docker compose exec -T backend python scripts/init_db.py || {
+    docker compose exec -T backend python database/bootstrap.py --no-users || {
         log_warning "数据库初始化失败，可能已经初始化过了"
     }
 
@@ -490,3 +490,4 @@ trap cleanup SIGINT SIGTERM
 
 # 执行主函数
 main "$@"
+

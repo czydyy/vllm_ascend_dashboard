@@ -10,9 +10,9 @@
 
 使用方法：
     cd backend
-    uv run python scripts/backfill_pr_body.py              # 全量回填
-    uv run python scripts/backfill_pr_body.py --limit 50   # 只回填前 50 个
-    uv run python scripts/backfill_pr_body.py --dry-run    # 仅检查不写入
+    uv run python operations/maintenance/backfill-pr-body.py              # 全量回填
+    uv run python operations/maintenance/backfill-pr-body.py --limit 50   # 只回填前 50 个
+    uv run python operations/maintenance/backfill-pr-body.py --dry-run    # 仅检查不写入
 
 注意：GitHub API 速率限制 5000 次/小时，619 个 PR 需要约 8 分钟。
 """

@@ -1,4 +1,4 @@
-from scripts.migrate_mysql_schema import (
+from database.migrations.mysql_schema import (
     INDEX_MIGRATIONS,
     MIGRATION_VERSION,
     TABLE_COLUMN_MIGRATIONS,

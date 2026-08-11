@@ -17,6 +17,6 @@ compose_run() {
 }
 
 echo "[MIGRATE] Running canonical MySQL migration"
-compose_run scripts/migration/migrate.py
+compose_run database/migrations/migrate.py
 
 echo "[MIGRATE] Production database migration completed"

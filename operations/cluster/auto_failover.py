@@ -5,7 +5,7 @@ Runs on production, monitors MySQL primary health.
 If primary is down for > 30s, promotes Windows replica via SSH tunnel.
 
 Usage:
-  python3 scripts/auto_failover.py [--daemon]
+  python3 operations/cluster/auto_failover.py [--daemon]
 """
 import paramiko
 import socket
@@ -31,7 +31,7 @@ REPLICA_PASS = os.environ.get("FAILOVER_REPLICA_PASS", "root123456")
 
 CHECK_INTERVAL = 10      # seconds between health checks
 FAILURE_THRESHOLD = 3     # consecutive failures before triggering
-PROMOTE_SCRIPT = "/opt/vllm_ascend_dashboard/scripts/promote_replica.sh"
+PROMOTE_SCRIPT = "/opt/vllm_ascend_dashboard/operations/cluster/promote-replica.sh"
 FAILOVER_LOCK = "/tmp/failover.lock"
 
 failures = 0

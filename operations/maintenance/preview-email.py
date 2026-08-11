@@ -3,8 +3,8 @@
 
 Usage:
     cd backend
-    python scripts/preview_email.py           # 使用 mock 数据
-    python scripts/preview_email.py --real    # 从数据库拉真实数据（需要 DB 连接）
+    python operations/maintenance/preview-email.py           # 使用 mock 数据
+    python operations/maintenance/preview-email.py --real    # 从数据库拉真实数据（需要 DB 连接）
 """
 from __future__ import annotations
 
@@ -141,7 +141,7 @@ def main():
     use_real = "--real" in sys.argv
 
     if use_real:
-        print("Real data mode not implemented yet. Use mock data with: python scripts/preview_email.py")
+        print("Real data mode not implemented yet. Use mock data with: python operations/maintenance/preview-email.py")
         return
 
     report_data = _build_mock_data()

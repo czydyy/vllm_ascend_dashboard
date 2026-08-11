@@ -1,4 +1,4 @@
-# AGENTS.md — AI Agent 操作规范
+﻿# AGENTS.md — AI Agent 操作规范
 
 > 本文件定义 AI Agent（包括 opencode、自动化脚本等）在本项目中的操作红线和规范。
 > **所有 Agent 必须严格遵守，违反红线可能导致数据丢失。**
@@ -7,7 +7,7 @@
 
 ### 绝对禁止的操作
 
-1. **禁止直接删除数据库文件**（`rm dashboard.db`）
+1. **禁止直接删除数据库文件**（删除 MySQL 数据卷）
 2. **禁止在生产环境运行 `database/bootstrap.py` 时不加 `--no-users` 参数**（会重置所有用户）
 3. **禁止在未备份数据库的情况下执行部署/升级操作**
 4. **禁止直接修改数据库表结构**（必须通过迁移脚本）
@@ -47,9 +47,9 @@ python database/bootstrap.py
 ## 数据库操作规范
 
 - **备份命令**: `bash operations/production/backup.sh`
-- **迁移命令**: `python database/bootstrap.py --no-users`（仅建表/升级，不碰用户）
+- **迁移命令**: `bash operations/production/migrate.sh`（唯一生产迁移入口，不碰用户）
 - **回滚命令**: `bash operations/production/deploy.sh --rollback`
-- **定时备份**: cron 每小时自动执行 `backup_db.sh --silent`
+- **定时备份**: cron 每小时自动执行 `operations/production/backup.sh --silent`
 - **备份保留**: 30 天，超出自动清理
 - **备份位置**: `/root/vllm_ascend_dashboard/backups/`
 
@@ -60,7 +60,7 @@ python database/bootstrap.py
 - **项目路径**: `/root/vllm_ascend_dashboard/`
 - **后端服务**: `systemctl status dashboard-backend`
 - **Nginx 配置**: `/etc/nginx/sites-available/dashboard`
-- **数据库路径**: `/root/vllm_ascend_dashboard/backend/data/dashboard.db`
+- **数据库路径**: MySQL 数据由 Docker `mysql_data` volume 管理，不直接操作宿主机文件
 - **环境配置**: `/root/vllm_ascend_dashboard/.env`
 
 ## 开发环境命令
@@ -83,3 +83,6 @@ pnpm dev                   # 开发服务器
 pnpm build                 # 构建生产版本
 pnpm lint                  # 代码检查
 ```
+
+
+

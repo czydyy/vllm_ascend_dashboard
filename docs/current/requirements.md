@@ -1,4 +1,4 @@
-# vLLM Ascend 社区看板项目需求文档
+﻿# vLLM Ascend 社区看板项目需求文档
 
 ## 1. 项目概述
 
@@ -180,7 +180,7 @@ vLLM Ascend 是一个针对华为昇腾（Ascend）AI 处理器优化的 vLLM �
 |-----|---------|
 | 后端 | Python + FastAPI |
 | 前端 | React + Ant Design + Recharts |
-| 数据库（测试） | SQLite |
+| 数据库（测试） | MySQL |
 | 数据库（生产） | MySQL |
 | 部署 | Docker 容器化 |
 
@@ -401,7 +401,7 @@ tensor_parallel_size: 2
 
 ### 6.2 环境配置
 
-- 测试环境使用 SQLite
+- 测试环境使用 MySQL
 - 生产环境切换为 MySQL
 - 通过环境变量配置
 
@@ -586,3 +586,4 @@ tensor_parallel_size: 2
 | v0.3 | 2026-03-23 | 补充异常处理、安全性、监控需求 | - |
 | v0.4 | 2026-03-23 | 修复章节编号，补充性能测试配置说明 | - |
 | v0.5 | 2026-03-23 | 修复章节编号重复问题 | - |
+

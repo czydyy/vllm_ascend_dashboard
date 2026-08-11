@@ -1,4 +1,4 @@
-# vLLM Ascend 社区看板项目技术方案设计
+﻿# vLLM Ascend 社区看板项目技术方案设计
 
 ## 1. 系统架构
 
@@ -32,7 +32,7 @@
 ┌─────────────────────────────────────────────────────────────────────────┐
 │                           数据访问层                                     │
 │  ┌──────────────────┐  ┌──────────────────┐  ┌──────────────────┐       │
-│  │   MySQL/SQLite   │  │   Redis (缓存)   │  │  GitHub API      │       │
+│  │   MySQL   │  │   Redis (缓存)   │  │  GitHub API      │       │
 │  │   (持久化存储)    │  │   (可选)         │  │  (数据源)        │        │
 │  └──────────────────┘  └──────────────────┘  └──────────────────┘       │
 └─────────────────────────────────────────────────────────────────────────┘
@@ -56,7 +56,7 @@
 | | Passlib | 1.x | 密码加密 |
 | | HTTPX | 0.24+ | 异步 HTTP 客户端 |
 | **数据库** | MySQL | 8.0+ | 生产环境 |
-| | SQLite | 3.x | 测试/开发环境 |
+| | MySQL | 8.0+ | 开发、测试与生产环境 |
 | **部署** | Docker | 24.x | 容器化 |
 | | Docker Compose | 2.x | 编排工具 |
 
@@ -171,7 +171,7 @@ vllm-ascend-dashboard/
 
 ```sql
 CREATE TABLE users (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    id BIGINT PRIMARY KEY AUTO_INCREMENT,
     username VARCHAR(50) UNIQUE NOT NULL,
     password_hash VARCHAR(255) NOT NULL,
     role VARCHAR(20) DEFAULT 'user',  -- 'admin', 'super_admin', 'user'
@@ -189,7 +189,7 @@ CREATE INDEX idx_users_role ON users(role);
 
 ```sql
 CREATE TABLE model_configs (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    id BIGINT PRIMARY KEY AUTO_INCREMENT,
     model_name VARCHAR(200) NOT NULL,
     series VARCHAR(50),  -- 'Qwen', 'Llama', 'DeepSeek', 'Other'
     config_yaml TEXT,
@@ -207,7 +207,7 @@ CREATE INDEX idx_model_configs_series ON model_configs(series);
 
 ```sql
 CREATE TABLE model_reports (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    id BIGINT PRIMARY KEY AUTO_INCREMENT,
     model_config_id INTEGER REFERENCES model_configs(id),
     workflow_run_id INTEGER,
     report_json TEXT NOT NULL,  -- 完整的报告 JSON
@@ -226,7 +226,7 @@ CREATE INDEX idx_model_reports_created_at ON model_reports(created_at);
 
 ```sql
 CREATE TABLE ci_results (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    id BIGINT PRIMARY KEY AUTO_INCREMENT,
     workflow_name VARCHAR(100) NOT NULL,
     run_id INTEGER NOT NULL,
     job_name VARCHAR(200),
@@ -251,7 +251,7 @@ CREATE INDEX idx_ci_results_created_at ON ci_results(created_at);
 
 ```sql
 CREATE TABLE performance_data (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    id BIGINT PRIMARY KEY AUTO_INCREMENT,
     test_name VARCHAR(200) NOT NULL,
     hardware VARCHAR(20) NOT NULL,  -- 'A2', 'A3'
     model_name VARCHAR(200) NOT NULL,
@@ -432,7 +432,7 @@ GET /api/v1/performance/compare?
 ### 4.1 GitHub API 客户端
 
 ```python
-# backend/shared/services/github_client.py
+# backend/infrastructure/clients/github_client.py
 
 from typing import Optional
 import httpx
@@ -512,15 +512,15 @@ class GitHubClient:
 ### 4.2 CI 数据采集服务
 
 ```python
-# backend/shared/services/ci_collector.py
+# backend/collector/ci.py
 
 from datetime import datetime, timedelta, timezone
 from typing import List
 import json
 import logging
-from shared.services.github_client import GitHubClient
-from shared.models.ci_result import CIResult
-from shared.db.session import SessionLocal
+from infrastructure.clients.github_client import GitHubClient
+from infrastructure.persistence.models import CIResult
+from infrastructure.db.base import SessionLocal
 
 logger = logging.getLogger(__name__)
 
@@ -676,14 +676,14 @@ class CICollector:
 ### 4.3 性能数据解析服务
 
 ```python
-# backend/shared/services/performance_parser.py
+# backend/tooling/parsers/
 
 import json
 import yaml
 import logging
 from datetime import datetime
 from typing import Optional
-from shared.models.performance_data import PerformanceData
+from infrastructure.persistence.models import PerformanceData
 
 logger = logging.getLogger(__name__)
 
@@ -747,13 +747,13 @@ class PerformanceParser:
 ### 4.4 定时同步任务
 
 ```python
-# backend/shared/services/scheduler.py
+# backend/scheduler/service.py
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
-from shared.services.ci_collector import CICollector
-from shared.services.github_client import GitHubClient
-from shared.core.config import settings
+from collector.ci import CICollector
+from infrastructure.clients.github_client import GitHubClient
+from infrastructure.core.config import settings
 import logging
 
 logger = logging.getLogger(__name__)
@@ -1139,7 +1139,7 @@ CMD ["nginx", "-g", "daemon off;"]
 ### 7.1 GitHub API 限流处理
 
 ```python
-# backend/shared/core/exceptions.py
+# backend/infrastructure/core/exceptions.py
 
 import logging
 from fastapi import HTTPException, Request
@@ -1184,7 +1184,7 @@ async def github_rate_limit_handler(request: Request, call_next):
 ### 7.2 数据解析失败处理
 
 ```python
-# backend/shared/services/data_parser.py
+# backend/tooling/parsers/
 
 from typing import Optional, Tuple, Any, Callable
 import logging
@@ -1227,7 +1227,7 @@ async def parse_with_fallback(
 ### 7.3 重试机制
 
 ```python
-# backend/shared/core/retry.py
+# backend/tooling/retry.py
 
 import asyncio
 import logging
@@ -1307,7 +1307,7 @@ def retry_on_failure(
 ### 8.2 密码加密
 
 ```python
-# backend/shared/core/security.py
+# backend/infrastructure/core/security.py
 
 from passlib.context import CryptContext
 
@@ -1366,7 +1366,7 @@ def create_refresh_token(data: dict) -> str:
 ### 9.1 日志配置
 
 ```python
-# backend/shared/core/logging_config.py
+# backend/infrastructure/core/logging.py
 
 import logging
 import sys
@@ -1630,7 +1630,7 @@ DATA_RETENTION_DAYS=365
 fastapi==0.104.1
 uvicorn[standard]==0.24.0
 sqlalchemy==2.0.23
-aiosqlite==0.19.0
+aiomysql>=0.2.0
 aiomysql==0.1.1
 pydantic==2.5.0
 pydantic-settings==2.1.0
@@ -1713,7 +1713,8 @@ benchmarks/
 │   ├── latency-tests.json
 │   ├── throughput-tests.json
 │   └── serving-tests.json
-└── scripts/
+├── database/                       # MySQL migrations and bootstrap
+└── operations/                     # deployment and cluster runbooks
     ├── run-performance-benchmarks.sh
     └── convert_json_to_markdown.py
 ```
@@ -1742,3 +1743,8 @@ benchmarks/
 | v0.11 | 2026-03-23 | 最终审查：补充性能数据同步说明、验证章节编号和代码块 |
 | v0.12 | 2026-03-23 | 深度审查：修复导入路径、类型注解、脚本检查逻辑（9 个 bug） |
 | v0.13 | 2026-03-23 | 第 4 轮审查：修复汉化问题、后台日志输出（10 个 bug） |
+
+
+
+
+
