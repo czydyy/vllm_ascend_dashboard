@@ -37,14 +37,15 @@ jobs:
       - name: Set up uv
         uses: astral-sh/setup-uv@v5
         with:
-          version: "0.6.14"
+          version: "0.11.28"
 
       - name: Backend checks
         working-directory: backend
         run: |
           uv sync --locked --dev
           uv run ruff check app scripts
-          uv run pytest tests/test_production_database_scripts.py tests/test_startup_migrations.py -q
+          uv run pytest -q
+          uv run pip-audit --strict
 
       - name: Set up pnpm
         uses: pnpm/action-setup@v4
@@ -65,6 +66,7 @@ jobs:
           pnpm lint
           pnpm test -- --run
           pnpm build
+          pnpm audit --prod --audit-level=high
 
   build-and-push:
     if: github.event_name != 'pull_request'
