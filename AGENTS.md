@@ -16,7 +16,7 @@
 ### 部署前必须执行的步骤
 
 ```
-1. 备份数据库     → bash scripts/backup_db.sh
+1. 备份数据库     → bash operations/production/backup.sh
 2. 验证备份       → 检查完整性校验通过 + 用户数 > 0
 3. 记录当前状态   → 用户数、表数、Git commit
 ```
@@ -35,7 +35,7 @@
 
 ```bash
 # ✅ 正确：使用部署脚本（自动备份+验证+回滚）
-bash scripts/deploy_prod.sh
+bash operations/production/deploy.sh
 
 # ❌ 错误：直接拉代码重启（无备份无验证）
 git pull && systemctl restart dashboard-backend
@@ -46,9 +46,9 @@ python scripts/init_db.py
 
 ## 数据库操作规范
 
-- **备份命令**: `bash scripts/backup_db.sh`
+- **备份命令**: `bash operations/production/backup.sh`
 - **迁移命令**: `python scripts/init_db.py --no-users`（仅建表/升级，不碰用户）
-- **回滚命令**: `bash scripts/deploy_prod.sh --rollback`
+- **回滚命令**: `bash operations/production/deploy.sh --rollback`
 - **定时备份**: cron 每小时自动执行 `backup_db.sh --silent`
 - **备份保留**: 30 天，超出自动清理
 - **备份位置**: `/root/vllm_ascend_dashboard/backups/`

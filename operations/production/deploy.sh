@@ -3,8 +3,8 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
-MIGRATE_SCRIPT="$SCRIPT_DIR/migrate_prod.sh"
+PROJECT_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
+MIGRATE_SCRIPT="$SCRIPT_DIR/migrate.sh"
 COMPOSE_FILE="${DASHBOARD_COMPOSE_FILE:-$PROJECT_ROOT/docker-compose.prod.yml}"
 ENV_FILE="${DASHBOARD_ENV_FILE:-$PROJECT_ROOT/.env.production}"
 BACKUP_DIR="${DASHBOARD_BACKUP_DIR:-$PROJECT_ROOT/backups}"
@@ -102,7 +102,7 @@ if ! $DRY_RUN; then
 fi
 
 step "1/9 Backup and restore verification"
-backup_output="$(bash "$SCRIPT_DIR/backup_db.sh" --verify-restore 2>&1)" || die "backup failed: $backup_output"
+backup_output="$(bash "$SCRIPT_DIR/backup.sh" --verify-restore 2>&1)" || die "backup failed: $backup_output"
 backup_file="$(echo "$backup_output" | tail -1)"
 [[ -s "$backup_file" && -s "$backup_file.meta" ]] || die "verified backup artifacts are missing"
 grep -q '^restore_verified=true$' "$backup_file.meta" || die "backup restore verification did not pass"

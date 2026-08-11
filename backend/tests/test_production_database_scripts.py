@@ -4,7 +4,7 @@ ROOT = Path(__file__).resolve().parents[2]
 
 
 def test_backup_script_is_mysql_and_restore_verified():
-    script = (ROOT / "scripts" / "backup_db.sh").read_text(encoding="utf-8")
+    script = (ROOT / "operations" / "production" / "backup.sh").read_text(encoding="utf-8")
     assert "mysqldump" in script
     assert "--single-transaction" in script
     assert "--verify-restore" in script
@@ -14,7 +14,7 @@ def test_backup_script_is_mysql_and_restore_verified():
 
 
 def test_deploy_script_enforces_backup_migration_health_and_login_order():
-    script = (ROOT / "scripts" / "deploy_prod.sh").read_text(encoding="utf-8")
+    script = (ROOT / "operations" / "production" / "deploy.sh").read_text(encoding="utf-8")
     checkpoints = [
         'step "1/9 Backup and restore verification"',
         'step "5/9 Run explicit MySQL migration"',
@@ -36,7 +36,7 @@ def test_application_startup_does_not_alter_existing_schema():
 
 
 def test_production_uses_one_explicit_migration_command():
-    production_entrypoint = (ROOT / "scripts" / "migrate_prod.sh").read_text(encoding="utf-8")
+    production_entrypoint = (ROOT / "operations" / "production" / "migrate.sh").read_text(encoding="utf-8")
     migration = (ROOT / "backend" / "scripts" / "migrate.py").read_text(encoding="utf-8")
     initializer = (ROOT / "backend" / "scripts" / "init_db.py").read_text(encoding="utf-8")
 
@@ -49,8 +49,8 @@ def test_production_uses_one_explicit_migration_command():
 
 def test_production_compose_uses_immutable_images_and_service_discovery():
     compose = (ROOT / "docker-compose.prod.yml").read_text(encoding="utf-8")
-    deploy = (ROOT / "scripts" / "deploy_prod.sh").read_text(encoding="utf-8")
-    backup = (ROOT / "scripts" / "backup_db.sh").read_text(encoding="utf-8")
+    deploy = (ROOT / "operations" / "production" / "deploy.sh").read_text(encoding="utf-8")
+    backup = (ROOT / "operations" / "production" / "backup.sh").read_text(encoding="utf-8")
 
     assert "container_name:" not in compose
     assert "build:" not in compose
