@@ -815,10 +815,22 @@ async def collect_locally(
     branch: str = Query("main", description="目标分支"),
 ):
     """在 Dashboard 服务器上直接运行 cloc/lizard/jscpd 采集代码度量"""
-    from shared.services.code_metrics_collector import CodeMetricsCollector
-    collector = CodeMetricsCollector(db)
-    result = await collector.collect(branch)
-    return result
+    from shared.services.task_manager import TaskManager
+
+    task_id = await TaskManager.create_task(
+        db,
+        "code_metrics_collect",
+        {"branch": branch},
+        f"code_metrics:manual:{branch}",
+        required_capability="python",
+        priority=10,
+    )
+    await db.commit()
+    return {
+        "status": "queued" if task_id else "already_queued",
+        "task_id": task_id,
+        "branch": branch,
+    }
 
 
 @router.get("/alerts", summary="代码度量告警检查")

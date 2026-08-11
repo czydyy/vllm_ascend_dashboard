@@ -67,8 +67,8 @@ class CodeMetricsCollector:
             results["collection_tools"].append("grep")
 
         # 3. 计算健康度
-        from api.v1.code_metrics import _calculate_health_score
-        health = _calculate_health_score(results)
+        from shared.services.code_metrics_health import calculate_health_score
+        health = calculate_health_score(results)
         results.update(health)
 
         # 4. 模块级 LOC

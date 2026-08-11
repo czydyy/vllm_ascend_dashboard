@@ -1634,16 +1634,21 @@ class DataSyncScheduler:
             logger.error(f"Heatmap sync failed: {e}")
 
     async def _collect_code_metrics_job(self):
-        """定时本地采集代码度量"""
-        try:
-            from shared.services.code_metrics_collector import CodeMetricsCollector
-            async with SessionLocal() as db:
-                collector = CodeMetricsCollector(db)
-                result = await collector.collect("main")
-                logger.info(f"Code metrics collection: {result}")
-        except Exception as e:
-            logger.error(f"Code metrics collection failed: {e}")
+        """Queue code metrics collection; only Collector may run local tools."""
+        from shared.services.task_manager import TaskManager
 
+        dedupe_key = f"code_metrics:scheduled:{datetime.now(UTC).strftime('%Y-%m-%dT%H:%M')}"
+        async with SessionLocal() as db:
+            task_id = await TaskManager.create_task(
+                db,
+                "code_metrics_collect",
+                {"branch": "main"},
+                dedupe_key,
+                required_capability="python",
+            )
+            await db.commit()
+        if task_id:
+            logger.info("Queued code metrics collection task %d", task_id)
 
 # 全局调度器实例
 _scheduler: DataSyncScheduler | None = None

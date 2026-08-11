@@ -65,6 +65,8 @@ class CollectorRunner:
                 await self._run_issues_derivation(ctx)
             elif task_type == "model_sync":
                 await self._run_model_sync(ctx, task_params)
+            elif task_type == "code_metrics_collect":
+                await self._run_code_metrics_collect(ctx, task_params)
             else:
                 raise ValueError(f"Unsupported collection task type: {task_type}")
         finally:
@@ -132,6 +134,16 @@ class CollectorRunner:
                 force=force,
                 triggered_by=triggered_by,
             )
+
+    async def _run_code_metrics_collect(self, ctx: TaskContext, task_params: dict):
+        """Run local code-metrics tools only in the Collector execution role."""
+        from collector.code_metrics import CodeMetricsCollector
+
+        async with SessionLocal() as db:
+            result = await CodeMetricsCollector(db).collect(
+                branch=str(task_params.get("branch", "main"))
+            )
+        logger.info("Code metrics task %d completed: %s", ctx.task_id, result)
 
     async def _run_issues_derivation(self, ctx: TaskContext):
         """Derive test-board issue counts from durable worker execution."""
