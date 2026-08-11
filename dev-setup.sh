@@ -22,7 +22,7 @@ if [[ ! -f .env.local ]]; then
   echo "Created .env.local with generated local-only secrets."
 fi
 
-args=(compose --env-file .env.local -f docker-compose.dev.yml)
+args=(compose --env-file .env.local -f deploy/compose/dev/compose.yml)
 if [[ "${1:-}" == "--workers" ]]; then
   args+=(--profile workers)
   shift

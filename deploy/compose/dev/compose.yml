@@ -27,7 +27,7 @@ services:
     entrypoint: []
     command: ["litellm", "--config", "/app/litellm_config.yaml", "--port", "4000"]
     volumes:
-      - ./deploy/config/litellm_config.yaml:/app/litellm_config.yaml
+      - ../../config/litellm_config.yaml:/app/litellm_config.yaml
     healthcheck:
       test: ["CMD", "python3", "-c", "import socket; s=socket.socket(); s.connect(('localhost',4000)); s.close()"]
       interval: 10s
@@ -36,10 +36,10 @@ services:
 
   backend:
     build:
-      context: ./backend
+      context: ../../../backend
       dockerfile: Dockerfile.prod
     env_file:
-      - .env.local
+      - ../../../.env.local
     environment:
       DATABASE_URL: mysql+aiomysql://${MYSQL_USER:-dashboard}:${MYSQL_PASSWORD}@mysql:3306/${MYSQL_DATABASE:-vllm_dashboard}
       ENVIRONMENT: development
@@ -55,7 +55,7 @@ services:
       - "${DEV_BACKEND_PORT:-8000}:8000"
     volumes:
       - dev_backend_data:/app/data
-      - ./deploy/config/litellm_config.yaml:/app/litellm_config.yaml
+      - ../../config/litellm_config.yaml:/app/litellm_config.yaml
     depends_on:
       mysql:
         condition: service_healthy
@@ -64,7 +64,7 @@ services:
 
   frontend:
     build:
-      context: ./frontend
+      context: ../../../frontend
       dockerfile: Dockerfile.prod
       args:
         VITE_API_BASE_URL: /api/v1
@@ -76,10 +76,10 @@ services:
 
   scheduler:
     build:
-      context: ./backend
+      context: ../../../backend
       dockerfile: Dockerfile.prod
     env_file:
-      - .env.local
+      - ../../../.env.local
     environment:
       DATABASE_URL: mysql+aiomysql://${MYSQL_USER:-dashboard}:${MYSQL_PASSWORD}@mysql:3306/${MYSQL_DATABASE:-vllm_dashboard}
       ENVIRONMENT: development
@@ -94,10 +94,10 @@ services:
 
   collector:
     build:
-      context: ./backend
+      context: ../../../backend
       dockerfile: Dockerfile.prod
     env_file:
-      - .env.local
+      - ../../../.env.local
     environment:
       DATABASE_URL: mysql+aiomysql://${MYSQL_USER:-dashboard}:${MYSQL_PASSWORD}@mysql:3306/${MYSQL_DATABASE:-vllm_dashboard}
       ENVIRONMENT: development

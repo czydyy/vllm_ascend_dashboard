@@ -48,7 +48,7 @@ def test_production_uses_one_explicit_migration_command():
 
 
 def test_production_compose_uses_immutable_images_and_service_discovery():
-    compose = (ROOT / "docker-compose.prod.yml").read_text(encoding="utf-8")
+    compose = (ROOT / "deploy" / "compose" / "production" / "compose.yml").read_text(encoding="utf-8")
     deploy = (ROOT / "operations" / "production" / "deploy.sh").read_text(encoding="utf-8")
     backup = (ROOT / "operations" / "production" / "backup.sh").read_text(encoding="utf-8")
 

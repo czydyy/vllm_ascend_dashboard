@@ -27,7 +27,7 @@ if (-not (Test-Path .env.local)) {
     Write-Host "Created .env.local with generated local-only secrets." -ForegroundColor Green
 }
 
-$composeArgs = @("compose", "--env-file", ".env.local", "-f", "docker-compose.dev.yml")
+$composeArgs = @("compose", "--env-file", ".env.local", "-f", "deploy/compose/dev/compose.yml")
 if ($Workers) { $composeArgs += @("--profile", "workers") }
 if ($Down) {
     & docker @composeArgs down

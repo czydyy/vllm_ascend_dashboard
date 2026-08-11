@@ -18,7 +18,7 @@ services:
     command: ["litellm", "--config", "/app/litellm_config.yaml", "--port", "4000"]
     volumes:
       # Backend writes the same runtime file after provider changes.
-      - ./deploy/config/litellm_config.yaml:/app/litellm_config.yaml
+      - ../../config/litellm_config.yaml:/app/litellm_config.yaml
     expose:
       - "4000"
     networks:
@@ -40,7 +40,7 @@ services:
   backend:
     image: ${DASHBOARD_BACKEND_IMAGE:?set DASHBOARD_BACKEND_IMAGE to a CI-published immutable image}
     env_file:
-      - .env.production
+      - ../../../.env.production
     environment:
       # Database connection (MySQL)
       - DATABASE_URL=mysql+aiomysql://${CONTROL_DB_USER:-control_svc}:${CONTROL_DB_PASSWORD}@mysql:3306/${MYSQL_DATABASE:-vllm_dashboard}
@@ -66,7 +66,7 @@ services:
       # This includes /app/data/repos for git cache
       - backend_data:/app/data
       # LiteLLM runtime config shared with the gateway container
-      - ./deploy/config/litellm_config.yaml:/app/litellm_config.yaml
+      - ../../config/litellm_config.yaml:/app/litellm_config.yaml
       # Log files
       - backend_logs:/app/logs
     # Do NOT expose backend port to public - only accessible via nginx proxy
@@ -112,9 +112,9 @@ services:
       # Binlog bind mount（Phase 0：宿主机可直接访问，用于归档和 PITR）
       - /data/mysql/binlog:/var/log/mysql
       # Optional: custom MySQL configuration
-      - ./deploy/config/mysql.cnf:/etc/mysql/conf.d/custom.cnf:ro
+      - ../../config/mysql.cnf:/etc/mysql/conf.d/custom.cnf:ro
       # Optional: initialization scripts
-      - ./deploy/mysql/init:/docker-entrypoint-initdb.d:ro
+      - ../../mysql/init:/docker-entrypoint-initdb.d:ro
     # MySQL should NOT be exposed to public - only accessible by backend service
     # If you need external access for maintenance, use SSH tunneling instead
     # ports:
@@ -175,7 +175,7 @@ services:
   scheduler:
     image: ${DASHBOARD_BACKEND_IMAGE:?set DASHBOARD_BACKEND_IMAGE to a CI-published immutable image}
     env_file:
-      - .env.production
+      - ../../../.env.production
     environment:
       - DATABASE_URL=mysql+aiomysql://${SCHEDULER_DB_USER:-scheduler_svc}:${SCHEDULER_DB_PASSWORD}@mysql:3306/${MYSQL_DATABASE:-vllm_dashboard}
       - TZ=Asia/Shanghai
@@ -205,7 +205,7 @@ services:
   collector:
     image: ${DASHBOARD_BACKEND_IMAGE:?set DASHBOARD_BACKEND_IMAGE to a CI-published immutable image}
     env_file:
-      - .env.production
+      - ../../../.env.production
     environment:
       - DATABASE_URL=mysql+aiomysql://${COLLECTOR_DB_USER:-collector_svc}:${COLLECTOR_DB_PASSWORD}@mysql:3306/${MYSQL_DATABASE:-vllm_dashboard}
       - TZ=Asia/Shanghai
