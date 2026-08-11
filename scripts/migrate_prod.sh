@@ -16,13 +16,7 @@ compose_run() {
         run --rm --no-deps --entrypoint /opt/venv/bin/python backend "$@"
 }
 
-echo "[MIGRATE] Initializing/upgrading schema without user creation"
-compose_run scripts/init_db.py --no-users
-
-echo "[MIGRATE] Applying explicit MySQL compatibility migration"
-compose_run scripts/migrate_mysql_schema.py
-
-echo "[MIGRATE] Applying Phase A task/lease/outbox migration"
-compose_run scripts/migrate_phase_a.py
+echo "[MIGRATE] Running canonical MySQL migration"
+compose_run scripts/migrate.py
 
 echo "[MIGRATE] Production database migration completed"

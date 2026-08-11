@@ -11,7 +11,7 @@
 | 编号 | 规则 | 违反后果 |
 |------|------|----------|
 | R-01 | **禁止在未备份数据库的情况下执行任何部署/升级操作** | 数据丢失不可恢复 |
-| R-02 | **禁止在生产环境运行 `init_db.py` 时不加 `--no-users` 参数** | 全部用户账号被重置 |
+| R-02 | **禁止在生产环境运行 `init_db.py`**；只能使用 `scripts/migrate_prod.sh` | `init_db.py` 是本地初始化工具，可能创建默认用户 |
 | R-03 | **禁止直接删除数据库文件**（`rm dashboard.db`） | 数据立即丢失 |
 | R-04 | **禁止直接修改数据库表结构**（必须通过迁移脚本） | 数据不一致 |
 | R-05 | **禁止在未验证备份完整性的情况下继续部署** | 备份可能无效 |
@@ -52,7 +52,7 @@ bash scripts/deploy_prod.sh
 │    └─ 失败 → 中止部署                            │
 │                                                  │
 │  Step 6  数据库迁移                               │
-│    ├─ 使用 init_db.py --no-users（不重置用户）     │
+│    ├─ 使用 scripts/migrate_prod.sh（不创建或重置用户） │
 │    └─ 迁移后用户数减少 → 自动回滚                  │
 │                                                  │
 │  Step 7  重启服务                                 │
@@ -211,11 +211,11 @@ git pull && systemctl restart dashboard-backend
 bash scripts/deploy_prod.sh
 
 
-# ❌ 错误：直接运行 init_db.py（会重置所有用户）
+# ❌ 错误：直接运行 init_db.py（生产环境会被拒绝）
 python scripts/init_db.py
 
-# ✅ 正确：加 --no-users 参数（仅建表/升级，不碰用户）
-python scripts/init_db.py --no-users
+# ✅ 正确：使用唯一生产迁移入口（不碰用户）
+bash scripts/migrate_prod.sh
 
 
 # ❌ 错误：直接删除数据库文件
@@ -229,5 +229,5 @@ bash scripts/backup_db.sh
 sqlite3 dashboard.db "ALTER TABLE users DROP COLUMN ..."
 
 # ✅ 正确：通过迁移脚本修改
-# 创建 backend/scripts/upgrade_vX.Y.Z.py 并通过 init_db.py --no-users 执行
+# 新的 schema 变更只能加入 backend/scripts/migrate.py 调用的显式迁移模块
 ```

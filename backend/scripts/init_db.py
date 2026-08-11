@@ -15,6 +15,7 @@
 import argparse
 import asyncio
 import logging
+import os
 import sys
 from datetime import datetime
 from pathlib import Path
@@ -782,6 +783,12 @@ async def main():
     )
 
     args = parser.parse_args()
+
+    if os.environ.get("ENVIRONMENT", "development").lower() == "production":
+        raise RuntimeError(
+            "init_db.py is a local bootstrap tool and is forbidden in production; "
+            "run scripts/migrate_prod.sh instead"
+        )
 
     print("\n" + "="*60)
     print("  vLLM Ascend Dashboard - Database Initialization")
