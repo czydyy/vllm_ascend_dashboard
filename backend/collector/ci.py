@@ -4,6 +4,7 @@ CI 数据采集服务
 """
 import json
 import logging
+from collections.abc import Awaitable, Callable
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
@@ -12,7 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from infrastructure.persistence.models import CIJob, CIResult, WorkflowConfig
 from infrastructure.clients.github_client import GitHubAPIError, GitHubClient, GitHubRateLimitError
-from infrastructure.tasks.sync_progress import get_sync_progress
+from infrastructure.tasks.sync_progress import get_sync_progress, reset_sync_progress
 
 logger = logging.getLogger(__name__)
 
@@ -31,6 +32,7 @@ class CICollector:
         self,
         github_client: GitHubClient,
         db_session: AsyncSession,
+        progress_callback: Callable[[dict[str, Any]], Awaitable[None]] | None = None,
     ):
         """
         初始化 CI 采集器
@@ -41,6 +43,17 @@ class CICollector:
         """
         self.github = github_client
         self.db = db_session
+        self.progress_callback = progress_callback
+
+    async def _persist_progress(self, progress: Any) -> None:
+        """Persist progress for callers running in a separate process."""
+        if self.progress_callback is None:
+            return
+        try:
+            await self.progress_callback(progress.get_progress())
+        except Exception as exc:
+            # Progress persistence must never stop an otherwise healthy sync.
+            logger.warning("Failed to persist CI sync progress: %s", exc)
 
     async def collect_workflow_runs(
         self,
@@ -76,6 +89,7 @@ class CICollector:
             workflow_files = [(wf, "A2", "schedule", None) for wf in workflow_files]
 
         # 初始化进度跟踪器
+        reset_sync_progress()
         progress = get_sync_progress()
         # 如果还没有开始（API 层可能已经启动了），则启动
         if progress.status == "idle":
@@ -84,6 +98,8 @@ class CICollector:
         else:
             # 更新 workflow 数量
             progress.total_workflows = len(workflow_files)
+
+        await self._persist_progress(progress)
 
         since = datetime.now(UTC) - timedelta(days=days_back)
         total_collected = 0
@@ -101,6 +117,7 @@ class CICollector:
                     "status": "running",
                     "updated_at": datetime.now(UTC).isoformat(),
                 }
+                await self._persist_progress(progress)
 
                 collected = await self._collect_single_workflow(
                     workflow_file=workflow_file,
@@ -116,11 +133,13 @@ class CICollector:
 
                 # 更新进度
                 progress.update_workflow_progress(workflow_file, collected, "completed")
+                await self._persist_progress(progress)
                 logger.info(f"Collected {collected} runs for {workflow_file}")
 
             except GitHubRateLimitError as e:
                 logger.error(f"Rate limit exceeded while fetching {workflow_file}: {e}")
                 progress.update_workflow_progress(workflow_file, 0, "failed")
+                await self._persist_progress(progress)
                 try:
                     await self.db.rollback()
                 except Exception as rollback_error:
@@ -129,6 +148,7 @@ class CICollector:
             except GitHubAPIError as e:
                 logger.error(f"Failed to fetch workflow {workflow_file}: {e}")
                 progress.update_workflow_progress(workflow_file, 0, "failed")
+                await self._persist_progress(progress)
                 try:
                     await self.db.rollback()
                 except Exception as rollback_error:
@@ -137,6 +157,7 @@ class CICollector:
             except Exception as e:
                 logger.error(f"Unexpected error processing {workflow_file}: {e}", exc_info=True)
                 progress.update_workflow_progress(workflow_file, 0, "failed")
+                await self._persist_progress(progress)
                 try:
                     await self.db.rollback()
                 except Exception as rollback_error:
@@ -145,6 +166,7 @@ class CICollector:
 
         # 完成同步
         progress.complete()
+        await self._persist_progress(progress)
         logger.info(f"CI data collection completed. Total: {total_collected} runs")
         return total_collected
 

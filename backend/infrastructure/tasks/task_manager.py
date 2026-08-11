@@ -78,13 +78,15 @@ class TaskManager:
         db: AsyncSession, task_id: int, checkpoint: dict
     ):
         """更新检查点。"""
+        import json as _json
+
         await db.execute(
             text("""
                 UPDATE collection_tasks
                 SET checkpoint_data = :checkpoint
                 WHERE id = :task_id
             """),
-            {"checkpoint": checkpoint, "task_id": task_id},
+            {"checkpoint": _json.dumps(checkpoint), "task_id": task_id},
         )
 
     @staticmethod

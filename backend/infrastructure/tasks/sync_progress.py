@@ -58,7 +58,6 @@ class SyncProgress:
         }
         if status == "completed":
             self.completed_workflows += 1
-            self.total_collected += collected
         logger.info(f"Workflow {workflow_name}: {collected} runs collected, status: {status}")
 
     def update_collected_count(self, count: int):

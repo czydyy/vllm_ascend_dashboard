@@ -117,8 +117,19 @@ class CollectorRunner:
         """CI 数据同步。"""
         github = GitHubClient(settings.GITHUB_TOKEN)
         try:
+            async def persist_progress(progress: dict):
+                await self.worker._write_checkpoint(
+                    ctx.task_id,
+                    ctx.lease_token,
+                    progress,
+                )
+
             async with SessionLocal() as db:
-                collector = CICollector(github, db)
+                collector = CICollector(
+                    github,
+                    db,
+                    progress_callback=persist_progress,
+                )
                 await collector.collect_workflow_runs(
                     days_back=int(task_params.get("days_back", settings.CI_SYNC_DAYS_BACK)),
                     max_runs_per_workflow=int(task_params.get("max_runs", settings.CI_SYNC_MAX_RUNS_PER_WORKFLOW)),

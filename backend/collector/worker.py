@@ -306,7 +306,7 @@ class CollectorWorker:
                       AND lease_expiry > NOW()
                 """),
                 {
-                    "checkpoint": checkpoint,
+                    "checkpoint": json.dumps(checkpoint, ensure_ascii=False),
                     "task_id": task_id,
                     "owner": self.node_id,
                     "token": lease_token,
