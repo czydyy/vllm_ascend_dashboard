@@ -61,3 +61,16 @@ def test_production_compose_uses_immutable_images_and_service_discovery():
     assert "compose build" not in deploy
     assert "DASHBOARD_MYSQL_CONTAINER" not in backup
     assert "docker exec" not in backup
+
+
+def test_ci_publishes_versioned_images_with_supply_chain_metadata():
+    workflow = (ROOT / ".github" / "workflows" / "build-and-push.yml").read_text(
+        encoding="utf-8"
+    )
+
+    assert "pull_request:" in workflow
+    assert "github.event_name != 'pull_request'" in workflow
+    assert ":latest" not in workflow
+    assert "provenance: mode=max" in workflow
+    assert "sbom: true" in workflow
+    assert "outputs.digest" in workflow
