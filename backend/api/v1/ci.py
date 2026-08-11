@@ -1670,7 +1670,7 @@ async def sync_test_cases_from_yaml(
     db: DbSession,
 ):
     """从本地 vllm-ascend 仓库的 nightly YAML 配置同步用例到静态表"""
-    from shared.services.nightly_config_parser import NightlyConfigParser, load_model_fo_map
+    from tooling.parsers.nightly_config_parser import NightlyConfigParser, load_model_fo_map
 
     fo_map = load_model_fo_map()
     parser = NightlyConfigParser()

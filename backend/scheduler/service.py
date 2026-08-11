@@ -625,7 +625,7 @@ class DataSyncScheduler:
         from sqlalchemy import select
 
         from infrastructure.persistence.models import NightlyTestCase
-        from shared.services.nightly_config_parser import NightlyConfigParser, load_model_fo_map
+        from tooling.parsers.nightly_config_parser import NightlyConfigParser, load_model_fo_map
 
         fo_map = load_model_fo_map()
         parser = NightlyConfigParser()

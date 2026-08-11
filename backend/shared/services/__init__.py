@@ -10,7 +10,7 @@ _EXPORTS = {
     "GitHubAPIError": ("infrastructure.clients.github_client", "GitHubAPIError"),
     "GitHubClient": ("infrastructure.clients.github_client", "GitHubClient"),
     "GitHubRateLimitError": ("infrastructure.clients.github_client", "GitHubRateLimitError"),
-    "ModelReportParser": ("shared.services.model_report_parser", "ModelReportParser"),
+    "ModelReportParser": ("tooling.parsers.model_report_parser", "ModelReportParser"),
     "ModelSyncService": ("shared.services.model_sync_service", "ModelSyncService"),
     "ModelTrendService": ("shared.services.model_trend_service", "ModelTrendService"),
     "StartupCommandGenerator": (

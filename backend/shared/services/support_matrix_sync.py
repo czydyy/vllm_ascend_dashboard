@@ -20,7 +20,7 @@ from infrastructure.persistence.models import (
     ProjectDashboardConfig,
 )
 from infrastructure.clients.github_cache import get_github_cache
-from shared.services.support_matrix_parser import (
+from tooling.parsers.support_matrix_parser import (
     parse_feature_compatibility,
     parse_supported_features,
     parse_supported_models,

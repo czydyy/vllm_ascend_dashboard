@@ -9,8 +9,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from infrastructure.core.config import settings
 from infrastructure.persistence.models import CIJob, CIResult, JobOwner, JobFailureAnalysis, WorkflowConfig
 from infrastructure.persistence.models.test_board import TestCase, TestRun, TestSuiteSnapshot, FailureAnnotation
-from shared.services.test_timing_parser import TestTimingParser
-from shared.services.junit_xml_parser import JUnitXMLParser
+from tooling.parsers.test_timing_parser import TestTimingParser
+from tooling.parsers.junit_xml_parser import JUnitXMLParser
 from shared.services.test_health_calculator import TestHealthCalculator
 from shared.services.failure_classifier import FailureClassifier
 from infrastructure.clients.github_client import GitHubClient

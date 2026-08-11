@@ -4,7 +4,7 @@
 在 base_url 已含 /v1（如 DashScope compatible-mode）时产生双重 /v1/v1/ 路径
 导致上游 400 "Invalid model name" 的问题。
 """
-from shared.services.format_proxy import FormatProxy
+from tooling.parsers.format_proxy import FormatProxy
 
 
 def _make(base: str) -> FormatProxy:
