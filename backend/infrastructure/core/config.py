@@ -106,7 +106,7 @@ class Settings(BaseSettings):
     SUPPORT_MATRIX_MODELS_PATH: str = "docs/source/user_guide/support_matrix/supported_models.md"
     SUPPORT_MATRIX_FEATURES_PATH: str = "docs/source/user_guide/support_matrix/supported_features.md"
     SUPPORT_MATRIX_COMPAT_PATH: str = "docs/source/user_guide/support_matrix/feature_matrix.md"
-    TEST_BOARD_CASE_MATRIX_PATH: str = "shared/resources/test-board/e2e_feature_matrix.csv"
+    TEST_BOARD_CASE_MATRIX_PATH: str = "resources/test-board/e2e_feature_matrix.csv"
 
     @field_validator("JWT_SECRET")
     @classmethod
