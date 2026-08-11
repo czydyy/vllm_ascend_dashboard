@@ -28,7 +28,7 @@ from contracts.schemas import (
     ModelTrendData,
 )
 from infrastructure.clients.github_client import GitHubClient
-from collector.services.model_sync_service import ModelSyncService
+from model_sync.model_sync_service import ModelSyncService
 from api.services.model_trend_service import ModelTrendService
 from tooling.generators.startup_command_generator import StartupCommandGenerator
 
@@ -404,7 +404,7 @@ async def get_support_matrix_endpoint(
     tier: str | None = Query(None),
 ):
     """获取完整支持矩阵（模型×特性交叉表）"""
-    from collector.services.support_matrix_sync import get_support_matrix as _get_matrix
+    from support_matrix.support_matrix_sync import get_support_matrix as _get_matrix
 
     return await _get_matrix(
         db,
@@ -419,7 +419,7 @@ async def get_support_matrix_endpoint(
 @router.get("/feature-compatibility")
 async def get_feature_compatibility_endpoint(db: DbSession):
     """获取 25×25 特性互操作矩阵"""
-    from collector.services.support_matrix_sync import get_feature_compatibility as _get_compat
+    from support_matrix.support_matrix_sync import get_feature_compatibility as _get_compat
 
     return await _get_compat(db)
 
@@ -427,7 +427,7 @@ async def get_feature_compatibility_endpoint(db: DbSession):
 @router.get("/global-features")
 async def get_global_features_endpoint(db: DbSession):
     """获取全局功能支持状态（来自 supported_features.md）"""
-    from collector.services.support_matrix_sync import get_global_features as _get_gf
+    from support_matrix.support_matrix_sync import get_global_features as _get_gf
 
     return await _get_gf(db)
 
@@ -435,7 +435,7 @@ async def get_global_features_endpoint(db: DbSession):
 @router.get("/sync-status")
 async def get_sync_status_endpoint(db: DbSession):
     """获取最近同步状态"""
-    from collector.services.support_matrix_sync import get_sync_status as _get_ss
+    from support_matrix.support_matrix_sync import get_sync_status as _get_ss
 
     return await _get_ss(db)
 
@@ -450,7 +450,7 @@ async def sync_upstream_endpoint(
 
     参数 dry_run=True 时只返回 diff 不落库
     """
-    from collector.services.support_matrix_sync import sync_support_matrix as _sync
+    from support_matrix.support_matrix_sync import sync_support_matrix as _sync
 
     result = await _sync(db, dry_run=dry_run)
     return result
@@ -1184,7 +1184,7 @@ async def get_support_matrix_endpoint(
     tier: str | None = Query(None),
 ):
     """获取完整支持矩阵（模型×特性交叉表）"""
-    from collector.services.support_matrix_sync import get_support_matrix as _get_matrix
+    from support_matrix.support_matrix_sync import get_support_matrix as _get_matrix
 
     return await _get_matrix(
         db,
@@ -1199,7 +1199,7 @@ async def get_support_matrix_endpoint(
 @router.get("/feature-compatibility")
 async def get_feature_compatibility_endpoint(db: DbSession):
     """获取 25×25 特性互操作矩阵"""
-    from collector.services.support_matrix_sync import get_feature_compatibility as _get_compat
+    from support_matrix.support_matrix_sync import get_feature_compatibility as _get_compat
 
     return await _get_compat(db)
 
@@ -1207,7 +1207,7 @@ async def get_feature_compatibility_endpoint(db: DbSession):
 @router.get("/global-features")
 async def get_global_features_endpoint(db: DbSession):
     """获取全局功能支持状态（来自 supported_features.md）"""
-    from collector.services.support_matrix_sync import get_global_features as _get_gf
+    from support_matrix.support_matrix_sync import get_global_features as _get_gf
 
     return await _get_gf(db)
 
@@ -1215,7 +1215,7 @@ async def get_global_features_endpoint(db: DbSession):
 @router.get("/sync-status")
 async def get_sync_status_endpoint(db: DbSession):
     """获取最近同步状态"""
-    from collector.services.support_matrix_sync import get_sync_status as _get_ss
+    from support_matrix.support_matrix_sync import get_sync_status as _get_ss
 
     return await _get_ss(db)
 
@@ -1230,7 +1230,7 @@ async def sync_upstream_endpoint(
 
     参数 dry_run=True 时只返回 diff 不落库
     """
-    from collector.services.support_matrix_sync import sync_support_matrix as _sync
+    from support_matrix.support_matrix_sync import sync_support_matrix as _sync
 
     result = await _sync(db, dry_run=dry_run)
     return result

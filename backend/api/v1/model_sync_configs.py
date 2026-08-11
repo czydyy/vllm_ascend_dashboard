@@ -17,7 +17,7 @@ from contracts.schemas import (
     ModelSyncConfigUpdate,
 )
 from infrastructure.clients.github_client import GitHubClient
-from collector.services.model_sync_service import ModelSyncService
+from model_sync.model_sync_service import ModelSyncService
 
 router = APIRouter()
 

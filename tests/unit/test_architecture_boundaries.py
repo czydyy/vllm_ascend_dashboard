@@ -35,3 +35,11 @@ def test_legacy_shared_package_is_removed() -> None:
 
 def test_scheduler_never_depends_on_the_http_api() -> None:
     _assert_no_role_imports("scheduler", ("api",))
+
+
+def test_scheduler_never_depends_on_collector_implementation() -> None:
+    _assert_no_role_imports("scheduler", ("collector",))
+
+
+def test_api_never_depends_on_collector_implementation() -> None:
+    _assert_no_role_imports("api", ("collector",))

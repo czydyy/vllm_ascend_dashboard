@@ -858,124 +858,6 @@ class DataSyncScheduler:
         else:
             logger.info("CI synchronization is already queued or running")
 
-    async def _legacy_sync_ci_data_job(self) -> None:
-        """CI 数据同步任务"""
-        logger.info("=" * 60)
-        logger.info("CI DATA SYNC JOB STARTED")
-        logger.info("=" * 60)
-
-        if not self.github_client:
-            self._initialize_github_client()
-
-        # Phase A Step 3+4: COLLECTOR_MODE 开关
-        # true  → Scheduler 只写 pending 任务，Collector 通过租约领取执行
-        # false → Scheduler 自己执行（默认，兼容现有流程）
-        import os as _os
-        _collector_mode = _os.environ.get("COLLECTOR_MODE", "false").lower() == "true"
-        from datetime import UTC
-        dedupe_key = f"ci_sync:scheduled:{datetime.now(UTC).strftime('%Y-%m-%dT%H:00')}"
-        task_id = None
-        db_session = SessionLocal()
-
-        try:
-            from infrastructure.tasks.task_manager import TaskManager
-            async with db_session as db:
-                task_id = await TaskManager.create_task(
-                    db, "ci_sync",
-                    {"days_back": settings.CI_SYNC_DAYS_BACK, "max_runs": settings.CI_SYNC_MAX_RUNS_PER_WORKFLOW},
-                    dedupe_key,
-                )
-                if task_id and not _collector_mode:
-                    await TaskManager.start_task(db, task_id, "scheduler")
-                await db.commit()
-                if task_id and _collector_mode:
-                    logger.info("COLLECTOR_MODE: task %d created, waiting for Collector", task_id)
-                    return  # Scheduler 不执行，等 Collector 来领
-        except Exception as e:
-            logger.warning("Failed to create collection_task record (non-fatal): %s", e)
-
-        async with SessionLocal() as db:
-            try:
-                collector = CICollector(
-                    github_client=self.github_client,  # type: ignore
-                    db_session=db,
-                )
-
-                # 使用配置中的同步策略
-                days_back = getattr(settings, 'CI_SYNC_DAYS_BACK', 7)
-                max_runs_per_workflow = getattr(settings, 'CI_SYNC_MAX_RUNS_PER_WORKFLOW', 100)
-                force_full_refresh = getattr(settings, 'CI_SYNC_FORCE_FULL_REFRESH', False)
-
-                logger.info(f"Sync strategy: days_back={days_back}, max_runs={max_runs_per_workflow}, force_full_refresh={force_full_refresh}")
-
-                collected = await collector.collect_workflow_runs(
-                    days_back=days_back,
-                    max_runs_per_workflow=max_runs_per_workflow,
-                    force_full_refresh=force_full_refresh,
-                )
-
-                # 同步完成后，更新所有启用的 workflow 的 last_sync_at
-                from sqlalchemy import update
-
-                from infrastructure.persistence.models import WorkflowConfig
-
-                await db.execute(
-                    update(WorkflowConfig)
-                    .where(WorkflowConfig.enabled == True)
-                    .values(last_sync_at=datetime.now(UTC))
-                )
-                await db.commit()
-
-                # 同步完成后，更新本地代码仓库
-                try:
-                    from infrastructure.clients.github_cache import get_github_cache
-                    cache = get_github_cache()
-                    if cache.clone():
-                        cache.pull()
-                    logger.info("Local repo updated after CI sync")
-                except Exception as e:
-                    logger.warning(f"Failed to update local repo (non-fatal): {e}")
-
-                # 同步完成后，分析新发现的失败 jobs
-                try:
-                    await self._analyze_failed_jobs(db)
-                except Exception as analyze_err:
-                    logger.error(f"Failed to analyze CI failures: {analyze_err}")
-
-                # 数据管线：刷新 last_sync_at / 仓库缓存、快照用例配置、物化每日失败记录。
-                # 与 COLLECTOR_MODE collector 共用 run_ci_post_sync，确保两条路径行为一致，
-                # 且任一步失败记 ERROR 而非静默吞掉。
-                await self.run_ci_post_sync(db)
-
-                logger.info("=" * 60)
-                logger.info(f"CI DATA SYNC JOB COMPLETED - Collected {collected} runs")
-                logger.info("=" * 60)
-
-                # Step 3: 标记任务完成
-                if task_id:
-                    try:
-                        from infrastructure.tasks.task_manager import TaskManager
-                        async with SessionLocal() as td:
-                            await TaskManager.complete_task(td, task_id)
-                            await td.commit()
-                    except Exception as te:
-                        logger.warning("Failed to complete collection_task (non-fatal): %s", te)
-
-            except Exception as e:
-                logger.error("=" * 60)
-                logger.error(f"CI DATA SYNC JOB FAILED - Error: {e}", exc_info=True)
-                logger.error("=" * 60)
-                # 标记任务失败
-                if task_id:
-                    try:
-                        from infrastructure.tasks.task_manager import TaskManager
-                        async with SessionLocal() as td:
-                            await TaskManager.fail_task(td, task_id, str(e)[:500])
-                            await td.commit()
-                    except Exception as te:
-                        logger.warning("Failed to fail collection_task (non-fatal): %s", te)
-                raise
-
     async def _sync_pr_pipeline_job(self) -> None:
         """Queue PR synchronization; Collector owns the GitHub I/O and mutation."""
         from infrastructure.tasks.task_manager import TaskManager
@@ -1081,56 +963,6 @@ class DataSyncScheduler:
             logger.info("Queued model report sync task %d", task_id)
         else:
             logger.info("Model report sync is already queued or running")
-
-    async def _legacy_sync_model_reports_job(self) -> None:
-        """模型报告同步任务"""
-        logger.info("=" * 60)
-        logger.info("MODEL REPORT SYNC JOB STARTED")
-        logger.info("=" * 60)
-
-        if not self.github_client:
-            self._initialize_github_client()
-
-        async with SessionLocal() as db:
-            try:
-                from collector.services.model_sync_service import ModelSyncService
-
-                sync_service = ModelSyncService(db, self.github_client)
-
-                # 使用配置中的同步策略
-                days_back = getattr(settings, 'MODEL_SYNC_DAYS_BACK', 3)
-                runs_limit = getattr(settings, 'MODEL_SYNC_RUNS_LIMIT', 100)
-
-                logger.info(f"Model sync strategy: days_back={days_back}, runs_limit={runs_limit}")
-
-                # 同步所有启用的模型同步配置
-                total, collected = await sync_service.sync_all_enabled_configs(
-                    days_back=days_back,
-                    runs_limit=runs_limit,
-                )
-
-                # 同步完成后，更新所有启用的 workflow 的 last_sync_at
-                from sqlalchemy import update
-
-                from infrastructure.persistence.models import ModelSyncConfig
-
-                await db.execute(
-                    update(ModelSyncConfig)
-                    .where(ModelSyncConfig.enabled == True)
-                    .values(last_sync_at=datetime.now(UTC))
-                )
-                await db.commit()
-
-                logger.info("=" * 60)
-                logger.info(f"MODEL REPORT SYNC JOB COMPLETED - {total} configs, collected {collected} reports")
-                logger.info("=" * 60)
-
-            except Exception as e:
-                logger.error("=" * 60)
-                logger.error(f"MODEL REPORT SYNC JOB FAILED - Error: {e}", exc_info=True)
-                logger.error("=" * 60)
-                # async with 会自动 rollback 和 close
-                raise
 
     async def _generate_daily_summary_job(self):
         """每日总结生成任务"""
@@ -1282,66 +1114,6 @@ class DataSyncScheduler:
         if task_id:
             logger.info("Queued resource metrics collection task %d", task_id)
 
-    async def _analyze_failed_jobs(self, db=None) -> int:
-        """
-        分析最近失败的、尚未分析的 CI jobs。
-        使用 FailureAnalysisService（含 fingerprint 去重）。
-        """
-        try:
-            from sqlalchemy import select
-
-            from infrastructure.persistence.models import CIJob, JobFailureAnalysis
-            from collector.services.failure_analysis import FailureAnalysisService
-
-            svc = FailureAnalysisService()
-            count = 0
-
-            if db is not None:
-                # 查找未分析的失败 jobs
-                analyzed_subq = select(JobFailureAnalysis.job_id)
-                stmt = (
-                    select(CIJob)
-                    .where(
-                        CIJob.conclusion.in_(["failure", "cancelled"]),
-                        CIJob.job_id.notin_(analyzed_subq),
-                    )
-                    .order_by(CIJob.completed_at.desc().nulls_last())
-                    .limit(5)
-                )
-                result = await db.execute(stmt)
-                jobs = result.scalars().all()
-                for job in jobs:
-                    try:
-                        await svc.analyze_failed_job(job.job_id, db, triggered_by="scheduler")
-                        count += 1
-                    except Exception as e:
-                        logger.warning(f"Analysis failed for job {job.job_id}: {e}")
-            else:
-                async with SessionLocal() as session:
-                    analyzed_subq = select(JobFailureAnalysis.job_id)
-                    stmt = (
-                        select(CIJob)
-                        .where(
-                            CIJob.conclusion.in_(["failure", "cancelled"]),
-                            CIJob.job_id.notin_(analyzed_subq),
-                        )
-                        .order_by(CIJob.completed_at.desc().nulls_last())
-                        .limit(5)
-                    )
-                    result = await session.execute(stmt)
-                    jobs = result.scalars().all()
-                    for job in jobs:
-                        try:
-                            await svc.analyze_failed_job(job.job_id, session)
-                            count += 1
-                        except Exception as e:
-                            logger.warning(f"Analysis failed for job {job.job_id}: {e}")
-
-            return count
-        except Exception as e:
-            logger.warning(f"Failed job analysis error (non-fatal): {e}")
-            return 0
-
     async def _cleanup_resource_metrics_job(self) -> None:
         """Queue resource metric retention cleanup for Collector execution."""
         from infrastructure.tasks.task_manager import TaskManager
@@ -1360,31 +1132,21 @@ class DataSyncScheduler:
             logger.info("Queued resource metrics cleanup task %d", task_id)
 
     async def _parse_test_results_job(self) -> None:
-        logger.info("TEST BOARD RESULT PARSE JOB STARTED")
-        if not self.github_client:
-            self._initialize_github_client()
-        async with SessionLocal() as db:
-            try:
-                from collector.services.test_board_service import TestBoardService
-                svc = TestBoardService(db, self.github_client)
-                count = await svc.parse_ci_results(days_back=7)
-                logger.info(f"TEST BOARD RESULT PARSE JOB COMPLETED - {count} results parsed")
-                # CI 同步后自动推导发现问题数（auto_issues_found），保持数据最新
-                if count > 0:
-                    try:
-                        from collector.services.issues_found_derivator import IssuesFoundDerivator
-                        derivator = IssuesFoundDerivator(db)
-                        derivation = await derivator.derive_all()
-                        logger.info(
-                            "TEST BOARD ISSUES DERIVATION - updated=%d skipped=%d issues=%d suspected=%d",
-                            derivation["updated"], derivation["skipped_override"],
-                            derivation["issues_total"], derivation["suspected_total"],
-                        )
-                    except Exception as deriv_err:
-                        logger.error(f"TEST BOARD ISSUES DERIVATION FAILED: {deriv_err}", exc_info=True)
-            except Exception as e:
-                logger.error(f"TEST BOARD RESULT PARSE JOB FAILED: {e}", exc_info=True)
+        """Queue test-board parsing; Collector owns GitHub I/O and writes."""
+        from infrastructure.tasks.task_manager import TaskManager
 
+        dedupe_key = f"test_board_sync:scheduled:{datetime.now(UTC).strftime('%Y-%m-%dT%H:%M')}"
+        async with SessionLocal() as db:
+            task_id = await TaskManager.create_task(
+                db,
+                "test_board_sync",
+                {"days_back": 7},
+                dedupe_key,
+                required_capability="python",
+            )
+            await db.commit()
+        if task_id:
+            logger.info("Queued test-board sync task %d", task_id)
     async def _calc_test_health_job(self) -> None:
         logger.info("TEST BOARD HEALTH CALC JOB STARTED")
         async with SessionLocal() as db:
@@ -1583,24 +1345,21 @@ class DataSyncScheduler:
         return jobs
 
     async def _sync_support_matrix_job(self) -> None:
-        """每日同步上游支持矩阵"""
-        try:
-            from infrastructure.db.base import SessionLocal
-            from collector.services.support_matrix_sync import sync_support_matrix
+        """Queue support-matrix synchronization for Collector execution."""
+        from infrastructure.tasks.task_manager import TaskManager
 
-            async with SessionLocal() as db:
-                result = await sync_support_matrix(db, dry_run=False)
-                if result.get("success"):
-                    logger.info(
-                        f"Support matrix sync: {result.get('models_synced', 0)} models, "
-                        f"{len(result.get('new_models', []))} new, "
-                        f"{len(result.get('updated_models', []))} updated"
-                    )
-                else:
-                    logger.error(f"Support matrix sync failed: {result.get('error')}")
-        except Exception as e:
-            logger.error(f"Support matrix sync job error: {e}", exc_info=True)
-
+        dedupe_key = f"support_matrix_sync:scheduled:{datetime.now(UTC).strftime('%Y-%m-%d')}"
+        async with SessionLocal() as db:
+            task_id = await TaskManager.create_task(
+                db,
+                "support_matrix_sync",
+                {"dry_run": False},
+                dedupe_key,
+                required_capability="python",
+            )
+            await db.commit()
+        if task_id:
+            logger.info("Queued support-matrix sync task %d", task_id)
     async def _cleanup_code_metrics_job(self):
         """定时清理过期代码度量明细数据（365天保留）"""
         try:

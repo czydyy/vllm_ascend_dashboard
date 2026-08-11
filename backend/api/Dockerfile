@@ -69,6 +69,10 @@ COPY backend/contracts/ ./contracts/
 COPY backend/agent/ ./agent/
 COPY backend/reporting/ ./reporting/
 COPY backend/tooling/ ./tooling/
+COPY backend/failure_analysis/ ./failure_analysis/
+COPY backend/test_board/ ./test_board/
+COPY backend/model_sync/ ./model_sync/
+COPY backend/support_matrix/ ./support_matrix/
 COPY backend/resources/ ./resources/
 COPY backend/templates/ ./templates/
 

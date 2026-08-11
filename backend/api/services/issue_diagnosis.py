@@ -88,7 +88,7 @@ class IssueDiagnosisService:
         if not job:
             raise ValueError(f"CIJob with job_id={job_id} not found")
 
-        from collector.services.failure_analysis import FailureAnalysisService
+        from failure_analysis.failure_analysis import FailureAnalysisService
         fa_service = FailureAnalysisService()
         context = await fa_service._build_job_context(job, db, inline_logs=True)
         return context
@@ -143,7 +143,7 @@ class IssueDiagnosisService:
             if data_source_type == "pr_pipeline":
                 if not pr_number:
                     raise ValueError("pr_pipeline requires pr_number")
-                from collector.services.pr_diagnosis import PRDiagnosisService
+                from api.services.pr_diagnosis import PRDiagnosisService
 
                 context, system_prompt, _ = await PRDiagnosisService(db).prepare_context(pr_number)
             elif data_source_type == "ci_job" and job_id:

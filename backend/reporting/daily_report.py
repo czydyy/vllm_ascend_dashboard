@@ -415,7 +415,7 @@ class DailyReportService:
         """采集 PR 流水线概况"""
         try:
             from infrastructure.persistence.models import PullRequest
-            from collector.services.pr_pipeline_service import PRPipelineService
+            from api.services.pr_pipeline_service import PRPipelineService
             svc = PRPipelineService()
             overview = await svc.get_overview(self.db, settings.GITHUB_OWNER, settings.GITHUB_REPO, days=1)
             base_conditions = (

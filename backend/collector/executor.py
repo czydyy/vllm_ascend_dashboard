@@ -65,6 +65,10 @@ class CollectorRunner:
                 await self._run_failure_analysis(ctx, task_params)
             elif task_type == "issues_derivation":
                 await self._run_issues_derivation(ctx)
+            elif task_type == "test_board_sync":
+                await self._run_test_board_sync(ctx, task_params)
+            elif task_type == "support_matrix_sync":
+                await self._run_support_matrix_sync(ctx, task_params)
             elif task_type == "model_sync":
                 await self._run_model_sync(ctx, task_params)
             elif task_type == "code_metrics_collect":
@@ -109,7 +113,7 @@ class CollectorRunner:
 
     async def _run_model_sync(self, ctx: TaskContext, task_params: dict):
         """模型报告同步。"""
-        from collector.services.model_sync_service import ModelSyncService
+        from model_sync.model_sync_service import ModelSyncService
 
         github = GitHubClient(settings.GITHUB_TOKEN)
         try:
@@ -130,7 +134,7 @@ class CollectorRunner:
 
     async def _run_failure_analysis(self, ctx: TaskContext, task_params: dict):
         """Run one failure analysis from the durable task queue."""
-        from collector.services.failure_analysis import FailureAnalysisService
+        from failure_analysis.failure_analysis import FailureAnalysisService
 
         job_id = int(task_params["job_id"])
         force = bool(task_params.get("force", False))
@@ -196,11 +200,35 @@ class CollectorRunner:
 
     async def _run_issues_derivation(self, ctx: TaskContext):
         """Derive test-board issue counts from durable worker execution."""
-        from collector.services.issues_found_derivator import IssuesFoundDerivator
+        from test_board.issues_found_derivator import IssuesFoundDerivator
 
         async with SessionLocal() as db:
             result = await IssuesFoundDerivator(db).derive_all()
             logger.info("issues derivation task %d completed: %s", ctx.task_id, result)
+
+    async def _run_test_board_sync(self, ctx: TaskContext, task_params: dict):
+        """Parse CI test results and derive issues in the Collector role."""
+        from test_board.test_board_service import TestBoardService
+        from test_board.issues_found_derivator import IssuesFoundDerivator
+
+        github = GitHubClient(settings.GITHUB_TOKEN)
+        try:
+            async with SessionLocal() as db:
+                count = await TestBoardService(db, github).parse_ci_results(
+                    days_back=int(task_params.get("days_back", 7))
+                )
+                derivation = await IssuesFoundDerivator(db).derive_all() if count else None
+            logger.info("test-board task %d completed: parsed=%d derivation=%s", ctx.task_id, count, derivation)
+        finally:
+            await github.close()
+
+    async def _run_support_matrix_sync(self, ctx: TaskContext, task_params: dict):
+        """Synchronize upstream support-matrix data in the Collector role."""
+        from support_matrix.support_matrix_sync import sync_support_matrix
+
+        async with SessionLocal() as db:
+            result = await sync_support_matrix(db, dry_run=bool(task_params.get("dry_run", False)))
+        logger.info("support-matrix task %d completed: %s", ctx.task_id, result)
 
     async def _run_pr_sync(self, ctx: TaskContext, task_params: dict):
         """Synchronize pull-request pipeline data from GitHub."""

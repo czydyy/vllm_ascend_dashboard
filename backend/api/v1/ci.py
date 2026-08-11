@@ -962,7 +962,7 @@ async def analyze_failed_job(
 ):
     """触发失败分析（异步后台执行，立即返回，前端轮询 GET 接口获取结果）"""
     from infrastructure.persistence.models import CIJob, JobFailureAnalysis
-    from collector.services.failure_analysis import FailureAnalysisService
+    from failure_analysis.failure_analysis import FailureAnalysisService
 
     # 1. 验证 job 存在
     stmt = select(CIJob).where(CIJob.job_id == job_id)
@@ -1072,7 +1072,7 @@ async def analyze_batch(
     db: DbSession,
     days_back: int = Query(default=7, description="分析最近N天的失败Job"),
 ):
-    from collector.services.failure_analysis import FailureAnalysisService
+    from failure_analysis.failure_analysis import FailureAnalysisService
     service = FailureAnalysisService()
     try:
         results = await service.analyze_batch(days_back=days_back, db=db)
@@ -1094,7 +1094,7 @@ async def list_failure_analyses(
     days_back: int | None = Query(default=7),
     db: DbSession = None,
 ):
-    from collector.services.failure_analysis import FailureAnalysisService
+    from failure_analysis.failure_analysis import FailureAnalysisService
     service = FailureAnalysisService()
     filters = {}
     if problem_category:
@@ -1113,7 +1113,7 @@ async def get_failure_analysis(
     analysis_id: int,
     db: DbSession,
 ):
-    from collector.services.failure_analysis import FailureAnalysisService
+    from failure_analysis.failure_analysis import FailureAnalysisService
     service = FailureAnalysisService()
     analysis = await service.get_analysis(analysis_id=analysis_id, db=db)
     if not analysis:
@@ -1132,7 +1132,7 @@ async def get_failure_analysis_knowledge_graph(
     if not analysis:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="分析记录不存在")
 
-    from collector.services.failure_analysis_knowledge_graph import build_failure_analysis_knowledge_graph
+    from failure_analysis.failure_analysis_knowledge_graph import build_failure_analysis_knowledge_graph
 
     return build_failure_analysis_knowledge_graph(analysis)
 
@@ -1142,7 +1142,7 @@ async def get_failure_analysis_report(
     analysis_id: int,
     db: DbSession,
 ):
-    from collector.services.failure_analysis import FailureAnalysisService
+    from failure_analysis.failure_analysis import FailureAnalysisService
     service = FailureAnalysisService()
     analysis = await service.get_analysis(analysis_id=analysis_id, db=db)
     if not analysis:
@@ -1162,7 +1162,7 @@ async def get_job_failure_analysis(
     job_id: int,
     db: DbSession,
 ):
-    from collector.services.failure_analysis import FailureAnalysisService
+    from failure_analysis.failure_analysis import FailureAnalysisService
     service = FailureAnalysisService()
     analysis = await service.get_analysis_by_job_id(job_id=job_id, db=db)
     if not analysis:
@@ -1367,7 +1367,7 @@ async def download_public_analysis_pdf(
     file_store = FailureAnalysisFileStore()
     md_content = await file_store.read_report_by_path(analysis.report_file_path) or ""
 
-    from collector.services.failure_analysis import FailureAnalysisService
+    from failure_analysis.failure_analysis import FailureAnalysisService
     svc = FailureAnalysisService()
     meta = {
         "category": analysis.problem_category or "-",

@@ -5,7 +5,7 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from collector.pr_pipeline import PRPipelineCollector
-from collector.services.pr_pipeline_service import PRPipelineService
+from api.services.pr_pipeline_service import PRPipelineService
 from tests.conftest import make_ci_result, make_pr
 
 OWNER = "vllm-ascend"

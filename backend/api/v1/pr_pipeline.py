@@ -16,7 +16,7 @@ from contracts.schemas.pr_pipeline import (
     PRPipelineTrendsResponse,
     PullRequestResponse,
 )
-from collector.services.pr_pipeline_service import PRPipelineService
+from api.services.pr_pipeline_service import PRPipelineService
 
 logger = logging.getLogger(__name__)
 
@@ -214,7 +214,7 @@ async def diagnose_pr(
 ):
     """AI 诊断指定 PR"""
     try:
-        from collector.services.pr_diagnosis import PRDiagnosisService
+        from api.services.pr_diagnosis import PRDiagnosisService
         diag_service = PRDiagnosisService(db)
         result = await diag_service.diagnose(pr_number)
         # Save to history
