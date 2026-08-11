@@ -494,7 +494,7 @@ class ClaudeCodeCLI:
         # 不隔离 HOME/USERPROFILE —— 改用 --setting-sources 排除用户配置
 
         # 传递 GITHUB_TOKEN，CLI 可以用 curl 拉 CI 日志
-        from shared.core.config import settings
+        from infrastructure.core.config import settings
         if settings.GITHUB_TOKEN:
             env["GITHUB_TOKEN"] = settings.GITHUB_TOKEN
 

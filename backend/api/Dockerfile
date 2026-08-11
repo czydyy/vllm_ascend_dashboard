@@ -64,6 +64,7 @@ ENV PATH="/opt/venv/bin:$PATH"
 COPY backend/api/ ./api/
 COPY backend/scheduler/ ./scheduler/
 COPY backend/collector/ ./collector/
+COPY backend/infrastructure/ ./infrastructure/
 COPY backend/shared/ ./shared/
 
 # Copy skills/agents

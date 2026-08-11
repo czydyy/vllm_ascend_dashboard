@@ -10,7 +10,7 @@ from datetime import UTC, datetime
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from shared.core.email import get_smtp_config, send_email
+from infrastructure.core.email import get_smtp_config, send_email
 from shared.models import (
     AlertCondition,
     AlertConditionGroup,

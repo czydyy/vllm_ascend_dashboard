@@ -10,7 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from api.deps import get_current_active_admin_user, get_current_user
 from api.deps import get_db as get_db_session
-from shared.db.base import get_db
+from infrastructure.db.base import get_db
 from shared.models import User
 from shared.schemas import (
     PRActionRequest,

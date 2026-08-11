@@ -9,7 +9,7 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 
 from api.deps import DbSession, get_current_user
-from shared.core.security import (
+from infrastructure.core.security import (
     anonymize_ip, create_access_token, create_refresh_token,
     decode_token, hash_ip, hash_password, verify_password,
 )

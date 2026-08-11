@@ -708,7 +708,7 @@ class TestGetEntry:
 class TestDBLogHandler:
     def test_handler_emits_entry(self):
         """DBLogHandler should push an entry into the queue without errors."""
-        from shared.core.logging import DBLogHandler, _log_queue
+        from infrastructure.core.logging import DBLogHandler, _log_queue
 
         # Drain the queue first
         while not _log_queue.empty():
@@ -737,7 +737,7 @@ class TestDBLogHandler:
         assert entry["traceback"] is None
 
     def test_handler_captures_exception_traceback(self):
-        from shared.core.logging import DBLogHandler, _log_queue
+        from infrastructure.core.logging import DBLogHandler, _log_queue
 
         while not _log_queue.empty():
             try:
@@ -768,7 +768,7 @@ class TestDBLogHandler:
 
     def test_setup_db_logging_is_idempotent(self):
         """Calling setup_db_logging twice should not double-register."""
-        from shared.core.logging import setup_db_logging
+        from infrastructure.core.logging import setup_db_logging
 
         setup_db_logging()
         count_after_first = len(logging.getLogger().handlers)

@@ -43,9 +43,9 @@ from api.v1 import (
     workflows,
     logs,
 )
-from shared.core.config import settings
-from shared.core.logging import setup_db_logging
-from shared.db.base import engine
+from infrastructure.core.config import settings
+from infrastructure.core.logging import setup_db_logging
+from infrastructure.db.base import engine
 from shared.middleware.usage_tracking import UsageTrackingMiddleware
 from shared.models import Base
 # Database DDL is allowed only for local development. Production migrations

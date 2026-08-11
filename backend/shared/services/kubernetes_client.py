@@ -7,7 +7,7 @@ from cryptography.fernet import Fernet
 from kubernetes_asyncio import client, config
 from kubernetes_asyncio.client import ApiClient, CoreV1Api, CustomObjectsApi
 
-from shared.core.config import settings
+from infrastructure.core.config import settings
 from shared.models import KubernetesClusterConfig
 
 

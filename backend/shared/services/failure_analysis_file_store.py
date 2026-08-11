@@ -5,7 +5,7 @@ import re
 from pathlib import Path
 from typing import Optional
 
-from shared.core.config import settings
+from infrastructure.core.config import settings
 
 logger = logging.getLogger(__name__)
 

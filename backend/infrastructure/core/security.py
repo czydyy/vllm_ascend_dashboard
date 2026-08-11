@@ -8,7 +8,7 @@ import bcrypt
 from cryptography.fernet import Fernet
 from jose import ExpiredSignatureError, JWTError, jwt
 
-from shared.core.config import settings
+from infrastructure.core.config import settings
 
 _logger = logging.getLogger(__name__)
 

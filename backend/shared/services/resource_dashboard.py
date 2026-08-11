@@ -4,7 +4,7 @@ from datetime import UTC, datetime
 from decimal import Decimal
 from typing import Any
 
-from shared.core.config import settings
+from infrastructure.core.config import settings
 from shared.models import KubernetesClusterConfig
 from shared.schemas import (
     ClusterResourceSummary,

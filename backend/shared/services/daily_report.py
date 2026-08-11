@@ -17,8 +17,8 @@ from jinja2 import Environment, FileSystemLoader
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from shared.core.config import settings
-from shared.core.email import get_smtp_config, send_email
+from infrastructure.core.config import settings
+from infrastructure.core.email import get_smtp_config, send_email
 from shared.models import (
     CIResult,
     DailyReportHistory,

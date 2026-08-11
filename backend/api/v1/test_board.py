@@ -17,8 +17,8 @@ from api.deps import (
     DbSession,
     get_current_user,
 )
-from shared.core.config import settings
-from shared.db.base import SessionLocal
+from infrastructure.core.config import settings
+from infrastructure.db.base import SessionLocal
 from shared.models import User
 from shared.models.test_board import TestCase
 from shared.schemas.test_board import (
@@ -309,7 +309,7 @@ async def get_trends(
 async def _run_derivation_background():
     """后台执行发现问题数推导，使用独立 DB session 避免与请求 session 冲突。"""
     try:
-        from shared.db.base import SessionLocal
+        from infrastructure.db.base import SessionLocal
         from shared.services.issues_found_derivator import IssuesFoundDerivator
 
         async with SessionLocal() as db:

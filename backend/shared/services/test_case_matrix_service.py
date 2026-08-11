@@ -9,7 +9,7 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
-from shared.core.config import settings
+from infrastructure.core.config import settings
 
 logger = logging.getLogger(__name__)
 

@@ -7,7 +7,7 @@ import uuid
 
 from sqlalchemy import text
 
-from shared.db.base import SessionLocal
+from infrastructure.db.base import SessionLocal
 
 
 class SchedulerLeaderLease:

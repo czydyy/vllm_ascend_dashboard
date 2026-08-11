@@ -11,8 +11,8 @@ from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.interval import IntervalTrigger
 from sqlalchemy import bindparam, text
 
-from shared.core.config import settings
-from shared.db.base import SessionLocal
+from infrastructure.core.config import settings
+from infrastructure.db.base import SessionLocal
 from shared.services.github_client import GitHubClient
 
 logger = logging.getLogger(__name__)
@@ -1585,7 +1585,7 @@ class DataSyncScheduler:
     async def _sync_support_matrix_job(self) -> None:
         """每日同步上游支持矩阵"""
         try:
-            from shared.db.base import SessionLocal
+            from infrastructure.db.base import SessionLocal
             from shared.services.support_matrix_sync import sync_support_matrix
 
             async with SessionLocal() as db:

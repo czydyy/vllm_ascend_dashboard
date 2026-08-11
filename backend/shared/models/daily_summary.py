@@ -151,7 +151,7 @@ class LLMProviderConfig(Base):
         if not self.api_key:
             return ""
         try:
-            from shared.core.security import decrypt_api_key
+            from infrastructure.core.security import decrypt_api_key
             return decrypt_api_key(self.api_key)
         except Exception:
             return self.api_key

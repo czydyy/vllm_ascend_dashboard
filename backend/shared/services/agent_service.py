@@ -20,7 +20,7 @@ from dataclasses import dataclass, field
 from typing import Callable
 from urllib.parse import urlparse
 
-from shared.core.config import settings
+from infrastructure.core.config import settings
 from shared.services.agent_runtime import BoundedToolCallingAgent, CompatibleLiteLLMModel
 from shared.services.agent_tools import (
     FAILURE_ANALYSIS_TOOLS,

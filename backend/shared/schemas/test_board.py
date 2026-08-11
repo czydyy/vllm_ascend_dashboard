@@ -77,7 +77,7 @@ class TestCaseResponse(BaseModel):
 
     @model_validator(mode="after")
     def _compute_retired(self) -> "TestCaseResponse":
-        from shared.core.config import settings
+        from infrastructure.core.config import settings
         cutoff = datetime.now(UTC) - timedelta(days=settings.TEST_CASE_STALE_DAYS)
 
         def _is_past(dt: datetime | None) -> bool:

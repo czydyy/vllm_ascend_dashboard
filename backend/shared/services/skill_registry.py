@@ -38,7 +38,7 @@ class SkillRegistry:
         return agents_skills_dir
 
     def _resolve_data_skills_dir(self) -> Path:
-        from shared.core.config import settings
+        from infrastructure.core.config import settings
         data_dir = settings.DATA_DIR
         skills_dir = Path(data_dir) / "skills"
         if not skills_dir.is_absolute():

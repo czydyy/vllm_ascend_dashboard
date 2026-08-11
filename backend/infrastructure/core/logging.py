@@ -12,13 +12,13 @@ from datetime import UTC, datetime
 
 from sqlalchemy import text
 
-from shared.db.base import SessionLocal
+from infrastructure.db.base import SessionLocal
 
 logger = logging.getLogger(__name__)
 
 # Worker 专用 logger：不传播到 root，避免 flush 失败的 warning 经 DBLogHandler
 # 回流队列形成反馈循环。
-_worker_logger = logging.getLogger("shared.core.logging._worker")
+_worker_logger = logging.getLogger("infrastructure.core.logging._worker")
 _worker_logger.propagate = False
 if not _worker_logger.handlers:
     _worker_logger.addHandler(logging.StreamHandler())

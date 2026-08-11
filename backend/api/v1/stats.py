@@ -6,7 +6,7 @@ from fastapi import APIRouter, Query
 from sqlalchemy import select, func, distinct, text, inspect
 
 from api.deps import CurrentAdminUser, DbSession
-from shared.db.base import engine
+from infrastructure.db.base import engine
 from shared.models import User, UserLoginLog, FeatureUsageLog, Base
 from shared.schemas import LoginStatsResponse, FeatureUsageStatsResponse, FeatureUsageTrendPoint
 

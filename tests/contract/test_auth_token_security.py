@@ -1,4 +1,4 @@
-from shared.core.security import create_access_token, create_refresh_token, decode_token
+from infrastructure.core.security import create_access_token, create_refresh_token, decode_token
 
 
 def test_access_and_refresh_tokens_have_distinct_types():

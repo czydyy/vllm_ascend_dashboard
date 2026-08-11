@@ -13,7 +13,7 @@ def _node_id() -> str:
 
 
 async def is_healthy() -> bool:
-    from shared.db.base import SessionLocal
+    from infrastructure.db.base import SessionLocal
 
     async with SessionLocal() as db:
         row = (

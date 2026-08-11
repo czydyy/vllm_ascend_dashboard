@@ -6,7 +6,7 @@ from datetime import UTC, datetime, timedelta
 
 
 async def is_healthy() -> bool:
-    from shared.db.base import SessionLocal
+    from infrastructure.db.base import SessionLocal
     from shared.models import SchedulerHeartbeat
 
     async with SessionLocal() as db:

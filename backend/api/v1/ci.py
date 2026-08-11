@@ -14,7 +14,7 @@ from sqlalchemy import Date, case, cast, func, select
 from sqlalchemy.exc import SQLAlchemyError
 
 from api.deps import CurrentAdminUser, CurrentSuperAdminUser, CurrentUser, DbSession
-from shared.core.config import settings
+from infrastructure.core.config import settings
 from shared.models import CIJob, CIResult, DailyFailureRecord, JobFailureAnalysis, JobOwner, NightlyTestCase, User, WorkflowConfig
 from shared.schemas import (
     CIDailyReport,
@@ -407,7 +407,7 @@ async def trigger_sync(
     """Enqueue a durable CI sync task for a Collector worker."""
     from uuid import uuid4
 
-    from shared.db.base import SessionLocal
+    from infrastructure.db.base import SessionLocal
     from shared.services.task_manager import TaskManager
 
     async with SessionLocal() as db:
@@ -438,7 +438,7 @@ async def trigger_sync(
 async def get_sync_progress_info():
     """Return the latest durable CI sync task status."""
     from sqlalchemy import text
-    from shared.db.base import SessionLocal
+    from infrastructure.db.base import SessionLocal
 
     async with SessionLocal() as db:
         row = (await db.execute(text("""
@@ -468,7 +468,7 @@ async def debug_workflows():
     用于排查 workflow 文件名不匹配问题
     """
     try:
-        from shared.core.config import settings
+        from infrastructure.core.config import settings
         from shared.services.github_client import GitHubClient
 
         if not settings.GITHUB_TOKEN:
@@ -490,7 +490,7 @@ async def debug_workflows():
             workflows = result.get("workflows", [])
 
             # 检查配置的 workflow 是否存在
-            from shared.db.base import SessionLocal
+            from infrastructure.db.base import SessionLocal
             from shared.models import WorkflowConfig
             from sqlalchemy import select
 

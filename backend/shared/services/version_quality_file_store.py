@@ -12,7 +12,7 @@ import re
 from datetime import UTC, datetime
 from pathlib import Path
 
-from shared.core.config import settings
+from infrastructure.core.config import settings
 
 logger = logging.getLogger(__name__)
 

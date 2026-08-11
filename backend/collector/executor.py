@@ -12,8 +12,8 @@ from datetime import datetime
 
 from sqlalchemy import text
 
-from shared.core.config import settings
-from shared.db.base import SessionLocal
+from infrastructure.core.config import settings
+from infrastructure.db.base import SessionLocal
 from collector.ci import CICollector
 from .worker import CollectorWorker, TaskContext
 from shared.services.github_client import GitHubClient

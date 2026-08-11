@@ -28,7 +28,7 @@ async def main():
     capabilities_str = os.environ.get("CAPABILITIES", "python")
     capabilities = [c.strip() for c in capabilities_str.split(",") if c.strip()]
 
-    from shared.db.base import SessionLocal
+    from infrastructure.db.base import SessionLocal
     from .worker import CollectorWorker
     from .executor import CollectorRunner
 

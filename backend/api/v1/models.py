@@ -15,7 +15,7 @@ from sqlalchemy.exc import SQLAlchemyError
 logger = logging.getLogger(__name__)
 
 from api.deps import CurrentAdminUser, DbSession
-from shared.core.config import settings
+from infrastructure.core.config import settings
 from shared.models import ModelConfig, ModelReport
 from shared.schemas import (
     Message,

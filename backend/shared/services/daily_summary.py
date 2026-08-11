@@ -11,7 +11,7 @@ from typing import Optional, Tuple
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from shared.core.config import settings
+from infrastructure.core.config import settings
 from shared.models.daily_summary import DailySummary, DailyPR, DailyIssue, DailyCommit, LLMProviderConfig
 from shared.models import ProjectDashboardConfig
 from shared.services.github_client import GitHubClient

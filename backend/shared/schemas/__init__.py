@@ -9,7 +9,7 @@ from datetime import date
 
 from pydantic import BaseModel, ConfigDict, Field, computed_field, field_serializer, field_validator
 
-from shared.core.config import settings
+from infrastructure.core.config import settings
 
 # 导出所有 Schema 类
 __all__ = [

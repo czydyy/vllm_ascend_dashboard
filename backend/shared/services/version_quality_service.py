@@ -16,7 +16,7 @@ from typing import Any
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from shared.core.config import settings
+from infrastructure.core.config import settings
 from shared.models import CIResult, ProjectDashboardConfig
 from shared.models.daily_summary import LLMProviderConfig
 from shared.services.github_cache import get_github_cache

@@ -7,7 +7,7 @@ from sqlalchemy import case, desc, func, literal_column, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.types import Unicode
 
-from shared.core.config import settings
+from infrastructure.core.config import settings
 from shared.models import PullRequest
 from shared.utils.company_detector import detect_company
 from shared.schemas.pr_pipeline import (

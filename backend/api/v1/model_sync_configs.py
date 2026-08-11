@@ -8,7 +8,7 @@ from fastapi import APIRouter, HTTPException, status
 from sqlalchemy import select
 
 from api.deps import CurrentAdminUser, DbSession
-from shared.core.config import settings
+from infrastructure.core.config import settings
 from shared.models import ModelSyncConfig
 from shared.schemas import (
     Message,

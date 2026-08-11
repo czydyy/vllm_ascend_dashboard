@@ -9,8 +9,8 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from shared.core.security import decode_token
-from shared.db.base import get_db
+from infrastructure.core.security import decode_token
+from infrastructure.db.base import get_db
 from shared.models import User, TokenBlacklist
 
 logger = logging.getLogger(__name__)

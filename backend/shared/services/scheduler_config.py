@@ -7,7 +7,7 @@ from typing import Any
 
 from sqlalchemy import select, text
 
-from shared.db.base import SessionLocal
+from infrastructure.db.base import SessionLocal
 from shared.models import ProjectDashboardConfig
 
 SCHEDULER_RUNTIME_CONFIG_KEY = "scheduler_runtime_config"

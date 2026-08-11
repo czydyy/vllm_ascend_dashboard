@@ -8,7 +8,7 @@ from typing import Any, Dict, List, Optional
 
 import httpx
 
-from shared.core.config import settings
+from infrastructure.core.config import settings
 
 logger = logging.getLogger(__name__)
 

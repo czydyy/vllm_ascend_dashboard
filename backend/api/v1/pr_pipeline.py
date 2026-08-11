@@ -3,7 +3,7 @@ import logging
 from fastapi import APIRouter, HTTPException, Query, status
 
 from api.deps import CurrentAdminUser, CurrentUser, DbSession
-from shared.core.config import settings
+from infrastructure.core.config import settings
 from shared.schemas.pr_pipeline import (
     PRPipelineContributor,
     PRPipelineContributorsResponse,
@@ -120,7 +120,7 @@ async def sync_pr_pipeline(
     """Enqueue a durable PR pipeline synchronization task."""
     from uuid import uuid4
 
-    from shared.db.base import SessionLocal
+    from infrastructure.db.base import SessionLocal
     from shared.services.task_manager import TaskManager
 
     days_back = request.days_back if request else 7
@@ -143,7 +143,7 @@ async def sync_pr_pipeline(
 async def sync_status():
     """Return the latest durable PR sync task status."""
     from sqlalchemy import text
-    from shared.db.base import SessionLocal
+    from infrastructure.db.base import SessionLocal
 
     async with SessionLocal() as db:
         row = (await db.execute(text("""

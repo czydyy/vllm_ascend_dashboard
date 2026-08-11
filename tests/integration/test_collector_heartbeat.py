@@ -8,7 +8,7 @@ import pytest
 from sqlalchemy import text
 
 from collector.worker import CollectorWorker
-from shared.db.base import SessionLocal, engine
+from infrastructure.db.base import SessionLocal, engine
 
 
 @pytest.mark.asyncio

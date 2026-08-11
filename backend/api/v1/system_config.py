@@ -12,8 +12,8 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from api.deps import get_current_active_admin_user, get_current_active_super_admin_user, get_current_user, get_db
-from shared.core.config import settings
-from shared.core.email import SMTP_CONFIG_KEY
+from infrastructure.core.config import settings
+from infrastructure.core.email import SMTP_CONFIG_KEY
 from shared.models import ProjectDashboardConfig, User
 
 logger = logging.getLogger(__name__)
@@ -34,7 +34,7 @@ async def get_system_config(
     # 时区配置从数据库读取，默认 Asia/Shanghai
     from sqlalchemy import select
     from shared.models import ProjectDashboardConfig
-    from shared.db.base import SessionLocal
+    from infrastructure.db.base import SessionLocal
     
     timezone_str = 'Asia/Shanghai'  # 默认时区
     try:
@@ -97,7 +97,7 @@ async def update_app_config(
     需要超级管理员权限（super_admin）
     同时更新运行时配置和 .env 文件
     """
-    from shared.core.config_manager import update_env_config
+    from infrastructure.core.config_manager import update_env_config
     import logging
 
     updates = []
@@ -169,7 +169,7 @@ async def update_github_config(
 
     注意：GitHub 项目固定为 vllm-project/vllm-ascend，不可修改
     """
-    from shared.core.config_manager import update_env_config
+    from infrastructure.core.config_manager import update_env_config
 
     updates = []
     env_updates = {}
@@ -224,7 +224,7 @@ async def update_sync_config(
     需要超级管理员权限（super_admin）
     同时更新运行时配置和 .env 文件
     """
-    from shared.core.config_manager import update_env_config
+    from infrastructure.core.config_manager import update_env_config
     from shared.services.scheduler_config import persist_scheduler_runtime_config
 
     updates = []
@@ -407,7 +407,7 @@ async def get_system_status(
     from sqlalchemy import func, select
     from sqlalchemy import text
 
-    from shared.db.base import SessionLocal
+    from infrastructure.db.base import SessionLocal
     from shared.models import SchedulerHeartbeat, WorkflowConfig
 
     # 一次 DB 读取：调度器心跳 + 最近同步时间
@@ -873,7 +873,7 @@ async def update_llm_provider(
             provider_config.display_name = config['display_name']
 
         if 'api_key' in config:
-            from shared.core.security import encrypt_api_key
+            from infrastructure.core.security import encrypt_api_key
             provider_config.api_key = encrypt_api_key(config['api_key'])
 
         if 'api_base_url' in config:
@@ -923,7 +923,7 @@ async def create_llm_provider(
 ):
     """创建新的 LLM 提供商（需 super_admin）"""
     from shared.models.daily_summary import LLMProviderConfig
-    from shared.core.security import encrypt_api_key
+    from infrastructure.core.security import encrypt_api_key
 
     provider_name = config.get("provider", "").strip()
     if not provider_name:
@@ -1255,7 +1255,7 @@ async def get_smtp_config_endpoint(
     db: AsyncSession = Depends(get_db),
 ):
     """获取 SMTP 邮件外发服务器配置（admin 权限）"""
-    from shared.core.email import get_smtp_config as _read
+    from infrastructure.core.email import get_smtp_config as _read
     config = await _read(db)
     return {
         "smtp_host": config.get("smtp_host", ""),
@@ -1274,7 +1274,7 @@ async def update_smtp_config(
     db: AsyncSession = Depends(get_db),
 ):
     """更新 SMTP 邮件外发服务器配置（super_admin 权限）"""
-    from shared.core.email import get_smtp_config as _read
+    from infrastructure.core.email import get_smtp_config as _read
 
     current = await _read(db)
     for key in ("smtp_host", "smtp_port", "smtp_username", "smtp_password", "smtp_use_tls", "from_email"):
@@ -1312,7 +1312,7 @@ async def test_smtp_connection(
     db: AsyncSession = Depends(get_db),
 ):
     """测试 SMTP 连通性（admin 权限）"""
-    from shared.core.email import get_smtp_config as _read
+    from infrastructure.core.email import get_smtp_config as _read
     import aiosmtplib
     from email.mime.text import MIMEText
 

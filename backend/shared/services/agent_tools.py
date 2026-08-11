@@ -24,7 +24,7 @@ from urllib.parse import urlparse
 import httpx
 from smolagents import tool
 
-from shared.core.config import settings
+from infrastructure.core.config import settings
 from shared.services.memory_manager import MemoryManager
 
 logger = logging.getLogger(__name__)

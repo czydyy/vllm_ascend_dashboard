@@ -16,7 +16,7 @@ DEFAULT_REPO_PATH = os.environ.get("VLLM_ASCEND_REPO_PATH", "")
 if not DEFAULT_REPO_PATH:
     # 优先使用 github_cache 的缓存目录（CI sync 时自动 clone/pull）
     try:
-        from shared.core.config import settings
+        from infrastructure.core.config import settings
         data_root = Path(settings.DATA_DIR)
         if not data_root.is_absolute():
             data_root = Path.cwd() / data_root

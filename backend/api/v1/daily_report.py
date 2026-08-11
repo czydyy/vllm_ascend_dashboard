@@ -11,8 +11,8 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from api.deps import get_current_active_admin_user, get_current_active_super_admin_user, get_current_user, get_db
-from shared.core.config import settings
-from shared.core.email import DEFAULT_SMTP_CONFIG, SMTP_CONFIG_KEY, get_smtp_config
+from infrastructure.core.config import settings
+from infrastructure.core.email import DEFAULT_SMTP_CONFIG, SMTP_CONFIG_KEY, get_smtp_config
 from shared.models import ProjectDashboardConfig, User
 from shared.schemas.daily_report import (
     DailyReportConfigResponse,

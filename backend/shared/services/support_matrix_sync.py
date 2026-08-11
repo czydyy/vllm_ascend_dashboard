@@ -12,7 +12,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from shared.core.config import settings
+from infrastructure.core.config import settings
 from shared.models import (
     FeatureCompatibility,
     ModelFeatureMatrix,

@@ -99,7 +99,7 @@ class CodeMetricsCollector:
             elif hasattr(cache, 'cache_dir'):
                 return str(cache.cache_dir)
             else:
-                import shared.core.config as config
+                import infrastructure.core.config as config
                 base = getattr(config.settings, 'GITHUB_CACHE_DIR', '/app/data/repos')
                 return os.path.join(base, "vllm-project_vllm-ascend")
         except Exception as e:

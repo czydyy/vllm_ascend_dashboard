@@ -13,7 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from shared.models import CIJob, CIResult, ProjectDashboardConfig, JobFailureAnalysis
 from shared.models.daily_summary import LLMProviderConfig
 from shared.services.failure_analysis_file_store import FailureAnalysisFileStore
-from shared.core.config import settings
+from infrastructure.core.config import settings
 
 logger = logging.getLogger(__name__)
 _BACKGROUND_TASKS: set[asyncio.Task] = set()
@@ -444,7 +444,7 @@ class FailureAnalysisService:
         """Persist live agent progress using an isolated session."""
         try:
             from sqlalchemy import update
-            from shared.db.base import SessionLocal
+            from infrastructure.db.base import SessionLocal
 
             async with SessionLocal() as progress_db:
                 await progress_db.execute(
@@ -1854,7 +1854,7 @@ class FailureAnalysisService:
     async def _generate_pdf_async(self, analysis_id: int, md_content: str, workflow: str, job_name: str, job_id: int):
         """Generate PDF asynchronously and update DB when done."""
         try:
-            from shared.db.base import SessionLocal as SL
+            from infrastructure.db.base import SessionLocal as SL
             meta = {}
             async with SL() as db:
                 from sqlalchemy import select as sa_sel
@@ -1871,7 +1871,7 @@ class FailureAnalysisService:
                         "duration": a.generation_time_seconds,
                     }
             pdf_path = await self._generate_pdf(md_content, workflow, job_name, job_id, metadata=meta)
-            from shared.db.base import SessionLocal
+            from infrastructure.db.base import SessionLocal
             async with SessionLocal() as db:
                 from sqlalchemy import update
                 await db.execute(

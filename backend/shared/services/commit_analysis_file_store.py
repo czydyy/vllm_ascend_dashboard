@@ -4,7 +4,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-from shared.core.config import settings
+from infrastructure.core.config import settings
 from shared.schemas.commit_analysis import CommitAnalysisStatus
 
 PROJECT_PATTERN = re.compile(r"^[a-zA-Z0-9_-]+$")

@@ -4,8 +4,8 @@ from datetime import UTC, datetime
 from fastapi import Request, Response
 from starlette.middleware.base import BaseHTTPMiddleware
 
-from shared.core.security import decode_token
-from shared.db.base import SessionLocal
+from infrastructure.core.security import decode_token
+from infrastructure.db.base import SessionLocal
 from shared.models import FeatureUsageLog
 
 logger = logging.getLogger(__name__)

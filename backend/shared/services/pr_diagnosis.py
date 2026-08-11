@@ -7,7 +7,7 @@ from datetime import datetime, timedelta, timezone
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from shared.core.config import settings
+from infrastructure.core.config import settings
 from shared.models import PullRequest
 from shared.models.daily_summary import LLMProviderConfig
 from shared.services.llm_client import LLMClient

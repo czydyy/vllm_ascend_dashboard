@@ -8,7 +8,7 @@ from fastapi import APIRouter, HTTPException, status
 from sqlalchemy import select
 
 from api.deps import CurrentAdminUser, CurrentSuperAdminUser, DbSession
-from shared.core.security import hash_password
+from infrastructure.core.security import hash_password
 from shared.models import User
 from shared.schemas import Message, PasswordReset, UserCreate, UserResponse, UserUpdate
 

@@ -94,7 +94,7 @@ async def test_status_fresh_heartbeat_reports_running(monkeypatch):
 
     即使 API 进程内 APScheduler 未启动（prod 实况），也应报告调度器在运行。
     """
-    import shared.db.base as db_base
+    import infrastructure.db.base as db_base
     from api.v1 import system_config
 
     hb = FakeHeartbeatRow(running=True, jobs=_FRESH_JOBS, updated_at=datetime.now(UTC))
@@ -111,7 +111,7 @@ async def test_status_fresh_heartbeat_reports_running(monkeypatch):
 @pytest.mark.asyncio
 async def test_status_stale_heartbeat_reports_not_running(monkeypatch):
     """心跳过期（>90s 未刷新）→ /status 返回 running=False，所有 next_sync 为 None。"""
-    import shared.db.base as db_base
+    import infrastructure.db.base as db_base
     from api.v1 import system_config
 
     stale = FakeHeartbeatRow(
@@ -131,7 +131,7 @@ async def test_status_stale_heartbeat_reports_not_running(monkeypatch):
 @pytest.mark.asyncio
 async def test_status_no_heartbeat_is_not_running(monkeypatch):
     """API 从不回退到进程内 Scheduler；没有心跳即为不可确认。"""
-    import shared.db.base as db_base
+    import infrastructure.db.base as db_base
     from api.v1 import system_config
 
     session = FakeSession(heartbeat=None)  # 无心跳行
@@ -154,7 +154,7 @@ async def test_write_heartbeat_serializes_running_and_jobs(monkeypatch):
 
     session = FakeSession(heartbeat=None)  # 首次写入 → db.add
     # write_heartbeat 用的是 scheduler.py 顶部 import 的 SessionLocal（模块级绑定），
-    # 必须直接 patch scheduler 模块的这个名字，patch shared.db.base 不生效。
+    # 必须直接 patch scheduler 模块的这个名字，patch infrastructure.db.base 不生效。
     monkeypatch.setattr(sched_mod, "SessionLocal", lambda: session)
 
     ds = DataSyncScheduler()

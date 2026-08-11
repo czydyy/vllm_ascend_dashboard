@@ -22,7 +22,7 @@ if not application_root.is_dir():
     application_root = repository_root
 sys.path.insert(0, str(application_root))
 
-from shared.db.base import SessionLocal, engine
+from infrastructure.db.base import SessionLocal, engine
 if (repository_root / "backend").is_dir():
     from database.bootstrap import create_tables_with_latest_schema
     from database.migrations.mysql_schema import migrate as migrate_mysql_schema

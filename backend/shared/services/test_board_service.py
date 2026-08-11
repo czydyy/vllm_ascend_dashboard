@@ -6,7 +6,7 @@ from typing import Any
 from sqlalchemy import select, func, and_, or_, desc, asc, delete, text, case
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from shared.core.config import settings
+from infrastructure.core.config import settings
 from shared.models import CIJob, CIResult, JobOwner, JobFailureAnalysis, WorkflowConfig
 from shared.models.test_board import TestCase, TestRun, TestSuiteSnapshot, FailureAnnotation
 from shared.services.test_timing_parser import TestTimingParser

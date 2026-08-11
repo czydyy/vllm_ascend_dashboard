@@ -10,7 +10,7 @@ from typing import Optional
 
 import aiohttp
 
-from shared.core.config import settings
+from infrastructure.core.config import settings
 
 logger = logging.getLogger(__name__)
 

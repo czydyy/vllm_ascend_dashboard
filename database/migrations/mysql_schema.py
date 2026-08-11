@@ -17,7 +17,7 @@ if not application_root.is_dir():
     application_root = repository_root
 sys.path.insert(0, str(application_root))
 
-from shared.db.base import SessionLocal, engine
+from infrastructure.db.base import SessionLocal, engine
 
 logger = logging.getLogger("mysql_schema_migration")
 logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
