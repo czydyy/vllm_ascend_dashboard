@@ -452,7 +452,7 @@ class PRDiagnosisService:
     def _get_system_prompt(self) -> str:
         """获取系统提示词：优先从 skill registry 加载 auto-bug-fixer 技能"""
         try:
-            from shared.services.skill_registry import get_skill_registry
+            from agent.skill_registry import get_skill_registry
             skill = get_skill_registry().get_skill_by_scope('ci_failure_analysis')
             if skill and skill.content:
                 logger.info("Using auto-bug-fixer skill for PR diagnosis")

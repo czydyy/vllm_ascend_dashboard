@@ -4,7 +4,8 @@ import subprocess
 import pytest
 
 from shared.services.failure_analysis import FailureAnalysisService
-from shared.services import agent_tools, github_cache
+from agent import agent_tools
+from infrastructure.clients import github_cache
 
 
 def test_missing_failure_facts_blocks_completed_report():

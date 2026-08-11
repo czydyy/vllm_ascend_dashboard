@@ -1001,7 +1001,7 @@ async def delete_llm_provider(
 
 def get_system_prompt_scope_config(scope: str) -> tuple[str, dict[str, str], str]:
     if scope == "ci_failure_analysis":
-        from shared.services.skill_registry import get_skill_registry
+        from agent.skill_registry import get_skill_registry
         registry = get_skill_registry()
         skill = registry.get_skill_by_scope("ci_failure_analysis")
         default_prompt = skill.content if skill and skill.content else "你是一名专业的 CI/CD 失败诊断分析师。请根据提供的 CI Job 失败信息，进行根因分析并给出改进建议。"
@@ -1036,7 +1036,7 @@ def get_system_prompt_scope_config(scope: str) -> tuple[str, dict[str, str], str
             "系统提示词用于指导 AI 生成单个 Commit 分析总结的风格和内容重点",
         )
     if scope == "daily_report":
-        from shared.services.skill_registry import get_skill_registry
+        from agent.skill_registry import get_skill_registry
         registry = get_skill_registry()
         skill = registry.get_skill_by_scope("daily_report")
         default_prompt = skill.content if skill and skill.content else "你是一名 vLLM Ascend 社区运营分析师。请根据提供的全量看板数据，生成结构化每日运行报告。报告应包含：一句话总结、整体健康度、Nightly 流水线概况、PR 流水线概况、项目动态、风险与待办。每段先结论后数据，空数据板块整段省略。"
@@ -1195,7 +1195,7 @@ async def update_system_prompt_config(
 async def list_skills(
     current_user: Annotated[User, Depends(get_current_active_admin_user)],
 ):
-    from shared.services.skill_registry import get_skill_registry
+    from agent.skill_registry import get_skill_registry
     registry = get_skill_registry()
     skills = registry.list_skills()
     return [
@@ -1215,7 +1215,7 @@ async def list_skills(
 async def refresh_skills(
     current_user: Annotated[User, Depends(get_current_active_super_admin_user)],
 ):
-    from shared.services.skill_registry import refresh_skill_registry
+    from agent.skill_registry import refresh_skill_registry
     count = refresh_skill_registry()
     return {
         "success": True,
@@ -1229,7 +1229,7 @@ async def get_skill_detail(
     skill_name: str,
     current_user: Annotated[User, Depends(get_current_active_admin_user)],
 ):
-    from shared.services.skill_registry import get_skill_registry
+    from agent.skill_registry import get_skill_registry
     registry = get_skill_registry()
     skill = registry.get_skill(skill_name)
     if not skill:

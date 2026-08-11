@@ -70,7 +70,7 @@ class TestGenerateAiReport:
 
         with (
             patch(
-                "shared.services.skill_registry.get_skill_registry"
+                "agent.skill_registry.get_skill_registry"
             ) as mock_registry,
             patch("infrastructure.clients.llm_client.LLMClient") as mock_client_cls,
         ):

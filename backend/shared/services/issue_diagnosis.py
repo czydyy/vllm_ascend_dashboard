@@ -9,7 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from infrastructure.persistence.models import CIJob, CIResult, ProjectDashboardConfig
 from infrastructure.persistence.models.daily_summary import LLMProviderConfig
 from infrastructure.clients.llm_client import LLMClient, LLMError
-from shared.services.skill_registry import get_skill_registry
+from agent.skill_registry import get_skill_registry
 
 logger = logging.getLogger(__name__)
 

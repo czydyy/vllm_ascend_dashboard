@@ -46,7 +46,7 @@ class CommitAnalysisSummaryService:
             }
 
             if os.environ.get("AGENT_SERVICE_ENABLED", "").lower() in ("1", "true", "yes"):
-                from shared.services.agent_service import AgentService, AgentTask
+                from agent.agent_service import AgentService, AgentTask
 
                 agent_svc = AgentService(self.db)
                 agent_result = await agent_svc.run(AgentTask(

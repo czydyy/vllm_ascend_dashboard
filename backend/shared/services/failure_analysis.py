@@ -83,7 +83,7 @@ class FailureAnalysisService:
         return {"runtime": "claude_cli", "max_turns": 80, "timeout_seconds": 1800}
 
     def _get_default_prompt(self) -> str:
-        from shared.services.skill_registry import get_skill_registry
+        from agent.skill_registry import get_skill_registry
         registry = get_skill_registry()
         skill = registry.get_skill_by_scope("ci_failure_analysis")
         if skill and skill.content:
@@ -502,8 +502,8 @@ class FailureAnalysisService:
         """Run investigation -> independent verification -> report rendering."""
         import asyncio
 
-        from shared.services.agent_service import AgentResult, AgentService, AgentTask
-        from shared.services.agent_tools import (
+        from agent.agent_service import AgentResult, AgentService, AgentTask
+        from agent.agent_tools import (
             FAILURE_ANALYSIS_TOOLS,
             grep_content,
             list_files,

@@ -4,7 +4,7 @@ from types import SimpleNamespace
 
 from contracts.schemas.issue_diagnosis import IssueDiagnosisRequest
 from shared.services.issue_diagnosis import IssueDiagnosisService
-from shared.services import llm_client as llm_client_module
+from infrastructure.clients import llm_client as llm_client_module
 
 
 def test_pr_request_requires_pr_number():

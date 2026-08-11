@@ -25,7 +25,7 @@ import httpx
 from smolagents import tool
 
 from infrastructure.core.config import settings
-from shared.services.memory_manager import MemoryManager
+from agent.memory_manager import MemoryManager
 
 logger = logging.getLogger(__name__)
 

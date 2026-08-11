@@ -21,15 +21,15 @@ from typing import Callable
 from urllib.parse import urlparse
 
 from infrastructure.core.config import settings
-from shared.services.agent_runtime import BoundedToolCallingAgent, CompatibleLiteLLMModel
-from shared.services.agent_tools import (
+from agent.agent_runtime import BoundedToolCallingAgent, CompatibleLiteLLMModel
+from agent.agent_tools import (
     FAILURE_ANALYSIS_TOOLS,
     SUMMARY_TOOLS,
     reset_tool_context,
     set_tool_context,
 )
-from shared.services.memory_manager import MemoryManager, MemoryRecord
-from shared.services.skill_registry import SkillRegistry, get_skill_registry
+from agent.memory_manager import MemoryManager, MemoryRecord
+from agent.skill_registry import SkillRegistry, get_skill_registry
 
 logger = logging.getLogger(__name__)
 
