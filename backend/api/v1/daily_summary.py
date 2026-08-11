@@ -16,8 +16,8 @@ from contracts.schemas.daily_summary import (
     FetchDataResponse, GenerateSummaryResponse,
     TrendDataResponse, TrendDataItem,
 )
-from shared.services.daily_summary import DailySummaryService
-from shared.services.daily_report import _today_shanghai
+from api.services.daily_summary import DailySummaryService
+from api.services.daily_report import _today_shanghai
 from infrastructure.storage.daily_data_file_store import DailyDataFileStore
 
 logger = logging.getLogger(__name__)

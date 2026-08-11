@@ -13,7 +13,7 @@ backend_dir = str(Path(__file__).resolve().parents[2] / "backend")
 if backend_dir not in sys.path:
     sys.path.insert(0, backend_dir)
 
-from shared.services.daily_report import DailyReportService  # noqa: E402
+from api.services.daily_report import DailyReportService  # noqa: E402
 from infrastructure.clients.llm_client import LLMResult  # noqa: E402
 
 
@@ -175,7 +175,7 @@ def _patch_scheduler_job(mock_session, mock_send=None):
     ]
     if mock_send is not None:
         patches.append(
-            patch("shared.services.daily_report.DailyReportService.send_report", new=mock_send)
+            patch("api.services.daily_report.DailyReportService.send_report", new=mock_send)
         )
     return patches
 

@@ -17,7 +17,7 @@ sys.path.insert(0, str(backend_root))
 
 from shared.db.base import SessionLocal, engine
 from shared.models import DailyReportHistory
-from shared.services.daily_report import DailyReportService
+from api.services.daily_report import DailyReportService
 
 
 def parse_args() -> argparse.Namespace:

@@ -38,7 +38,7 @@ if backend_dir not in sys.path:
 
 from infrastructure.persistence.models import AppLog  # noqa: E402
 from contracts.schemas.logs import LogQueryRequest  # noqa: E402
-from shared.services.log_service import (  # noqa: E402
+from api.services.log_service import (  # noqa: E402
     LogService,
     _parse_cli_log_file,
     _parse_failure_analysis_file,
@@ -315,7 +315,7 @@ class TestGetSources:
         )
 
         with patch(
-            "shared.services.log_service._CLI_LOG_DIR", cli_dir
+            "api.services.log_service._CLI_LOG_DIR", cli_dir
         ):
             service = LogService()
             result = await service.get_sources(db_with_app_logs)
@@ -335,7 +335,7 @@ class TestGetSources:
         (wf_dir / "2.md").write_text("# report 2", encoding="utf-8")
 
         with patch(
-            "shared.services.log_service._FAILURE_ANALYSIS_DIR", fa_dir
+            "api.services.log_service._FAILURE_ANALYSIS_DIR", fa_dir
         ):
             service = LogService()
             result = await service.get_sources(db_with_app_logs)
@@ -658,7 +658,7 @@ class TestGetEntry:
         log_file.write_text(_make_cli_log(), encoding="utf-8")
 
         with patch(
-            "shared.services.log_service._CLI_LOG_DIR", cli_dir
+            "api.services.log_service._CLI_LOG_DIR", cli_dir
         ):
             service = LogService()
             entry = await service.get_entry(
@@ -679,7 +679,7 @@ class TestGetEntry:
         (wf_dir / "42.md").write_text("# Root cause", encoding="utf-8")
 
         with patch(
-            "shared.services.log_service._FAILURE_ANALYSIS_DIR", fa_dir
+            "api.services.log_service._FAILURE_ANALYSIS_DIR", fa_dir
         ):
             service = LogService()
             entry = await service.get_entry(

@@ -20,7 +20,7 @@ from contracts.schemas import (
 )
 from infrastructure.clients.github_api import get_github_api_service
 from infrastructure.clients.github_cache import ensure_repo_cloned, get_github_cache, update_repo
-from shared.services.project_dashboard import get_project_dashboard_service
+from api.services.project_dashboard import get_project_dashboard_service
 
 logger = logging.getLogger(__name__)
 
@@ -636,7 +636,7 @@ async def generate_version_quality_report(
 
     仅管理员可操作。
     """
-    from shared.services.version_quality_service import VersionQualityService
+    from api.services.version_quality_service import VersionQualityService
 
     # 确保 git 仓库缓存就绪
     if not ensure_repo_cloned():
@@ -676,7 +676,7 @@ async def list_version_quality_reports(
 
     需要登录。
     """
-    from shared.services.version_quality_service import VersionQualityService
+    from api.services.version_quality_service import VersionQualityService
 
     service = VersionQualityService(db)
     reports = await service.list_reports()
@@ -694,7 +694,7 @@ async def get_version_quality_report(
 
     需要登录。
     """
-    from shared.services.version_quality_service import VersionQualityService
+    from api.services.version_quality_service import VersionQualityService
 
     service = VersionQualityService(db)
     meta = await service.get_report_meta(report_id)
@@ -716,7 +716,7 @@ async def download_version_quality_report(
     """
     from fastapi.responses import FileResponse
 
-    from shared.services.version_quality_service import VersionQualityService
+    from api.services.version_quality_service import VersionQualityService
 
     service = VersionQualityService(db)
     meta = await service.get_report_meta(report_id)
@@ -750,7 +750,7 @@ async def get_version_quality_report_html(
 
     需要登录。
     """
-    from shared.services.version_quality_service import VersionQualityService
+    from api.services.version_quality_service import VersionQualityService
 
     service = VersionQualityService(db)
     meta = await service.get_report_meta(report_id)
@@ -775,7 +775,7 @@ async def delete_version_quality_report(
 
     仅管理员可操作。
     """
-    from shared.services.version_quality_service import VersionQualityService
+    from api.services.version_quality_service import VersionQualityService
 
     service = VersionQualityService(db)
     deleted = await service.delete_report(report_id)

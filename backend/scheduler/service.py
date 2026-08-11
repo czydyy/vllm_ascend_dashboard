@@ -1144,8 +1144,8 @@ class DataSyncScheduler:
             from sqlalchemy.orm import sessionmaker
             from infrastructure.persistence.models.daily_summary import DailySummary
             from infrastructure.persistence.models import ProjectDashboardConfig
-            from shared.services.daily_summary import DailySummaryService
-            from shared.services.daily_report import _today_shanghai
+            from api.services.daily_summary import DailySummaryService
+            from api.services.daily_report import _today_shanghai
             from sqlalchemy import select
 
             # 创建数据库会话
@@ -1213,7 +1213,7 @@ class DataSyncScheduler:
             from sqlalchemy.orm import sessionmaker
             from sqlalchemy import select
             from infrastructure.persistence.models import ProjectDashboardConfig
-            from shared.services.daily_report import DailyReportService, REPORT_CONFIG_KEY, _today_shanghai
+            from api.services.daily_report import DailyReportService, REPORT_CONFIG_KEY, _today_shanghai
 
             if not settings.REPORT_ENABLED:
                 logger.info("Report disabled, skipping")

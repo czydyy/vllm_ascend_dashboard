@@ -21,7 +21,7 @@ from contracts.schemas.daily_report import (
     DailyReportHistoryListResponse,
     DailyReportTriggerResponse,
 )
-from shared.services.daily_report import DailyReportService, _today_shanghai
+from api.services.daily_report import DailyReportService, _today_shanghai
 
 logger = logging.getLogger(__name__)
 

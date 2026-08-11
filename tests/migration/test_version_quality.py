@@ -14,7 +14,7 @@ from infrastructure.storage.version_quality_file_store import (
     VersionQualityFileStore,
     _sanitize_component,
 )
-from shared.services.version_quality_service import (
+from api.services.version_quality_service import (
     VersionQualityService,
     _sanitize_html,
 )
