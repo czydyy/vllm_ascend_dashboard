@@ -10,8 +10,7 @@
 services:
   # ── LiteLLM API Gateway（Anthropic ↔ OpenAI 格式翻译）──
   litellm:
-    image: ghcr.io/berriai/litellm:main-latest
-    container_name: vllm-dashboard-litellm
+    image: ${DASHBOARD_LITELLM_IMAGE:?set DASHBOARD_LITELLM_IMAGE to an immutable image digest}
     environment:
       - LITELLM_MASTER_KEY=${LITELLM_MASTER_KEY:-sk-litellm-master-key-change-me}
       - STORE_MODEL_IN_DB=false
@@ -39,10 +38,7 @@ services:
 
   # Backend API Service
   backend:
-    build:
-      context: ./backend
-      dockerfile: Dockerfile.prod
-    container_name: vllm-dashboard-backend
+    image: ${DASHBOARD_BACKEND_IMAGE:?set DASHBOARD_BACKEND_IMAGE to a CI-published immutable image}
     env_file:
       - .env.production
     environment:
@@ -104,8 +100,7 @@ services:
 
   # MySQL Database Service (Production)
   mysql:
-    image: mysql:8.0
-    container_name: vllm-dashboard-mysql
+    image: ${DASHBOARD_MYSQL_IMAGE:?set DASHBOARD_MYSQL_IMAGE to an immutable image digest}
     environment:
       - MYSQL_ROOT_PASSWORD=${MYSQL_ROOT_PASSWORD}
       - MYSQL_DATABASE=${MYSQL_DATABASE:-vllm_dashboard}
@@ -147,13 +142,7 @@ services:
 
   # Frontend Web Service
   frontend:
-    build:
-      context: ./frontend
-      dockerfile: Dockerfile.prod
-      args:
-        # Use relative path for API - nginx will proxy to backend
-        - VITE_API_BASE_URL=/api/v1
-    container_name: vllm-dashboard-frontend
+    image: ${DASHBOARD_FRONTEND_IMAGE:?set DASHBOARD_FRONTEND_IMAGE to a CI-published immutable image}
     environment:
       - VITE_API_BASE_URL=/api/v1
     ports:
@@ -184,10 +173,7 @@ services:
 
   # ── Scheduler（Phase A 拆分后独立运行）──
   scheduler:
-    build:
-      context: ./backend
-      dockerfile: Dockerfile.prod
-    container_name: vllm-dashboard-scheduler
+    image: ${DASHBOARD_BACKEND_IMAGE:?set DASHBOARD_BACKEND_IMAGE to a CI-published immutable image}
     env_file:
       - .env.production
     environment:
@@ -217,10 +203,7 @@ services:
 
   # ── Collector（Phase A 拆分后独立运行，可多实例）──
   collector:
-    build:
-      context: ./backend
-      dockerfile: Dockerfile.prod
-    container_name: vllm-dashboard-collector
+    image: ${DASHBOARD_BACKEND_IMAGE:?set DASHBOARD_BACKEND_IMAGE to a CI-published immutable image}
     env_file:
       - .env.production
     environment:

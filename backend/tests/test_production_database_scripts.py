@@ -44,3 +44,20 @@ def test_production_uses_one_explicit_migration_command():
     assert "migrate_mysql_schema" in migration
     assert "migrate_phase_a" in migration
     assert "forbidden in production" in initializer
+
+
+def test_production_compose_uses_immutable_images_and_service_discovery():
+    compose = (ROOT / "docker-compose.prod.yml").read_text(encoding="utf-8")
+    deploy = (ROOT / "scripts" / "deploy_prod.sh").read_text(encoding="utf-8")
+    backup = (ROOT / "scripts" / "backup_db.sh").read_text(encoding="utf-8")
+
+    assert "container_name:" not in compose
+    assert "build:" not in compose
+    assert "main-latest" not in compose
+    assert "DASHBOARD_BACKEND_IMAGE" in compose
+    assert "DASHBOARD_FRONTEND_IMAGE" in compose
+    assert "DASHBOARD_LITELLM_IMAGE" in compose
+    assert "compose pull backend frontend litellm" in deploy
+    assert "compose build" not in deploy
+    assert "DASHBOARD_MYSQL_CONTAINER" not in backup
+    assert "docker exec" not in backup

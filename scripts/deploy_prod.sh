@@ -8,8 +8,6 @@ MIGRATE_SCRIPT="$SCRIPT_DIR/migrate_prod.sh"
 COMPOSE_FILE="${DASHBOARD_COMPOSE_FILE:-$PROJECT_ROOT/docker-compose.prod.yml}"
 ENV_FILE="${DASHBOARD_ENV_FILE:-$PROJECT_ROOT/.env.production}"
 BACKUP_DIR="${DASHBOARD_BACKUP_DIR:-$PROJECT_ROOT/backups}"
-MYSQL_CONTAINER="${DASHBOARD_MYSQL_CONTAINER:-vllm-dashboard-mysql}"
-BACKEND_CONTAINER="${DASHBOARD_BACKEND_CONTAINER:-vllm-dashboard-backend}"
 FRONTEND_PORT="${FRONTEND_PORT:-3000}"
 MAX_WAIT=120
 DO_PULL=true
@@ -30,8 +28,15 @@ ok() { echo "[OK] $1"; }
 warn() { echo "[WARN] $1"; }
 die() { echo "[ERROR] $1" >&2; exit 1; }
 compose() { docker compose --env-file "$ENV_FILE" -f "$COMPOSE_FILE" --profile full "$@"; }
+service_container() { compose ps -q "$1"; }
+service_image() {
+    local container
+    container="$(service_container "$1")"
+    [[ -n "$container" ]] || return 1
+    docker inspect --format '{{.Config.Image}}' "$container"
+}
 mysql_root() {
-    docker exec "$MYSQL_CONTAINER" sh -c \
+    compose exec -T mysql sh -c \
         'exec mysql -uroot -p"$MYSQL_ROOT_PASSWORD" "$MYSQL_DATABASE" -N -e "$1"' sh "$1"
 }
 get_user_count() { mysql_root 'SELECT COUNT(*) FROM users'; }
@@ -41,8 +46,11 @@ get_user_list() { mysql_root 'SELECT id, username, role FROM users ORDER BY id';
 wait_for_health() {
     local elapsed=0
     while (( elapsed < MAX_WAIT )); do
+        local backend_container
+        backend_container="$(service_container backend)"
         if curl -fsS "http://127.0.0.1:${FRONTEND_PORT}/health" >/dev/null 2>&1 \
-            && docker inspect --format '{{.State.Health.Status}}' "$BACKEND_CONTAINER" 2>/dev/null | grep -q '^healthy$'; then
+            && [[ -n "$backend_container" ]] \
+            && docker inspect --format '{{.State.Health.Status}}' "$backend_container" 2>/dev/null | grep -q '^healthy$'; then
             return 0
         fi
         sleep 2
@@ -54,22 +62,21 @@ wait_for_health() {
 restore_database() {
     local backup_file="$1"
     [[ -s "$backup_file" ]] || die "restore backup is missing: $backup_file"
-    docker exec "$MYSQL_CONTAINER" sh -c \
+    compose exec -T mysql sh -c \
         'exec mysql -uroot -p"$MYSQL_ROOT_PASSWORD" -e "DROP DATABASE IF EXISTS \`$1\`; CREATE DATABASE \`$1\` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci"' sh "$DATABASE_NAME"
-    docker exec -i "$MYSQL_CONTAINER" sh -c \
+    compose exec -T mysql sh -c \
         'exec mysql -uroot -p"$MYSQL_ROOT_PASSWORD" "$1"' sh "$DATABASE_NAME" < "$backup_file"
 }
 
 rollback() {
     local backup_file="$1"
-    local backend_image="${2:-}"
-    local frontend_image="${3:-}"
     step "ROLLBACK"
-    compose stop backend frontend || true
+    compose stop scheduler collector backend frontend || true
     restore_database "$backup_file"
-    [[ -n "$backend_image" ]] && docker tag "$backend_image" vllm_ascend_dashboard-backend
-    [[ -n "$frontend_image" ]] && docker tag "$frontend_image" vllm_ascend_dashboard-frontend
-    compose up -d --no-build mysql litellm backend frontend
+    DASHBOARD_BACKEND_IMAGE="$PRE_BACKEND_IMAGE" \
+    DASHBOARD_FRONTEND_IMAGE="$PRE_FRONTEND_IMAGE" \
+    DASHBOARD_LITELLM_IMAGE="$PRE_LITELLM_IMAGE" \
+        compose up -d mysql litellm backend frontend scheduler collector
     wait_for_health || die "rollback completed but services are unhealthy"
     ok "rollback restored database and previous images; users=$(get_user_count)"
 }
@@ -77,8 +84,9 @@ rollback() {
 command -v docker >/dev/null 2>&1 || die "docker is not installed"
 [[ -f "$COMPOSE_FILE" ]] || die "compose file is missing: $COMPOSE_FILE"
 [[ -f "$ENV_FILE" ]] || die "production environment file is missing: $ENV_FILE"
-docker inspect "$MYSQL_CONTAINER" >/dev/null 2>&1 || die "MySQL container is not running"
-DATABASE_NAME="$(docker exec "$MYSQL_CONTAINER" sh -c 'printf %s "$MYSQL_DATABASE"')"
+mysql_container="$(service_container mysql)"
+[[ -n "$mysql_container" ]] || die "MySQL service is not running"
+DATABASE_NAME="$(compose exec -T mysql sh -c 'printf %s "$MYSQL_DATABASE"')"
 [[ "$DATABASE_NAME" =~ ^[a-zA-Z0-9_]+$ ]] || die "unsafe MySQL database name"
 
 if $FORCE_ROLLBACK; then
@@ -104,8 +112,9 @@ step "2/9 Record pre-deployment state"
 pre_users="$(get_user_count)"
 pre_tables="$(get_table_count)"
 pre_git="$(git -C "$PROJECT_ROOT" rev-parse --short HEAD)"
-pre_backend_image="$(docker image inspect vllm_ascend_dashboard-backend --format '{{.Id}}' 2>/dev/null || true)"
-pre_frontend_image="$(docker image inspect vllm_ascend_dashboard-frontend --format '{{.Id}}' 2>/dev/null || true)"
+PRE_BACKEND_IMAGE="$(service_image backend)" || die "backend image cannot be determined"
+PRE_FRONTEND_IMAGE="$(service_image frontend)" || die "frontend image cannot be determined"
+PRE_LITELLM_IMAGE="$(service_image litellm)" || die "LiteLLM image cannot be determined"
 (( pre_users > 0 && pre_tables > 0 )) || die "invalid pre-deployment database state"
 ok "commit=$pre_git users=$pre_users tables=$pre_tables"
 get_user_list | sed 's/^/  /'
@@ -124,8 +133,8 @@ fi
 new_git="$(git -C "$PROJECT_ROOT" rev-parse --short HEAD)"
 ok "$pre_git -> $new_git"
 
-step "4/9 Build new images"
-compose build backend frontend || die "image build failed; running services were not changed"
+step "4/9 Pull immutable release images"
+compose pull backend frontend litellm || die "image pull failed; running services were not changed"
 
 step "5/9 Run explicit MySQL migration"
 if ! bash "$MIGRATE_SCRIPT"; then
@@ -143,14 +152,14 @@ fi
 ok "migration verified: users=$post_migration_users tables=$post_migration_tables"
 
 step "6/9 Start updated containers"
-if ! compose up -d --no-build mysql litellm backend frontend; then
-    rollback "$backup_file" "$pre_backend_image" "$pre_frontend_image"
+if ! compose up -d mysql litellm backend frontend scheduler collector; then
+    rollback "$backup_file"
     die "container startup failed; rollback completed"
 fi
 
 step "7/9 Health checks"
 if ! wait_for_health; then
-    rollback "$backup_file" "$pre_backend_image" "$pre_frontend_image"
+    rollback "$backup_file"
     die "services failed health checks; rollback completed"
 fi
 curl -fsS "http://127.0.0.1:${FRONTEND_PORT}/api/v1/daily-report/latest" >/dev/null 2>&1 \
@@ -160,13 +169,13 @@ ok "frontend and backend containers are healthy"
 step "8/9 Login and database preservation"
 login_payload="$(DEPLOY_ADMIN_USERNAME="$DEPLOY_ADMIN_USERNAME" DEPLOY_ADMIN_PASSWORD="$DEPLOY_ADMIN_PASSWORD" python3 -c 'import json,os; print(json.dumps({"username":os.environ["DEPLOY_ADMIN_USERNAME"],"password":os.environ["DEPLOY_ADMIN_PASSWORD"]}))')"
 login_response="$(curl -fsS -X POST "http://127.0.0.1:${FRONTEND_PORT}/api/v1/auth/login" -H 'Content-Type: application/json' --data-binary "$login_payload")" \
-    || { rollback "$backup_file" "$pre_backend_image" "$pre_frontend_image"; die "admin login failed; rollback completed"; }
+    || { rollback "$backup_file"; die "admin login failed; rollback completed"; }
 echo "$login_response" | grep -q 'access_token' \
-    || { rollback "$backup_file" "$pre_backend_image" "$pre_frontend_image"; die "admin login response is invalid; rollback completed"; }
+    || { rollback "$backup_file"; die "admin login response is invalid; rollback completed"; }
 post_users="$(get_user_count)"
 post_tables="$(get_table_count)"
 if (( post_users < pre_users || post_tables < pre_tables )); then
-    rollback "$backup_file" "$pre_backend_image" "$pre_frontend_image"
+    rollback "$backup_file"
     die "post-deployment database counts decreased; rollback completed"
 fi
 ok "login passed; users=$pre_users->$post_users tables=$pre_tables->$post_tables"

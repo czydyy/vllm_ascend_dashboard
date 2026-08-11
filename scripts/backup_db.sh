@@ -12,7 +12,8 @@ if [[ -f "$PROJECT_ROOT/.env.production" ]]; then
     set +a
 fi
 BACKUP_DIR="${DASHBOARD_BACKUP_DIR:-$PROJECT_ROOT/backups}"
-MYSQL_CONTAINER="${DASHBOARD_MYSQL_CONTAINER:-vllm-dashboard-mysql}"
+COMPOSE_FILE="${DASHBOARD_COMPOSE_FILE:-$PROJECT_ROOT/docker-compose.prod.yml}"
+ENV_FILE="${DASHBOARD_ENV_FILE:-$PROJECT_ROOT/.env.production}"
 RETENTION_DAYS=30
 SILENT=false
 VERIFY_RESTORE=false
@@ -34,11 +35,14 @@ log() { $SILENT || echo "[BACKUP] $1"; }
 die() { echo "[ERROR] $1" >&2; exit 1; }
 
 mysql_root_exec() {
-    docker exec "$MYSQL_CONTAINER" mysql -uroot -p"$MYSQL_ROOT_PASSWORD" -N -e "$1"
+    compose exec -T mysql mysql -uroot -p"$MYSQL_ROOT_PASSWORD" -N -e "$1"
 }
+compose() { docker compose --env-file "$ENV_FILE" -f "$COMPOSE_FILE" --profile full "$@"; }
 
 command -v docker >/dev/null 2>&1 || die "docker is not installed"
-docker inspect "$MYSQL_CONTAINER" >/dev/null 2>&1 || die "MySQL container is unavailable: $MYSQL_CONTAINER"
+[[ -f "$COMPOSE_FILE" ]] || die "compose file is missing: $COMPOSE_FILE"
+[[ -f "$ENV_FILE" ]] || die "production environment file is missing: $ENV_FILE"
+[[ -n "$(compose ps -q mysql)" ]] || die "MySQL service is unavailable"
 [[ "$RETENTION_DAYS" =~ ^[0-9]+$ ]] || die "retention must be a non-negative integer"
 
 # 检测实际存在的数据库
@@ -98,7 +102,7 @@ dump_cmd="mysqldump -uroot -p\"\$MYSQL_ROOT_PASSWORD\" \
   --source-data=2 \
   --no-tablespaces"
 
-if ! docker exec "$MYSQL_CONTAINER" sh -c "exec $dump_cmd" > "$backup_file"; then
+if ! compose exec -T mysql sh -c "exec $dump_cmd" > "$backup_file"; then
     rm -f "$backup_file"
     die "mysqldump failed"
 fi
@@ -127,7 +131,7 @@ if $VERIFY_RESTORE; then
     done
     cleanup_verify() {
         for verify_db in $verify_dbs; do
-            docker exec "$MYSQL_CONTAINER" sh -c \
+            compose exec -T mysql sh -c \
                 'exec mysql -uroot -p"$MYSQL_ROOT_PASSWORD" -e "DROP DATABASE IF EXISTS \`$1\`"' sh "$verify_db" \
                 >/dev/null 2>&1 || true
         done
@@ -136,7 +140,7 @@ if $VERIFY_RESTORE; then
 
     # 去掉 GTID_PURGED 语句（verify 用独立临时库，不需要 GTID）
     sed '/^SET @@GLOBAL.GTID_PURGED=/d' "$backup_file" | sed "${sed_args[@]}" | \
-    docker exec -i "$MYSQL_CONTAINER" sh -c \
+    compose exec -T mysql sh -c \
         'exec mysql -uroot -p"$MYSQL_ROOT_PASSWORD"'
 
     # 验证用户数和表数
