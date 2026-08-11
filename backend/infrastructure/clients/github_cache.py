@@ -4,6 +4,7 @@ Manages a local clone of the vllm-ascend repository for efficient data access
 """
 import logging
 import os
+import re
 import subprocess
 import tempfile
 import threading
@@ -524,7 +525,73 @@ class GitHubLocalCache:
             logger.error(f"Failed to get releases: {str(e)}")
             return []
 
+    @staticmethod
+    def _parse_mkdocs_extra(content: str) -> Dict[str, str]:
+        """Parse version values from the repository's top-level ``extra`` block."""
+        version_keys = {
+            "vllm_version",
+            "vllm_ascend_version",
+            "pip_vllm_ascend_version",
+            "pip_vllm_version",
+            "cann_image_tag",
+            "main_python_version",
+            "main_cann_version",
+            "main_pytorch_torch_npu_version",
+            "main_triton_ascend_version",
+        }
+        versions: Dict[str, str] = {}
+        in_extra = False
+        extra_indent: int | None = None
+
+        for line in content.splitlines():
+            stripped = line.strip()
+            if not in_extra:
+                if re.fullmatch(r"extra:\s*", stripped):
+                    in_extra = True
+                continue
+            if not stripped or stripped.startswith("#"):
+                continue
+
+            indent = len(line) - len(line.lstrip())
+            if extra_indent is None:
+                extra_indent = indent
+            if indent < extra_indent:
+                break
+            if indent != extra_indent:
+                continue
+
+            match = re.match(r"(?P<key>[A-Za-z_][A-Za-z0-9_]*)\s*:\s*(?P<value>.*)$", stripped)
+            if not match or match.group("key") not in version_keys:
+                continue
+
+            value = match.group("value").split(" #", 1)[0].strip()
+            if value.startswith("!ENV"):
+                value = value.removeprefix("!ENV").strip().strip("[]").split(",")[-1].strip()
+            if len(value) >= 2 and value[0] == value[-1] and value[0] in "\"'":
+                value = value[1:-1]
+            if value:
+                versions[match.group("key")] = value
+
+        return versions
+
     def get_conf_py_versions(self) -> Optional[Dict[str, str]]:
+        """Get main-branch version metadata from current and legacy layouts."""
+        mkdocs_content = self.get_file_content("mkdocs.yml", "main")
+        if mkdocs_content:
+            versions = self._parse_mkdocs_extra(mkdocs_content)
+            for key, path in {
+                "main_vllm_commit": ".github/vllm-main-verified.commit",
+                "main_vllm_tag": ".github/vllm-release-tag.commit",
+            }.items():
+                value = self.get_file_content(path, "main")
+                if value and value.strip():
+                    versions[key] = value.strip()
+            if versions:
+                return versions
+
+        return self._get_legacy_conf_py_versions()
+
+    def _get_legacy_conf_py_versions(self) -> Optional[Dict[str, str]]:
         """从 conf.py 获取 main 分支的 vllm 版本信息"""
         content = self.get_file_content("docs/source/conf.py", "main")
         if not content:
