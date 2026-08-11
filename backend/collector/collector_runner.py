@@ -15,7 +15,7 @@ from sqlalchemy import text
 from app.core.config import settings
 from app.db.base import SessionLocal
 from app.services.ci_collector import CICollector
-from app.services.collector_base import CollectorWorker, TaskContext
+from .collector_base import CollectorWorker, TaskContext
 from app.services.github_client import GitHubClient
 from app.services.pr_pipeline_collector import PRPipelineCollector
 

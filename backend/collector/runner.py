@@ -29,8 +29,8 @@ async def main():
     capabilities = [c.strip() for c in capabilities_str.split(",") if c.strip()]
 
     from app.db.base import SessionLocal
-    from app.services.collector_base import CollectorWorker
-    from app.services.collector_runner import CollectorRunner
+    from .collector_base import CollectorWorker
+    from .collector_runner import CollectorRunner
 
     worker = CollectorWorker(
         node_id=node_id,
