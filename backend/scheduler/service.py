@@ -1282,34 +1282,6 @@ class DataSyncScheduler:
         if task_id:
             logger.info("Queued resource metrics collection task %d", task_id)
 
-    async def _legacy_collect_resource_metrics_job(self) -> None:
-        """NPU 指标采集任务"""
-        logger.info("=" * 60)
-        logger.info("RESOURCE METRICS COLLECT JOB STARTED")
-        logger.info("=" * 60)
-
-        try:
-            from shared.services.resource_metrics import ResourceMetricsService
-
-            async with SessionLocal() as db:
-                service = ResourceMetricsService(db)
-                count = await service.collect_snapshot()
-                logger.info(f"RESOURCE METRICS COLLECT JOB COMPLETED - Collected {count} cluster metrics")
-
-                # 评估告警规则
-                try:
-                    from shared.services.alert_evaluator import AlertEvaluator
-                    evaluator = AlertEvaluator(db)
-                    alerts_triggered = await evaluator.evaluate_all_rules()
-                    if alerts_triggered > 0:
-                        logger.info(f"Alert evaluation: {alerts_triggered} alert(s) triggered")
-                except Exception as alert_exc:
-                    logger.error(f"Alert evaluation failed: {alert_exc}", exc_info=True)
-        except Exception as e:
-            logger.error("=" * 60)
-            logger.error(f"RESOURCE METRICS COLLECT JOB FAILED - Error: {e}", exc_info=True)
-            logger.error("=" * 60)
-
     async def _analyze_failed_jobs(self, db=None) -> int:
         """
         分析最近失败的、尚未分析的 CI jobs。
@@ -1386,24 +1358,6 @@ class DataSyncScheduler:
             await db.commit()
         if task_id:
             logger.info("Queued resource metrics cleanup task %d", task_id)
-
-    async def _legacy_cleanup_resource_metrics_job(self) -> None:
-        """NPU 指标数据清理任务"""
-        logger.info("=" * 60)
-        logger.info("RESOURCE METRICS CLEANUP JOB STARTED")
-        logger.info("=" * 60)
-
-        try:
-            from shared.services.resource_metrics import ResourceMetricsService
-
-            async with SessionLocal() as db:
-                service = ResourceMetricsService(db)
-                deleted = await service.cleanup_old_metrics()
-                logger.info(f"RESOURCE METRICS CLEANUP JOB COMPLETED - Deleted {deleted} old records")
-        except Exception as e:
-            logger.error("=" * 60)
-            logger.error(f"RESOURCE METRICS CLEANUP JOB FAILED - Error: {e}", exc_info=True)
-            logger.error("=" * 60)
 
     async def _parse_test_results_job(self) -> None:
         logger.info("TEST BOARD RESULT PARSE JOB STARTED")

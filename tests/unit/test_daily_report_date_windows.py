@@ -38,15 +38,15 @@ async def test_report_date_is_used_for_every_yesterday_collector():
 async def test_resource_query_uses_explicit_report_window(monkeypatch):
     query = AsyncMock(return_value={"clusters": []})
 
-    class FakeResourceMetricsService:
+    class FakeResourceMetricsQueryService:
         def __init__(self, db):
             pass
 
         query_npu_metrics = query
 
     monkeypatch.setattr(
-        "shared.services.resource_metrics.ResourceMetricsService",
-        FakeResourceMetricsService,
+        "shared.read_models.resource_metrics.ResourceMetricsQueryService",
+        FakeResourceMetricsQueryService,
     )
     service = DailyReportService(MagicMock())
     start = datetime(2026, 7, 16, 16, tzinfo=UTC)

@@ -21,7 +21,7 @@ from shared.models import (  # noqa: E402
     ResourceNpuMetrics,
 )
 from shared.schemas.resource_metrics import RESOURCE_METRICS_CONFIG_KEY  # noqa: E402
-from shared.services.resource_metrics import ResourceMetricsService  # noqa: E402
+from shared.read_models.resource_metrics import ResourceMetricsQueryService  # noqa: E402
 from collector.resource_metrics import ResourceMetricsCollector  # noqa: E402
 from tests.mysql_test_db import create_test_engine, reset_tables  # noqa: E402
 
@@ -109,7 +109,7 @@ async def test_query_node_metrics_basic(db_session: AsyncSession):
     ])
     await db_session.commit()
 
-    service = ResourceMetricsService(db_session)
+    service = ResourceMetricsQueryService(db_session)
     result = await service.query_node_metrics(time_range="1h")
 
     clusters = result["clusters"]
@@ -137,7 +137,7 @@ async def test_query_node_metrics_filter_cluster(db_session: AsyncSession):
     ])
     await db_session.commit()
 
-    service = ResourceMetricsService(db_session)
+    service = ResourceMetricsQueryService(db_session)
     result = await service.query_node_metrics(cluster_ids=[c2.id], time_range="1h")
 
     clusters = result["clusters"]
@@ -159,7 +159,7 @@ async def test_query_node_metrics_filter_node_names(db_session: AsyncSession):
     ])
     await db_session.commit()
 
-    service = ResourceMetricsService(db_session)
+    service = ResourceMetricsQueryService(db_session)
     result = await service.query_node_metrics(node_names=["node-a2-01"], time_range="1h")
 
     clusters = result["clusters"]
@@ -187,7 +187,7 @@ async def test_query_node_metrics_time_range(db_session: AsyncSession):
     ])
     await db_session.commit()
 
-    service = ResourceMetricsService(db_session)
+    service = ResourceMetricsQueryService(db_session)
 
     raw = await service.query_node_metrics(time_range="1h")
     assert len(raw["clusters"][0]["nodes"][0]["metrics"]) == 3
@@ -212,7 +212,7 @@ async def test_query_node_metrics_aggregation(db_session: AsyncSession):
     ])
     await db_session.commit()
 
-    service = ResourceMetricsService(db_session)
+    service = ResourceMetricsQueryService(db_session)
     result = await service.query_node_metrics(time_range="24h")
 
     point = result["clusters"][0]["nodes"][0]["metrics"][0]
@@ -227,7 +227,7 @@ async def test_query_node_metrics_empty(db_session: AsyncSession):
     db_session.add(c1)
     await db_session.commit()
 
-    service = ResourceMetricsService(db_session)
+    service = ResourceMetricsQueryService(db_session)
     result = await service.query_node_metrics(time_range="24h")
 
     assert len(result["clusters"]) == 1
@@ -248,7 +248,7 @@ async def test_query_node_metrics_disabled_cluster_excluded(db_session: AsyncSes
     ])
     await db_session.commit()
 
-    service = ResourceMetricsService(db_session)
+    service = ResourceMetricsQueryService(db_session)
     result = await service.query_node_metrics(time_range="1h")
 
     clusters = result["clusters"]

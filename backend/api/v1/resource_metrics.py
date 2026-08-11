@@ -10,7 +10,7 @@ from shared.schemas import (
     ResourceMetricsConfigResponse,
     ResourceMetricsConfigUpdate,
 )
-from shared.services.resource_metrics import ResourceMetricsService
+from shared.read_models.resource_metrics import ResourceMetricsQueryService
 
 router = APIRouter()
 
@@ -24,7 +24,7 @@ async def get_npu_metrics(
     start_time: datetime | None = Query(None, description="起始时间（ISO8601）"),
     end_time: datetime | None = Query(None, description="结束时间（ISO8601）"),
 ):
-    service = ResourceMetricsService(db)
+    service = ResourceMetricsQueryService(db)
     data = await service.query_npu_metrics(
         cluster_ids=cluster_ids,
         time_range=time_range,
@@ -53,7 +53,7 @@ async def get_node_metrics(
     start_time: datetime | None = Query(None, description="起始时间（ISO8601）"),
     end_time: datetime | None = Query(None, description="结束时间（ISO8601）"),
 ):
-    service = ResourceMetricsService(db)
+    service = ResourceMetricsQueryService(db)
     data = await service.query_node_metrics(
         cluster_ids=cluster_ids,
         node_names=node_names,
@@ -78,7 +78,7 @@ async def get_metrics_config(
     db: DbSession,
     current_user: CurrentAdminUser,
 ):
-    service = ResourceMetricsService(db)
+    service = ResourceMetricsQueryService(db)
     config = await service.get_config()
     return ResourceMetricsConfigResponse(**config)
 
@@ -89,7 +89,7 @@ async def update_metrics_config(
     current_user: CurrentSuperAdminUser,
     config_update: ResourceMetricsConfigUpdate,
 ):
-    service = ResourceMetricsService(db)
+    service = ResourceMetricsQueryService(db)
     updated = await service.update_config(
         interval_minutes=config_update.interval_minutes,
         retention_days=config_update.retention_days,

@@ -1,9 +1,8 @@
-import asyncio
 import logging
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
-from sqlalchemy import delete, func, select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from shared.models import (
@@ -13,7 +12,6 @@ from shared.models import (
     ResourceNpuMetrics,
 )
 from shared.schemas.resource_metrics import RESOURCE_METRICS_CONFIG_KEY
-from shared.services.resource_dashboard import ResourceDashboardService
 
 logger = logging.getLogger(__name__)
 
@@ -34,93 +32,9 @@ TIME_RANGE_DURATION = {
 }
 
 
-class ResourceMetricsService:
+class ResourceMetricsQueryService:
     def __init__(self, db: AsyncSession) -> None:
         self.db = db
-
-    async def collect_snapshot(self) -> int:
-        stmt = select(KubernetesClusterConfig).where(KubernetesClusterConfig.enabled.is_(True))
-        result = await self.db.execute(stmt)
-        clusters = list(result.scalars().all())
-
-        if not clusters:
-            logger.info("No enabled clusters, skipping metrics collection")
-            return 0
-
-        service = ResourceDashboardService()
-        dashboard = await asyncio.wait_for(
-            service.build_dashboard(clusters, include_pods=True),
-            timeout=30,
-        )
-
-        count = 0
-        now = datetime.now(UTC)
-        for cluster_summary in dashboard.clusters:
-            if cluster_summary.error:
-                logger.error(f"Cluster {cluster_summary.cluster_name} has error: {cluster_summary.error}, skipping")
-                continue
-
-            executing_pods = cluster_summary.executing_pods or []
-            top_pods = sorted(executing_pods, key=lambda p: p.requests.npu, reverse=True)[:5]
-            top_pods_data = [
-                {
-                    "name": p.name,
-                    "namespace": p.namespace,
-                    "npu": p.requests.npu,
-                    "pr_number": p.pr_number,
-                    "pr_url": p.pr_url,
-                    "phase": p.phase,
-                }
-                for p in top_pods
-            ]
-
-            pr_numbers = [p.pr_number for p in executing_pods if p.pr_number]
-            metric = ResourceNpuMetrics(
-                cluster_id=cluster_summary.cluster_id,
-                cluster_name=cluster_summary.cluster_name,
-                npu_total=cluster_summary.total.npu,
-                npu_used=cluster_summary.used.npu,
-                npu_available=cluster_summary.available.npu,
-                npu_utilization=round(cluster_summary.used.npu / cluster_summary.total.npu * 100, 2) if cluster_summary.total.npu > 0 else 0,
-                executing_pods_count=cluster_summary.executing_pods_count,
-                pr_count=len(set(pr_numbers)),
-                top_pods_json=top_pods_data,
-                collected_at=now,
-            )
-            self.db.add(metric)
-            count += 1
-
-            # 存储节点级指标
-            for node in (cluster_summary.node_resources or []):
-                if node.total.npu <= 0:
-                    continue
-                cpu_pct = round(node.used.cpu_cores / node.total.cpu_cores * 100, 2) if node.total.cpu_cores > 0 else 0
-                mem_pct = round(node.used.memory_bytes / node.total.memory_bytes * 100, 2) if node.total.memory_bytes > 0 else 0
-                npu_pct = round(node.used.npu / node.total.npu * 100, 2) if node.total.npu > 0 else 0
-                node_metric = ResourceNodeMetrics(
-                    cluster_id=cluster_summary.cluster_id,
-                    cluster_name=cluster_summary.cluster_name,
-                    node_name=node.node_name,
-                    cpu_cores_total=node.total.cpu_cores,
-                    cpu_cores_used=node.used.cpu_cores,
-                    cpu_cores_available=node.available.cpu_cores,
-                    cpu_utilization=cpu_pct,
-                    memory_bytes_total=node.total.memory_bytes,
-                    memory_bytes_used=node.used.memory_bytes,
-                    memory_bytes_available=node.available.memory_bytes,
-                    memory_utilization=mem_pct,
-                    npu_total=node.total.npu,
-                    npu_used=node.used.npu,
-                    npu_available=node.available.npu,
-                    npu_utilization=npu_pct,
-                    executing_pods_count=node.executing_pods_count,
-                    collected_at=now,
-                )
-                self.db.add(node_metric)
-
-        await self.db.commit()
-        logger.info(f"Collected NPU metrics for {count} clusters")
-        return count
 
     async def query_npu_metrics(
         self,
@@ -136,6 +50,7 @@ class ResourceMetricsService:
             end_time = datetime.now(UTC)
         if start_time is None:
             start_time = end_time - duration
+        start_time, end_time = self._as_mysql_utc(start_time), self._as_mysql_utc(end_time)
 
         cluster_query = select(KubernetesClusterConfig).where(KubernetesClusterConfig.enabled.is_(True))
         if cluster_ids:
@@ -186,6 +101,7 @@ class ResourceMetricsService:
             end_time = datetime.now(UTC)
         if start_time is None:
             start_time = end_time - duration
+        start_time, end_time = self._as_mysql_utc(start_time), self._as_mysql_utc(end_time)
 
         cluster_query = select(KubernetesClusterConfig).where(KubernetesClusterConfig.enabled.is_(True))
         if cluster_ids:
@@ -206,7 +122,7 @@ class ResourceMetricsService:
             ).order_by(ResourceNodeMetrics.collected_at.asc())
 
             if node_names:
-                stmt = stmt.where(ResourceNodeMetrics.node_name.in_(node_names))
+                stmt = stmt.where(ResourceNodeMetrics.node_name.in_(tuple(node_names)))
 
             metrics_result = await self.db.execute(stmt)
             raw_metrics = list(metrics_result.scalars().all())
@@ -352,24 +268,12 @@ class ResourceMetricsService:
         bucket = total_minutes // granularity_minutes
         return str(bucket)
 
-    async def cleanup_old_metrics(self) -> int:
-        config = await self._get_config()
-        retention_days = config.get("retention_days", 30)
-        cutoff = datetime.now(UTC) - timedelta(days=retention_days)
-
-        stmt = delete(ResourceNpuMetrics).where(ResourceNpuMetrics.collected_at < cutoff)
-        result = await self.db.execute(stmt)
-        deleted = result.rowcount
-
-        # 清理节点级指标，避免数据无限增长
-        node_stmt = delete(ResourceNodeMetrics).where(ResourceNodeMetrics.collected_at < cutoff)
-        node_result = await self.db.execute(node_stmt)
-        deleted += node_result.rowcount
-
-        await self.db.commit()
-
-        logger.info(f"Cleaned up {deleted} metrics records (cluster + node) older than {retention_days} days")
-        return deleted
+    @staticmethod
+    def _as_mysql_utc(value: datetime) -> datetime:
+        """MySQL DATETIME is timezone-naive; compare it with naive UTC values."""
+        if value.tzinfo is not None:
+            return value.astimezone(UTC).replace(tzinfo=None)
+        return value
 
     async def get_config(self) -> dict:
         return await self._get_config()

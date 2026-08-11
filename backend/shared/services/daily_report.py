@@ -359,8 +359,8 @@ class DailyReportService:
     async def _collect_resource_data(self, start_dt, end_dt) -> dict:
         """采集资源看板 NPU 利用率概况"""
         try:
-            from shared.services.resource_metrics import ResourceMetricsService
-            svc = ResourceMetricsService(self.db)
+            from shared.read_models.resource_metrics import ResourceMetricsQueryService
+            svc = ResourceMetricsQueryService(self.db)
             data = await svc.query_npu_metrics(
                 time_range="24h", start_time=start_dt, end_time=end_dt
             )
