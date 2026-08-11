@@ -338,7 +338,7 @@ async def get_job_summary_stats(
         return []
 
     # 构建按 workflow 的时间窗口过滤条件
-    from shared.utils.ci_filters import build_workflow_time_filter
+    from tooling.ci_filters import build_workflow_time_filter
     wf_filter = build_workflow_time_filter(CIJob, wf_configs)
 
     # 构建基础查询

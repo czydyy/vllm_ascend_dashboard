@@ -36,7 +36,7 @@ from contracts.schemas import (
     NightlyTestCaseUpdate,
     WorkflowLatestResult,
 )
-from shared.utils.ci_filters import build_workflow_time_filter
+from tooling.ci_filters import build_workflow_time_filter
 
 logger = logging.getLogger(__name__)
 
