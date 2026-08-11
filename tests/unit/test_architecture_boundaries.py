@@ -1,0 +1,37 @@
+"""Import-boundary checks for the independently deployable backend roles."""
+from __future__ import annotations
+
+import ast
+from pathlib import Path
+
+
+BACKEND = Path(__file__).resolve().parents[2] / "backend"
+
+
+def _imports_under(package: str) -> set[str]:
+    imports: set[str] = set()
+    for source in (BACKEND / package).rglob("*.py"):
+        tree = ast.parse(source.read_text(encoding="utf-8-sig"), filename=str(source))
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Import):
+                imports.update(alias.name for alias in node.names)
+            elif isinstance(node, ast.ImportFrom) and node.module:
+                imports.add(node.module)
+    return imports
+
+
+def _assert_no_role_imports(package: str, forbidden: tuple[str, ...]) -> None:
+    violations = sorted(
+        imported
+        for imported in _imports_under(package)
+        if imported == forbidden or imported.startswith(tuple(f"{name}." for name in forbidden))
+    )
+    assert not violations, f"{package} has forbidden role imports: {violations}"
+
+
+def test_shared_never_depends_on_a_deployable_role() -> None:
+    _assert_no_role_imports("shared", ("api", "scheduler", "collector"))
+
+
+def test_scheduler_never_depends_on_the_http_api() -> None:
+    _assert_no_role_imports("scheduler", ("api",))
