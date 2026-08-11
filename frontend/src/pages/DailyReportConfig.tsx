@@ -112,6 +112,7 @@ function DailyReportConfigPage() {
       await updateConfig.mutateAsync(update)
       Modal.success({ title: '保存成功', content: '报告配置已更新' })
     } catch {
+      Modal.error({ title: '保存失败', content: '请检查网络连接后重试。' })
     } finally {
       setSaving(false)
     }

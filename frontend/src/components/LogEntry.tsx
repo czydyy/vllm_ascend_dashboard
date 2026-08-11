@@ -54,10 +54,12 @@ function LogEntryRow({ entry }: Props) {
       }}
       onClick={() => setExpanded(!expanded)}
       onMouseEnter={(e) => {
-        ;(e.currentTarget as HTMLElement).style.background = '#fafafa'
+        const target = e.currentTarget as HTMLElement
+        target.style.background = '#fafafa'
       }}
       onMouseLeave={(e) => {
-        ;(e.currentTarget as HTMLElement).style.background = 'transparent'
+        const target = e.currentTarget as HTMLElement
+        target.style.background = 'transparent'
       }}
     >
       {/* Collapsed row */}
