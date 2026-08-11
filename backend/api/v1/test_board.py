@@ -29,7 +29,7 @@ from contracts.schemas.test_board import (
     TestCaseUpdateRequest,
     TestOverviewResponse,
 )
-from shared.services.github_client import GitHubClient
+from infrastructure.clients.github_client import GitHubClient
 from shared.services.test_board_service import TestBoardService
 from shared.services.test_case_matrix_service import get_case_feature_matrix
 

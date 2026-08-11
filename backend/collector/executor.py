@@ -16,7 +16,7 @@ from infrastructure.core.config import settings
 from infrastructure.db.base import SessionLocal
 from collector.ci import CICollector
 from .worker import CollectorWorker, TaskContext
-from shared.services.github_client import GitHubClient
+from infrastructure.clients.github_client import GitHubClient
 from collector.pr_pipeline import PRPipelineCollector
 
 logger = logging.getLogger(__name__)

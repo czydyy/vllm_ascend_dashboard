@@ -182,7 +182,7 @@ async def _warmup_claude_code_cli():
         from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
         from infrastructure.persistence.models.daily_summary import LLMProviderConfig
-        from shared.services.claude_code_cli import ClaudeCodeCLI
+        from infrastructure.clients.claude_code_cli import ClaudeCodeCLI
 
         async_session = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
         async with async_session() as db:
@@ -340,7 +340,7 @@ async def _migrate_daily_failure_records_columns():
 async def _sync_litellm_providers():
     """同步启用的 LLM provider 到 LiteLLM 网关"""
     try:
-        from shared.services.litellm_sync import get_litellm_sync
+        from infrastructure.clients.litellm_sync import get_litellm_sync
         from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
         sync = get_litellm_sync()

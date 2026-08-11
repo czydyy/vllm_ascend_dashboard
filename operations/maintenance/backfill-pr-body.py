@@ -31,7 +31,7 @@ from sqlalchemy import select
 from shared.core.config import settings
 from shared.db.base import SessionLocal
 from shared.models import PullRequest
-from shared.services.github_client import GitHubClient
+from infrastructure.clients.github_client import GitHubClient
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 logger = logging.getLogger(__name__)

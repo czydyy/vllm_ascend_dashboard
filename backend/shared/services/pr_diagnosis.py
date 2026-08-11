@@ -10,7 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from infrastructure.core.config import settings
 from infrastructure.persistence.models import PullRequest
 from infrastructure.persistence.models.daily_summary import LLMProviderConfig
-from shared.services.llm_client import LLMClient
+from infrastructure.clients.llm_client import LLMClient
 
 logger = logging.getLogger(__name__)
 
@@ -27,7 +27,7 @@ class PRDiagnosisService:
 
     def _get_github_client(self):
         if self._github_client is None:
-            from shared.services.github_client import GitHubClient
+            from infrastructure.clients.github_client import GitHubClient
             self._github_client = GitHubClient(token=settings.GITHUB_TOKEN)
         return self._github_client
 
@@ -87,7 +87,7 @@ class PRDiagnosisService:
 
     async def _call_agentic_llm(self, prompt: str, system_prompt: str, llm_config) -> tuple[str, str]:
         """使用 Claude Code CLI agentic 模式（支持工具调用）"""
-        from shared.services.claude_code_cli import run_with_fallback
+        from infrastructure.clients.claude_code_cli import run_with_fallback
 
         result = await asyncio.wait_for(
             run_with_fallback(

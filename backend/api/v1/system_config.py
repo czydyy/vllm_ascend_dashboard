@@ -543,7 +543,7 @@ async def get_git_cache_status(
     返回最新 commit 信息，方便管理员判断是否需要手动同步
     支持多个仓库：vllm-ascend 和 vllm
     """
-    from shared.services.github_cache import get_github_cache, get_github_cache_for_repo
+    from infrastructure.clients.github_cache import get_github_cache, get_github_cache_for_repo
 
     # 获取默认仓库（vllm-ascend）的缓存状态
     ascend_cache = get_github_cache()
@@ -587,7 +587,7 @@ async def sync_git_cache(
 
     支持同步指定仓库或所有仓库
     """
-    from shared.services.github_cache import get_github_cache, get_github_cache_for_repo, ensure_repo_cloned, update_repo
+    from infrastructure.clients.github_cache import get_github_cache, get_github_cache_for_repo, ensure_repo_cloned, update_repo
 
     results = []
 
@@ -888,7 +888,7 @@ async def update_llm_provider(
         )
         if should_sync:
             try:
-                from shared.services.litellm_sync import get_litellm_sync
+                from infrastructure.clients.litellm_sync import get_litellm_sync
                 sync = get_litellm_sync()
                 if sync.available:
                     await sync.sync_from_db(db)
@@ -959,7 +959,7 @@ async def create_llm_provider(
 
     if new_config.is_active:
         try:
-            from shared.services.litellm_sync import get_litellm_sync
+            from infrastructure.clients.litellm_sync import get_litellm_sync
             sync = get_litellm_sync()
             if sync.available:
                 await sync.sync_from_db(db)

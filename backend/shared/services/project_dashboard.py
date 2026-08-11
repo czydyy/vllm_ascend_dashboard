@@ -6,7 +6,7 @@ import logging
 from datetime import UTC, datetime, timedelta
 from typing import Any, Dict, List, Optional
 
-from shared.services.github_cache import get_github_cache, DOCKER_MIRRORS
+from infrastructure.clients.github_cache import get_github_cache, DOCKER_MIRRORS
 
 logger = logging.getLogger(__name__)
 

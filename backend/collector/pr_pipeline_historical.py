@@ -6,7 +6,7 @@ from sqlalchemy import func as sa_func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from infrastructure.persistence.models import PullRequest
-from shared.services.github_client import GitHubRateLimitError
+from infrastructure.clients.github_client import GitHubRateLimitError
 from collector.pr_pipeline import PRPipelineCollector
 
 logger = logging.getLogger(__name__)

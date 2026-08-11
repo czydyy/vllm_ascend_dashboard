@@ -90,7 +90,7 @@ class CodeMetricsCollector:
     async def _get_repo_path(self) -> str | None:
         """获取 vllm-ascend 仓库本地路径"""
         try:
-            from shared.services.github_cache import get_github_cache_for_repo
+            from infrastructure.clients.github_cache import get_github_cache_for_repo
             cache = get_github_cache_for_repo("vllm-project", "vllm-ascend")
             if hasattr(cache, 'repo_path'):
                 return cache.repo_path

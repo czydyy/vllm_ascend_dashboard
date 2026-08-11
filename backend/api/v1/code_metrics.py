@@ -793,7 +793,7 @@ async def trigger_collection(
 ):
     """触发 vllm-ascend CI 中的代码度量采集工作流"""
     try:
-        from shared.services.github_client import GitHubClient
+        from infrastructure.clients.github_client import GitHubClient
         from infrastructure.core.config import settings
 
         client = GitHubClient(token=settings.GITHUB_TOKEN)

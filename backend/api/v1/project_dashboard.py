@@ -18,8 +18,8 @@ from contracts.schemas import (
     TagComparisonRequest,
     VersionQualityReportRequest,
 )
-from shared.services.github_api import get_github_api_service
-from shared.services.github_cache import ensure_repo_cloned, get_github_cache, update_repo
+from infrastructure.clients.github_api import get_github_api_service
+from infrastructure.clients.github_cache import ensure_repo_cloned, get_github_cache, update_repo
 from shared.services.project_dashboard import get_project_dashboard_service
 
 logger = logging.getLogger(__name__)
@@ -904,7 +904,7 @@ async def rebuild_local_cache(
 
     仅管理员可操作
     """
-    from shared.services.github_cache import rebuild_repo
+    from infrastructure.clients.github_cache import rebuild_repo
 
     success = rebuild_repo()
 
@@ -933,7 +933,7 @@ async def fix_github_cache(
 
     Admin only
     """
-    from shared.services.github_cache import fix_repo
+    from infrastructure.clients.github_cache import fix_repo
 
     success = fix_repo()
 

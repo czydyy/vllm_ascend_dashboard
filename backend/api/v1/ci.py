@@ -469,7 +469,7 @@ async def debug_workflows():
     """
     try:
         from infrastructure.core.config import settings
-        from shared.services.github_client import GitHubClient
+        from infrastructure.clients.github_client import GitHubClient
 
         if not settings.GITHUB_TOKEN:
             raise HTTPException(
@@ -1179,7 +1179,7 @@ async def list_claude_logs(
     days: int = Query(default=7, ge=1, le=30),
 ):
     """列出最近 N 天的 Claude Code CLI 调用日志（需 admin）"""
-    from shared.services.claude_code_cli import _CLI_LOG_DIR
+    from infrastructure.clients.claude_code_cli import _CLI_LOG_DIR
 
     logs: list[dict] = []
     if not _CLI_LOG_DIR.exists():
@@ -1213,7 +1213,7 @@ async def read_claude_log(
     current_user: CurrentAdminUser,
 ):
     """读取指定的 Claude Code CLI 日志文件内容"""
-    from shared.services.claude_code_cli import _CLI_LOG_DIR
+    from infrastructure.clients.claude_code_cli import _CLI_LOG_DIR
 
     filepath = _CLI_LOG_DIR / date / filename
     if not filepath.exists():

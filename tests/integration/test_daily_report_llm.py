@@ -14,7 +14,7 @@ if backend_dir not in sys.path:
     sys.path.insert(0, backend_dir)
 
 from shared.services.daily_report import DailyReportService  # noqa: E402
-from shared.services.llm_client import LLMResult  # noqa: E402
+from infrastructure.clients.llm_client import LLMResult  # noqa: E402
 
 
 @pytest.fixture
@@ -72,7 +72,7 @@ class TestGenerateAiReport:
             patch(
                 "shared.services.skill_registry.get_skill_registry"
             ) as mock_registry,
-            patch("shared.services.llm_client.LLMClient") as mock_client_cls,
+            patch("infrastructure.clients.llm_client.LLMClient") as mock_client_cls,
         ):
             mock_registry.return_value.get_skill_by_scope.return_value = fake_skill
             mock_client = MagicMock()

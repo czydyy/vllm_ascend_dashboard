@@ -520,7 +520,7 @@ class DailyReportService:
         """
         try:
             from infrastructure.persistence.models.daily_summary import LLMProviderConfig
-            from shared.services.llm_client import LLMClient
+            from infrastructure.clients.llm_client import LLMClient
             from shared.services.skill_registry import get_skill_registry
 
             # 获取 LLM 配置

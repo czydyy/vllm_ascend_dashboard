@@ -297,7 +297,7 @@ class FailureAnalysisService:
                 )
                 executed_steps = llm_result.steps
             else:
-                from shared.services.claude_code_cli import run_with_fallback
+                from infrastructure.clients.claude_code_cli import run_with_fallback
 
                 logger.info("Failure analysis job %s routed to claude-code-cli", job_id)
                 analysis.analysis_phase = "claude_cli"
@@ -1108,7 +1108,7 @@ class FailureAnalysisService:
             lines.append(commit_diff)
 
         # 纭繚鏈湴 Git 浠撳簱宸?clone
-        from shared.services.github_cache import ensure_analysis_repos_ready
+        from infrastructure.clients.github_cache import ensure_analysis_repos_ready
         analysis_repos = await asyncio.to_thread(ensure_analysis_repos_ready, update=True)
         repo_path = analysis_repos["vllm_ascend"]
         ref_value = tested_commit or (ci_result.head_sha if ci_result and ci_result.head_sha else "main")
@@ -1173,7 +1173,7 @@ class FailureAnalysisService:
 
     async def _fetch_job_annotations(self, job_id: int, db: AsyncSession) -> list[dict]:
         try:
-            from shared.services.github_client import GitHubClient
+            from infrastructure.clients.github_client import GitHubClient
             github_token = settings.GITHUB_TOKEN
             if not github_token:
                 logger.warning("GitHub token not configured, cannot fetch annotations")
@@ -1371,7 +1371,7 @@ class FailureAnalysisService:
             )
 
         try:
-            from shared.services.github_client import GitHubClient
+            from infrastructure.clients.github_client import GitHubClient
             github_token = settings.GITHUB_TOKEN
             if not github_token:
                 lines.append("（GitHub Token 未配置，无法获取 commit 对比详情）")

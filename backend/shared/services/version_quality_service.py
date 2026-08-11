@@ -19,9 +19,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from infrastructure.core.config import settings
 from infrastructure.persistence.models import CIResult, ProjectDashboardConfig
 from infrastructure.persistence.models.daily_summary import LLMProviderConfig
-from shared.services.github_cache import get_github_cache
-from shared.services.github_client import GitHubClient
-from shared.services.llm_client import LLMClient, LLMResult
+from infrastructure.clients.github_cache import get_github_cache
+from infrastructure.clients.github_client import GitHubClient
+from infrastructure.clients.llm_client import LLMClient, LLMResult
 from shared.services.skill_registry import get_skill_registry
 from shared.services.version_quality_file_store import VersionQualityFileStore
 

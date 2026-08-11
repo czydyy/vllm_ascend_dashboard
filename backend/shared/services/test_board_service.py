@@ -13,7 +13,7 @@ from shared.services.test_timing_parser import TestTimingParser
 from shared.services.junit_xml_parser import JUnitXMLParser
 from shared.services.test_health_calculator import TestHealthCalculator
 from shared.services.failure_classifier import FailureClassifier
-from shared.services.github_client import GitHubClient
+from infrastructure.clients.github_client import GitHubClient
 
 logger = logging.getLogger(__name__)
 

@@ -13,7 +13,7 @@ from contracts.schemas import (
     ResourcePodInfo,
     ResourceQuantity,
 )
-from shared.services.kubernetes_client import KubernetesClientFactory, list_ephemeral_runners, list_nodes, list_pods
+from infrastructure.clients.kubernetes_client import KubernetesClientFactory, list_ephemeral_runners, list_nodes, list_pods
 
 EXECUTING_PHASES = {"Pending", "Running", "Unknown"}
 EXECUTED_PHASES = {"Succeeded", "Failed"}

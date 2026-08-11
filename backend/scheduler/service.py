@@ -13,7 +13,7 @@ from sqlalchemy import bindparam, text
 
 from infrastructure.core.config import settings
 from infrastructure.db.base import SessionLocal
-from shared.services.github_client import GitHubClient
+from infrastructure.clients.github_client import GitHubClient
 
 logger = logging.getLogger(__name__)
 
@@ -928,7 +928,7 @@ class DataSyncScheduler:
 
                 # 同步完成后，更新本地代码仓库
                 try:
-                    from shared.services.github_cache import get_github_cache
+                    from infrastructure.clients.github_cache import get_github_cache
                     cache = get_github_cache()
                     if cache.clone():
                         cache.pull()
@@ -1023,7 +1023,7 @@ class DataSyncScheduler:
         logger.info("=" * 60)
 
         try:
-            from shared.services.github_cache import get_github_cache, get_github_cache_for_repo
+            from infrastructure.clients.github_cache import get_github_cache, get_github_cache_for_repo
             
             results = []
             

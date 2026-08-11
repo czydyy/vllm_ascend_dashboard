@@ -7,9 +7,9 @@ requiring every optional integration (scheduler, Kubernetes, and so on).
 from importlib import import_module
 
 _EXPORTS = {
-    "GitHubAPIError": ("shared.services.github_client", "GitHubAPIError"),
-    "GitHubClient": ("shared.services.github_client", "GitHubClient"),
-    "GitHubRateLimitError": ("shared.services.github_client", "GitHubRateLimitError"),
+    "GitHubAPIError": ("infrastructure.clients.github_client", "GitHubAPIError"),
+    "GitHubClient": ("infrastructure.clients.github_client", "GitHubClient"),
+    "GitHubRateLimitError": ("infrastructure.clients.github_client", "GitHubRateLimitError"),
     "ModelReportParser": ("shared.services.model_report_parser", "ModelReportParser"),
     "ModelSyncService": ("shared.services.model_sync_service", "ModelSyncService"),
     "ModelTrendService": ("shared.services.model_trend_service", "ModelTrendService"),
