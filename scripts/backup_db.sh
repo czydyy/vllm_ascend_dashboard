@@ -5,15 +5,16 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
-# 自动加载 .env.production 中的 MYSQL_ROOT_PASSWORD 等
-if [[ -f "$PROJECT_ROOT/.env.production" ]]; then
-    set -a
-    source "$PROJECT_ROOT/.env.production"
-    set +a
-fi
 BACKUP_DIR="${DASHBOARD_BACKUP_DIR:-$PROJECT_ROOT/backups}"
 COMPOSE_FILE="${DASHBOARD_COMPOSE_FILE:-$PROJECT_ROOT/docker-compose.prod.yml}"
 ENV_FILE="${DASHBOARD_ENV_FILE:-$PROJECT_ROOT/.env.production}"
+
+# 自动加载 .env.production 中的 MYSQL_ROOT_PASSWORD 等
+if [[ -f "$ENV_FILE" ]]; then
+    set -a
+    source "$ENV_FILE"
+    set +a
+fi
 RETENTION_DAYS=30
 SILENT=false
 VERIFY_RESTORE=false

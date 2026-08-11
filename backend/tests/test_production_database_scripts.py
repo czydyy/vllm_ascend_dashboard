@@ -10,6 +10,7 @@ def test_backup_script_is_mysql_and_restore_verified():
     assert "--verify-restore" in script
     assert "restore_verified=" in script
     assert "sqlite" not in script.lower()
+    assert script.index('ENV_FILE="${DASHBOARD_ENV_FILE') < script.index('source "$ENV_FILE"')
 
 
 def test_deploy_script_enforces_backup_migration_health_and_login_order():
