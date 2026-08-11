@@ -514,7 +514,7 @@ class FailureAnalysisService:
             git_search_symbol,
             git_compare_file,
         )
-        from shared.services.failure_analysis_pipeline import (
+        from collector.services.failure_analysis_pipeline import (
             LEDGER_SCHEMA,
             extract_json_object,
             extract_required_regression_candidates,
@@ -528,7 +528,7 @@ class FailureAnalysisService:
             enforce_validation_on_report,
             verification_prompt,
         )
-        from shared.services.failure_analysis_knowledge_graph import (
+        from collector.services.failure_analysis_knowledge_graph import (
             build_failure_analysis_knowledge_graph,
             summarize_graph_for_agent,
         )

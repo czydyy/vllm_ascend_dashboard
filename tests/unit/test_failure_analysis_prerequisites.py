@@ -3,7 +3,7 @@ import subprocess
 
 import pytest
 
-from shared.services.failure_analysis import FailureAnalysisService
+from collector.services.failure_analysis import FailureAnalysisService
 from agent import agent_tools
 from infrastructure.clients import github_cache
 

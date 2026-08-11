@@ -431,7 +431,7 @@ class TestParseJobResultsIncrement:
     @pytest.mark.asyncio
     async def test_failed_run_increments_both_counters(self, rich_db):
         from infrastructure.persistence.models import CIJob, CIResult
-        from shared.services.test_board_service import TestBoardService
+        from collector.services.test_board_service import TestBoardService
 
         now = datetime.now(UTC)
         rich_db.add(CIResult(
@@ -467,7 +467,7 @@ class TestParseJobResultsIncrement:
     @pytest.mark.asyncio
     async def test_passed_run_increments_only_runs(self, rich_db):
         from infrastructure.persistence.models import CIJob, CIResult
-        from shared.services.test_board_service import TestBoardService
+        from collector.services.test_board_service import TestBoardService
 
         now = datetime.now(UTC)
         rich_db.add(CIResult(

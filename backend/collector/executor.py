@@ -109,7 +109,7 @@ class CollectorRunner:
 
     async def _run_model_sync(self, ctx: TaskContext, task_params: dict):
         """模型报告同步。"""
-        from shared.services.model_sync_service import ModelSyncService
+        from collector.services.model_sync_service import ModelSyncService
 
         github = GitHubClient(settings.GITHUB_TOKEN)
         try:
@@ -130,7 +130,7 @@ class CollectorRunner:
 
     async def _run_failure_analysis(self, ctx: TaskContext, task_params: dict):
         """Run one failure analysis from the durable task queue."""
-        from shared.services.failure_analysis import FailureAnalysisService
+        from collector.services.failure_analysis import FailureAnalysisService
 
         job_id = int(task_params["job_id"])
         force = bool(task_params.get("force", False))
@@ -173,7 +173,7 @@ class CollectorRunner:
 
     async def _run_resource_metrics_collect(self, ctx: TaskContext):
         """Collect node and NPU metrics from the Collector execution role."""
-        from shared.services.alert_evaluator import AlertEvaluator
+        from collector.services.alert_evaluator import AlertEvaluator
         from collector.resource_metrics import ResourceMetricsCollector
 
         async with SessionLocal() as db:
@@ -196,7 +196,7 @@ class CollectorRunner:
 
     async def _run_issues_derivation(self, ctx: TaskContext):
         """Derive test-board issue counts from durable worker execution."""
-        from shared.services.issues_found_derivator import IssuesFoundDerivator
+        from collector.services.issues_found_derivator import IssuesFoundDerivator
 
         async with SessionLocal() as db:
             result = await IssuesFoundDerivator(db).derive_all()

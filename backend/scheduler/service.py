@@ -1093,7 +1093,7 @@ class DataSyncScheduler:
 
         async with SessionLocal() as db:
             try:
-                from shared.services.model_sync_service import ModelSyncService
+                from collector.services.model_sync_service import ModelSyncService
 
                 sync_service = ModelSyncService(db, self.github_client)
 
@@ -1291,7 +1291,7 @@ class DataSyncScheduler:
             from sqlalchemy import select
 
             from infrastructure.persistence.models import CIJob, JobFailureAnalysis
-            from shared.services.failure_analysis import FailureAnalysisService
+            from collector.services.failure_analysis import FailureAnalysisService
 
             svc = FailureAnalysisService()
             count = 0
@@ -1365,14 +1365,14 @@ class DataSyncScheduler:
             self._initialize_github_client()
         async with SessionLocal() as db:
             try:
-                from shared.services.test_board_service import TestBoardService
+                from collector.services.test_board_service import TestBoardService
                 svc = TestBoardService(db, self.github_client)
                 count = await svc.parse_ci_results(days_back=7)
                 logger.info(f"TEST BOARD RESULT PARSE JOB COMPLETED - {count} results parsed")
                 # CI 同步后自动推导发现问题数（auto_issues_found），保持数据最新
                 if count > 0:
                     try:
-                        from shared.services.issues_found_derivator import IssuesFoundDerivator
+                        from collector.services.issues_found_derivator import IssuesFoundDerivator
                         derivator = IssuesFoundDerivator(db)
                         derivation = await derivator.derive_all()
                         logger.info(
@@ -1586,7 +1586,7 @@ class DataSyncScheduler:
         """每日同步上游支持矩阵"""
         try:
             from infrastructure.db.base import SessionLocal
-            from shared.services.support_matrix_sync import sync_support_matrix
+            from collector.services.support_matrix_sync import sync_support_matrix
 
             async with SessionLocal() as db:
                 result = await sync_support_matrix(db, dry_run=False)

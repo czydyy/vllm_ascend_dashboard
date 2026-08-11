@@ -30,7 +30,7 @@ from contracts.schemas.test_board import (
     TestOverviewResponse,
 )
 from infrastructure.clients.github_client import GitHubClient
-from shared.services.test_board_service import TestBoardService
+from collector.services.test_board_service import TestBoardService
 from tooling.analytics.test_case_matrix_service import get_case_feature_matrix
 
 logger = logging.getLogger(__name__)
@@ -310,7 +310,7 @@ async def _run_derivation_background():
     """后台执行发现问题数推导，使用独立 DB session 避免与请求 session 冲突。"""
     try:
         from infrastructure.db.base import SessionLocal
-        from shared.services.issues_found_derivator import IssuesFoundDerivator
+        from collector.services.issues_found_derivator import IssuesFoundDerivator
 
         async with SessionLocal() as db:
             result = await IssuesFoundDerivator(db).derive_all()
@@ -453,7 +453,7 @@ async def trigger_derive_issues(
     """
     if user.role not in ("admin", "super_admin"):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="需要管理员权限")
-    from shared.services.issues_found_derivator import IssuesFoundDerivator
+    from collector.services.issues_found_derivator import IssuesFoundDerivator
 
     if case_id:
         derivator = IssuesFoundDerivator(db)

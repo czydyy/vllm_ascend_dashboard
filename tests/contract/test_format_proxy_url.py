@@ -53,7 +53,7 @@ def test_no_double_v1():
 
 def test_detect_api_error_signatures():
     """failure_analysis 的 API 错误检测应识别上游错误，避免误标 completed。"""
-    from shared.services.failure_analysis import FailureAnalysisService
+    from collector.services.failure_analysis import FailureAnalysisService
 
     detect = FailureAnalysisService._detect_api_error
     # 真实复现的上游错误
