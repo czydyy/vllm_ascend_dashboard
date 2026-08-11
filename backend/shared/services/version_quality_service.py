@@ -23,7 +23,7 @@ from infrastructure.clients.github_cache import get_github_cache
 from infrastructure.clients.github_client import GitHubClient
 from infrastructure.clients.llm_client import LLMClient, LLMResult
 from agent.skill_registry import get_skill_registry
-from shared.services.version_quality_file_store import VersionQualityFileStore
+from infrastructure.storage.version_quality_file_store import VersionQualityFileStore
 
 logger = logging.getLogger(__name__)
 

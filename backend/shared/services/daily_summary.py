@@ -17,7 +17,7 @@ from infrastructure.persistence.models import ProjectDashboardConfig
 from infrastructure.clients.github_client import GitHubClient
 from infrastructure.clients.claude_code_cli import run_with_fallback
 from infrastructure.clients.github_cache import get_github_cache, get_github_cache_for_repo
-from shared.services.daily_data_file_store import DailyDataFileStore
+from infrastructure.storage.daily_data_file_store import DailyDataFileStore
 
 logger = logging.getLogger(__name__)
 

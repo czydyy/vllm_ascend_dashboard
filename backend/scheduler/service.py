@@ -836,7 +836,7 @@ class DataSyncScheduler:
 
     async def _sync_ci_data_job(self) -> None:
         """Queue CI synchronization; Collector owns GitHub I/O and all writes."""
-        from shared.services.task_manager import TaskManager
+        from infrastructure.tasks.task_manager import TaskManager
 
         params = {
             "days_back": settings.CI_SYNC_DAYS_BACK,
@@ -878,7 +878,7 @@ class DataSyncScheduler:
         db_session = SessionLocal()
 
         try:
-            from shared.services.task_manager import TaskManager
+            from infrastructure.tasks.task_manager import TaskManager
             async with db_session as db:
                 task_id = await TaskManager.create_task(
                     db, "ci_sync",
@@ -954,7 +954,7 @@ class DataSyncScheduler:
                 # Step 3: 标记任务完成
                 if task_id:
                     try:
-                        from shared.services.task_manager import TaskManager
+                        from infrastructure.tasks.task_manager import TaskManager
                         async with SessionLocal() as td:
                             await TaskManager.complete_task(td, task_id)
                             await td.commit()
@@ -968,7 +968,7 @@ class DataSyncScheduler:
                 # 标记任务失败
                 if task_id:
                     try:
-                        from shared.services.task_manager import TaskManager
+                        from infrastructure.tasks.task_manager import TaskManager
                         async with SessionLocal() as td:
                             await TaskManager.fail_task(td, task_id, str(e)[:500])
                             await td.commit()
@@ -978,7 +978,7 @@ class DataSyncScheduler:
 
     async def _sync_pr_pipeline_job(self) -> None:
         """Queue PR synchronization; Collector owns the GitHub I/O and mutation."""
-        from shared.services.task_manager import TaskManager
+        from infrastructure.tasks.task_manager import TaskManager
 
         days_back = getattr(settings, "PR_PIPELINE_DAYS_BACK", 7)
         # A stable one-minute window suppresses duplicate enqueues after a
@@ -1060,7 +1060,7 @@ class DataSyncScheduler:
 
     async def _sync_model_reports_job(self) -> None:
         """Queue model report synchronization for a Collector with Python capability."""
-        from shared.services.task_manager import TaskManager
+        from infrastructure.tasks.task_manager import TaskManager
 
         params = {
             "days_back": getattr(settings, "MODEL_SYNC_DAYS_BACK", 3),
@@ -1267,7 +1267,7 @@ class DataSyncScheduler:
 
     async def _collect_resource_metrics_job(self) -> None:
         """Queue resource metric collection for Collector execution."""
-        from shared.services.task_manager import TaskManager
+        from infrastructure.tasks.task_manager import TaskManager
 
         dedupe_key = f"resource_metrics_collect:{datetime.now(UTC).strftime('%Y-%m-%dT%H:%M')}"
         async with SessionLocal() as db:
@@ -1344,7 +1344,7 @@ class DataSyncScheduler:
 
     async def _cleanup_resource_metrics_job(self) -> None:
         """Queue resource metric retention cleanup for Collector execution."""
-        from shared.services.task_manager import TaskManager
+        from infrastructure.tasks.task_manager import TaskManager
 
         dedupe_key = f"resource_metrics_cleanup:{datetime.now(UTC).strftime('%Y-%m-%d')}"
         async with SessionLocal() as db:
@@ -1524,7 +1524,7 @@ class DataSyncScheduler:
                 )
 
                 # 同步完成后，更新进度
-                from shared.services.sync_progress import get_sync_progress
+                from infrastructure.tasks.sync_progress import get_sync_progress
                 progress = get_sync_progress()
                 progress.complete()
 
@@ -1623,7 +1623,7 @@ class DataSyncScheduler:
 
     async def _sync_heatmap_job(self):
         """Queue GitHub heatmap synchronization for Collector execution."""
-        from shared.services.task_manager import TaskManager
+        from infrastructure.tasks.task_manager import TaskManager
 
         dedupe_key = f"code_heatmap_sync:scheduled:{datetime.now(UTC).strftime('%Y-%m-%d')}"
         async with SessionLocal() as db:
@@ -1640,7 +1640,7 @@ class DataSyncScheduler:
 
     async def _collect_code_metrics_job(self):
         """Queue code metrics collection; only Collector may run local tools."""
-        from shared.services.task_manager import TaskManager
+        from infrastructure.tasks.task_manager import TaskManager
 
         dedupe_key = f"code_metrics:scheduled:{datetime.now(UTC).strftime('%Y-%m-%dT%H:%M')}"
         async with SessionLocal() as db:

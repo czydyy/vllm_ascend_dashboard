@@ -331,7 +331,7 @@ async def trigger_sync(
     svc = TestBoardService(db, gh)
     count = await svc.parse_ci_results(days_back=request.days_back, force=request.force)
     # CI 同步后在后台跑发现问题数推导，避免 HTTP 超时
-    from shared.services.task_manager import TaskManager
+    from infrastructure.tasks.task_manager import TaskManager
 
     await TaskManager.create_task(
         db,
@@ -462,7 +462,7 @@ async def trigger_derive_issues(
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="用例不存在")
         return {"success": True, "result": result}
     else:
-        from shared.services.task_manager import TaskManager
+        from infrastructure.tasks.task_manager import TaskManager
 
         task_id = await TaskManager.create_task(
             db,

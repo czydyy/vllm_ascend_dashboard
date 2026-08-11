@@ -12,7 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from infrastructure.persistence.models import CIJob, CIResult, WorkflowConfig
 from infrastructure.clients.github_client import GitHubAPIError, GitHubClient, GitHubRateLimitError
-from shared.services.sync_progress import get_sync_progress
+from infrastructure.tasks.sync_progress import get_sync_progress
 
 logger = logging.getLogger(__name__)
 

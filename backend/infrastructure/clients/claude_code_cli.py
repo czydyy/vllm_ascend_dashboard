@@ -195,7 +195,7 @@ class ClaudeCodeCLI:
         # ── 路由决策 ──
         if litellm_url:
             # FormatProxy (Anthropic→OpenAI) → LiteLLM → upstream
-            from shared.services.format_proxy import FormatProxy
+            from tooling.parsers.format_proxy import FormatProxy
 
             proxy = FormatProxy(
                 upstream_base_url=litellm_url,
@@ -222,7 +222,7 @@ class ClaudeCodeCLI:
             )
         else:
             # 开发环境：FormatProxy 本地代理（Anthropic ↔ OpenAI 翻译）
-            from shared.services.format_proxy import FormatProxy
+            from tooling.parsers.format_proxy import FormatProxy
 
             proxy = FormatProxy(
                 upstream_base_url=api_base or "https://api.openai.com/v1",

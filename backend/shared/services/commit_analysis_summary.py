@@ -10,8 +10,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from infrastructure.persistence.models import ProjectDashboardConfig
 from infrastructure.persistence.models.daily_summary import LLMProviderConfig
 from infrastructure.clients.claude_code_cli import run_with_fallback
-from shared.services.commit_analysis_file_store import CommitAnalysisFileStore
-from shared.services.daily_data_file_store import DailyDataFileStore
+from infrastructure.storage.commit_analysis_file_store import CommitAnalysisFileStore
+from infrastructure.storage.daily_data_file_store import DailyDataFileStore
 
 logger = logging.getLogger(__name__)
 

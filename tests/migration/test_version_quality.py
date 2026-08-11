@@ -10,7 +10,7 @@ import asyncio
 
 import pytest
 
-from shared.services.version_quality_file_store import (
+from infrastructure.storage.version_quality_file_store import (
     VersionQualityFileStore,
     _sanitize_component,
 )

@@ -18,7 +18,7 @@ from contracts.schemas.daily_summary import (
 )
 from shared.services.daily_summary import DailySummaryService
 from shared.services.daily_report import _today_shanghai
-from shared.services.daily_data_file_store import DailyDataFileStore
+from infrastructure.storage.daily_data_file_store import DailyDataFileStore
 
 logger = logging.getLogger(__name__)
 

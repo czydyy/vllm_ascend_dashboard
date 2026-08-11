@@ -727,7 +727,7 @@ async def download_version_quality_report(
     if not html_path:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="报告 HTML 文件不存在")
 
-    from shared.services.version_quality_file_store import _sanitize_component
+    from infrastructure.storage.version_quality_file_store import _sanitize_component
 
     raw_base = meta.get('base_tag', 'base')
     raw_head = meta.get('head_tag', 'head')

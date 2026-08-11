@@ -497,7 +497,7 @@ async def sync_heatmap(
     """从 PR 数据聚合文件变更频率，更新热力图"""
     from uuid import uuid4
 
-    from shared.services.task_manager import TaskManager
+    from infrastructure.tasks.task_manager import TaskManager
 
     task_id = await TaskManager.create_task(
         db,
@@ -818,7 +818,7 @@ async def collect_locally(
     branch: str = Query("main", description="目标分支"),
 ):
     """在 Dashboard 服务器上直接运行 cloc/lizard/jscpd 采集代码度量"""
-    from shared.services.task_manager import TaskManager
+    from infrastructure.tasks.task_manager import TaskManager
 
     task_id = await TaskManager.create_task(
         db,

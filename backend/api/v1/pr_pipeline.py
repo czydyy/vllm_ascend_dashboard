@@ -121,7 +121,7 @@ async def sync_pr_pipeline(
     from uuid import uuid4
 
     from infrastructure.db.base import SessionLocal
-    from shared.services.task_manager import TaskManager
+    from infrastructure.tasks.task_manager import TaskManager
 
     days_back = request.days_back if request else 7
     async with SessionLocal() as db:
@@ -176,7 +176,7 @@ async def historical_sync_pr_pipeline(
 
     from uuid import uuid4
 
-    from shared.services.task_manager import TaskManager
+    from infrastructure.tasks.task_manager import TaskManager
 
     task_id = await TaskManager.create_task(
         db,

@@ -12,7 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from infrastructure.persistence.models import CIJob, CIResult, ProjectDashboardConfig, JobFailureAnalysis
 from infrastructure.persistence.models.daily_summary import LLMProviderConfig
-from shared.services.failure_analysis_file_store import FailureAnalysisFileStore
+from infrastructure.storage.failure_analysis_file_store import FailureAnalysisFileStore
 from infrastructure.core.config import settings
 
 logger = logging.getLogger(__name__)

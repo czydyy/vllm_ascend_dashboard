@@ -13,7 +13,7 @@ from contracts.schemas.commit_analysis import (
     CommitAnalysisUpdate,
     CommitChangeType,
 )
-from shared.services.commit_analysis_file_store import CommitAnalysisFileStore
+from infrastructure.storage.commit_analysis_file_store import CommitAnalysisFileStore
 from shared.services.commit_analysis_summary import CommitAnalysisSummaryService
 
 router = APIRouter()

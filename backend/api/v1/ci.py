@@ -408,7 +408,7 @@ async def trigger_sync(
     from uuid import uuid4
 
     from infrastructure.db.base import SessionLocal
-    from shared.services.task_manager import TaskManager
+    from infrastructure.tasks.task_manager import TaskManager
 
     async with SessionLocal() as db:
         task_id = await TaskManager.create_task(
@@ -1019,7 +1019,7 @@ async def analyze_failed_job(
 
     # 4. Enqueue durable analysis work for a Collector worker.
     from uuid import uuid4
-    from shared.services.task_manager import TaskManager
+    from infrastructure.tasks.task_manager import TaskManager
 
     task_id = await TaskManager.create_task(
         db,
@@ -1149,7 +1149,7 @@ async def get_failure_analysis_report(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="分析记录不存在")
     if not analysis.report_file_path:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="报告文件不存在")
-    from shared.services.failure_analysis_file_store import FailureAnalysisFileStore
+    from infrastructure.storage.failure_analysis_file_store import FailureAnalysisFileStore
     file_store = FailureAnalysisFileStore()
     content = await file_store.read_report_by_path(analysis.report_file_path)
     if not content:
@@ -1320,7 +1320,7 @@ async def get_public_analysis_report(
     analysis = result.scalar_one_or_none()
     if not analysis or not analysis.report_file_path:
         raise HTTPException(status_code=404, detail="报告不存在")
-    from shared.services.failure_analysis_file_store import FailureAnalysisFileStore
+    from infrastructure.storage.failure_analysis_file_store import FailureAnalysisFileStore
 
     file_store = FailureAnalysisFileStore()
     content = await file_store.read_report_by_path(analysis.report_file_path) or ""
@@ -1363,7 +1363,7 @@ async def download_public_analysis_pdf(
     if not analysis.report_file_path:
         raise HTTPException(status_code=404, detail="报告文件不存在")
 
-    from shared.services.failure_analysis_file_store import FailureAnalysisFileStore
+    from infrastructure.storage.failure_analysis_file_store import FailureAnalysisFileStore
     file_store = FailureAnalysisFileStore()
     md_content = await file_store.read_report_by_path(analysis.report_file_path) or ""
 

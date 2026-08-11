@@ -27,7 +27,7 @@ from infrastructure.persistence.models import (
     ProjectDashboardConfig,
 )
 from infrastructure.persistence.models.test_board import TestCase, TestRun
-from shared.services.daily_data_file_store import DailyDataFileStore
+from infrastructure.storage.daily_data_file_store import DailyDataFileStore
 
 logger = logging.getLogger(__name__)
 

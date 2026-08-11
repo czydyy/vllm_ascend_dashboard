@@ -225,7 +225,7 @@ async def update_sync_config(
     同时更新运行时配置和 .env 文件
     """
     from infrastructure.core.config_manager import update_env_config
-    from shared.services.scheduler_config import persist_scheduler_runtime_config
+    from infrastructure.tasks.scheduler_config import persist_scheduler_runtime_config
 
     updates = []
     env_updates = {}
