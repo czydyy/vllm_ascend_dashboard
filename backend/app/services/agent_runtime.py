@@ -6,7 +6,6 @@ import ast
 import copy
 import json
 import logging
-import re
 import time
 from typing import Any
 
@@ -151,7 +150,10 @@ class CompatibleLiteLLMModel(LiteLLMModel):
                     logger.warning("Action model call timed out; advancing to next agent step")
                     message = ChatMessage(
                         role=MessageRole.ASSISTANT,
-                        content="模型请求在产出工具调用前超时。请基于已有证据继续下一步，避免重复发起同样的大上下文请求。",
+                        content=(
+                            "The model request timed out before producing a tool call. "
+                            "Continue from the evidence already collected and avoid repeating the same request."
+                        ),
                     )
                     break
                 if attempt >= self.generation_retries or not _is_transient_generation_error(exc):

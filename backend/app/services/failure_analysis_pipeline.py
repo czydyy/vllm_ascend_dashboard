@@ -6,7 +6,6 @@ import json
 import re
 from typing import Any
 
-
 LEDGER_SCHEMA = {
     "schema_version": 1,
     "failure_facts": [],
@@ -271,7 +270,7 @@ def _enrich_hypotheses_from_trace(ledger: dict[str, Any], trace: list[dict[str, 
     ]
     pair_sources.extend(_tool_commit_refs(trace, text))
     seen_candidate_keys: set[tuple[str, str]] = set()
-    for order, (sha, pr, position, source) in enumerate(pair_sources):
+    for order, (sha, pr, position, _source) in enumerate(pair_sources):
         candidate_key = (sha[:7].lower(), pr)
         if candidate_key in seen_candidate_keys:
             continue
@@ -723,7 +722,7 @@ def report_prompt(
 结论措辞规则：
 - validation.verdict == pass：可以使用“确认根因”。
 - validation.verdict == likely：使用“主要嫌疑 / 高置信候选 / 离线取证充分，待运行复现”，不要反复写“未验证”。
-- validation.verdict == insufficient：使用“候选 / 证据不足”，不得使用确定性根因措辞。
+- validation.verdict == insufficient：使用“候选/未验证”，不得使用确定性根因措辞。
 
 最后输出 JSON，包含 problem_category、root_cause_summary、improvement_measures_summary；三个字段的值也必须使用简体中文，并遵守上面的结论措辞规则。
 required_regression_candidates 只是回归区间审查线索，不是覆盖清单，也不是候选根因清单。不能仅靠关键词、标题、文件名或 PR 标签把提交写成候选。只有 ledger.hypotheses 中且存在“日志症状 → 运行入口/配置 → 源码路径 → diff”支持证据的条目才能写入“主要嫌疑/其他候选”；ledger.candidate_reviews 中 disposition 为 dismissed/not_candidate/no_runtime_relevance 的条目只能写入“已审查但未成为候选”，不能称为候选根因。
@@ -749,7 +748,7 @@ def enforce_validation_on_report(report: str, validation: dict[str, Any]) -> str
 
 
 def _enforce_likely_report(report: str) -> str:
-    safe_report = report
+    safe_report = report.replace("候选/未验证", "主要嫌疑（离线取证充分，待运行复现）")
     summary = _extract_complete_report_json(safe_report)
     if summary:
         root = str(summary.get("root_cause_summary", "")).strip()
@@ -772,12 +771,13 @@ def _enforce_insufficient_report(report: str, validation: dict[str, Any]) -> str
     auditor = auditor if isinstance(auditor, dict) else {}
     counterevidence = _string_items(auditor.get("rejected_claims") or auditor.get("findings"))
     required = _string_items(auditor.get("required_changes") or auditor.get("report_constraints"))
-    safe_report = report
+    safe_report = re.sub(r"主假设[：:]?", "候选假设：", report)
+    safe_report = re.sub(r"[（(]置信度\s*\d+(?:\.\d+)?[）)]", "", safe_report)
     summary = _extract_complete_report_json(safe_report)
     if summary:
         root = str(summary.get("root_cause_summary", "")).strip()
-        if not root.startswith("候选（证据不足）"):
-            root = f"候选（证据不足）：{root}"
+        if not root.startswith("候选（验证未通过）"):
+            root = f"候选（验证未通过）：{root}"
         if counterevidence:
             root += "；关键反证：" + "；".join(counterevidence[:3])
         summary["root_cause_summary"] = root
@@ -787,7 +787,7 @@ def _enforce_insufficient_report(report: str, validation: dict[str, Any]) -> str
     gate_lines = [
         "## 证据门禁结论",
         "",
-        "> **证据不足，不能确认主要嫌疑。** 下文涉及的提交和代码路径只能作为候选，不能作为确定性归因。",
+        "> **尚未确认根因，证据不足。** 下文涉及的提交和代码路径只能作为候选，不能作为确定性归因。",
     ]
     if counterevidence:
         gate_lines.extend(["", "关键反证："] + [f"- {item}" for item in counterevidence[:5]])

@@ -23,7 +23,7 @@ import tempfile
 from collections import defaultdict
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any
 
 import httpx
 from sqlalchemy import select
@@ -552,12 +552,10 @@ def _version_gap(cache: Any, covdata_commit: str | None, source_commit: str | No
     if not covdata_commit or not source_commit:
         return None
     try:
-        r = subprocess.run(
-            ["git", "rev-list", "--count", f"{covdata_commit}..{source_commit}"],
-            cwd=str(cache.cache_dir), capture_output=True, text=True, timeout=30,
+        stdout, _ = cache.run_git(
+            ["git", "rev-list", "--count", f"{covdata_commit}..{source_commit}"]
         )
-        if r.returncode == 0:
-            return int(r.stdout.strip())
+        return int(stdout.strip())
     except Exception:  # noqa: BLE001
         pass
     return None
@@ -1124,7 +1122,7 @@ def _csv_safe(val: Any) -> Any:
     s = str(val) if val is not None else ""
     if s and s[0] in ("=", "+", "-", "@"):
         return "'" + s
-    return val
+    return s
 
 
 def _breadth_csv(data: dict, module: str | None) -> str:
