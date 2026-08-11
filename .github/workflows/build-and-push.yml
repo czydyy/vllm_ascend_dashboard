@@ -40,7 +40,7 @@ jobs:
       - name: Backend checks
         working-directory: backend
         run: |
-          uv sync --dev
+          uv sync --locked --dev
           uv run ruff check app scripts
           uv run pytest tests/test_production_database_scripts.py tests/test_startup_migrations.py -q
 

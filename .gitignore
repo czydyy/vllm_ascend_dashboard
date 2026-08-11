@@ -46,9 +46,6 @@ htmlcov/
 # Type checking
 .mypy_cache/
 
-# uv
-uv.lock
-
 # Backend specific
 backend/app.db
 backend/*.db
