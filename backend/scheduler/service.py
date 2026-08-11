@@ -1266,6 +1266,23 @@ class DataSyncScheduler:
             raise  # Fix #135: re-raise so APScheduler records the failure
 
     async def _collect_resource_metrics_job(self) -> None:
+        """Queue resource metric collection for Collector execution."""
+        from shared.services.task_manager import TaskManager
+
+        dedupe_key = f"resource_metrics_collect:{datetime.now(UTC).strftime('%Y-%m-%dT%H:%M')}"
+        async with SessionLocal() as db:
+            task_id = await TaskManager.create_task(
+                db,
+                "resource_metrics_collect",
+                {},
+                dedupe_key,
+                required_capability="python",
+            )
+            await db.commit()
+        if task_id:
+            logger.info("Queued resource metrics collection task %d", task_id)
+
+    async def _legacy_collect_resource_metrics_job(self) -> None:
         """NPU 指标采集任务"""
         logger.info("=" * 60)
         logger.info("RESOURCE METRICS COLLECT JOB STARTED")
@@ -1354,6 +1371,23 @@ class DataSyncScheduler:
             return 0
 
     async def _cleanup_resource_metrics_job(self) -> None:
+        """Queue resource metric retention cleanup for Collector execution."""
+        from shared.services.task_manager import TaskManager
+
+        dedupe_key = f"resource_metrics_cleanup:{datetime.now(UTC).strftime('%Y-%m-%d')}"
+        async with SessionLocal() as db:
+            task_id = await TaskManager.create_task(
+                db,
+                "resource_metrics_cleanup",
+                {},
+                dedupe_key,
+                required_capability="python",
+            )
+            await db.commit()
+        if task_id:
+            logger.info("Queued resource metrics cleanup task %d", task_id)
+
+    async def _legacy_cleanup_resource_metrics_job(self) -> None:
         """NPU 指标数据清理任务"""
         logger.info("=" * 60)
         logger.info("RESOURCE METRICS CLEANUP JOB STARTED")

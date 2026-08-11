@@ -158,3 +158,37 @@ async def test_heatmap_schedule_enqueues_a_collector_task() -> None:
         if scheduler.scheduler.running:
             scheduler.scheduler.shutdown(wait=False)
         await engine.dispose()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("job_name", "task_type"),
+    [
+        ("_collect_resource_metrics_job", "resource_metrics_collect"),
+        ("_cleanup_resource_metrics_job", "resource_metrics_cleanup"),
+    ],
+)
+async def test_resource_metric_schedule_enqueues_collector_work(job_name: str, task_type: str) -> None:
+    from database.migrations.task_queue import run as run_task_queue_migration
+
+    await run_task_queue_migration()
+    scheduler = DataSyncScheduler()
+    try:
+        await getattr(scheduler, job_name)()
+        async with SessionLocal() as db:
+            row = (
+                await db.execute(
+                    text(
+                        "SELECT task_type, status, required_capability FROM collection_tasks "
+                        "WHERE task_type = :task_type ORDER BY id DESC LIMIT 1"
+                    ),
+                    {"task_type": task_type},
+                )
+            ).one()
+        assert row.task_type == task_type
+        assert row.status == "pending"
+        assert row.required_capability == "python"
+    finally:
+        if scheduler.scheduler.running:
+            scheduler.scheduler.shutdown(wait=False)
+        await engine.dispose()

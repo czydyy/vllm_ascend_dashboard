@@ -71,6 +71,10 @@ class CollectorRunner:
                 await self._run_code_metrics_collect(ctx, task_params)
             elif task_type == "code_heatmap_sync":
                 await self._run_code_heatmap_sync(ctx, task_params)
+            elif task_type == "resource_metrics_collect":
+                await self._run_resource_metrics_collect(ctx)
+            elif task_type == "resource_metrics_cleanup":
+                await self._run_resource_metrics_cleanup(ctx)
             else:
                 raise ValueError(f"Unsupported collection task type: {task_type}")
         finally:
@@ -166,6 +170,29 @@ class CollectorRunner:
             logger.info("Code heatmap task %d completed: %s", ctx.task_id, result)
         finally:
             await github.close()
+
+    async def _run_resource_metrics_collect(self, ctx: TaskContext):
+        """Collect node and NPU metrics from the Collector execution role."""
+        from shared.services.alert_evaluator import AlertEvaluator
+        from shared.services.resource_metrics import ResourceMetricsService
+
+        async with SessionLocal() as db:
+            count = await ResourceMetricsService(db).collect_snapshot()
+            alerts = await AlertEvaluator(db).evaluate_all_rules()
+        logger.info(
+            "Resource metrics task %d completed: clusters=%d alerts=%d",
+            ctx.task_id,
+            count,
+            alerts,
+        )
+
+    async def _run_resource_metrics_cleanup(self, ctx: TaskContext):
+        """Delete expired resource metrics from the Collector execution role."""
+        from shared.services.resource_metrics import ResourceMetricsService
+
+        async with SessionLocal() as db:
+            deleted = await ResourceMetricsService(db).cleanup_old_metrics()
+        logger.info("Resource metrics cleanup task %d deleted %d rows", ctx.task_id, deleted)
 
     async def _run_issues_derivation(self, ctx: TaskContext):
         """Derive test-board issue counts from durable worker execution."""
