@@ -64,7 +64,7 @@ class CollectorRunner:
             elif task_type == "issues_derivation":
                 await self._run_issues_derivation(ctx)
             elif task_type == "model_sync":
-                await self._run_model_sync(ctx)
+                await self._run_model_sync(ctx, task_params)
             else:
                 raise ValueError(f"Unsupported collection task type: {task_type}")
         finally:
@@ -97,10 +97,26 @@ class CollectorRunner:
         finally:
             await github.close()
 
-    async def _run_model_sync(self, ctx: TaskContext):
+    async def _run_model_sync(self, ctx: TaskContext, task_params: dict):
         """模型报告同步。"""
-        from shared.services.model_sync_service import sync_all_models
-        await sync_all_models()
+        from shared.services.model_sync_service import ModelSyncService
+
+        github = GitHubClient(settings.GITHUB_TOKEN)
+        try:
+            async with SessionLocal() as db:
+                service = ModelSyncService(db, github)
+                total, collected = await service.sync_all_enabled_configs(
+                    days_back=int(task_params.get("days_back", settings.MODEL_SYNC_DAYS_BACK)),
+                    runs_limit=int(task_params.get("runs_limit", settings.MODEL_SYNC_RUNS_LIMIT)),
+                )
+                logger.info(
+                    "Model sync task %d completed: %d configs, %d reports",
+                    ctx.task_id,
+                    total,
+                    collected,
+                )
+        finally:
+            await github.close()
 
     async def _run_failure_analysis(self, ctx: TaskContext, task_params: dict):
         """Run one failure analysis from the durable task queue."""

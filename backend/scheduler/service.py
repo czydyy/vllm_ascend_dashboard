@@ -1036,6 +1036,30 @@ class DataSyncScheduler:
             raise
 
     async def _sync_model_reports_job(self) -> None:
+        """Queue model report synchronization for a Collector with Python capability."""
+        from shared.services.task_manager import TaskManager
+
+        params = {
+            "days_back": getattr(settings, "MODEL_SYNC_DAYS_BACK", 3),
+            "runs_limit": getattr(settings, "MODEL_SYNC_RUNS_LIMIT", 100),
+        }
+        dedupe_key = f"model_sync:scheduled:{datetime.now(UTC).strftime('%Y-%m-%dT%H:%M')}"
+        async with SessionLocal() as db:
+            task_id = await TaskManager.create_task(
+                db,
+                "model_sync",
+                params,
+                dedupe_key,
+                required_capability="python",
+            )
+            await db.commit()
+
+        if task_id:
+            logger.info("Queued model report sync task %d", task_id)
+        else:
+            logger.info("Model report sync is already queued or running")
+
+    async def _legacy_sync_model_reports_job(self) -> None:
         """模型报告同步任务"""
         logger.info("=" * 60)
         logger.info("MODEL REPORT SYNC JOB STARTED")
