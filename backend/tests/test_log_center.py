@@ -108,9 +108,9 @@ def _make_failure_report(
 
 @pytest_asyncio.fixture
 async def db_with_app_logs():
-    """MySQL test DB with app_logs table."""
+    """Isolated in-memory database with the app_logs table."""
     engine = create_async_engine(
-        "mysql+aiomysql://dashboard:dashboard123@localhost:3306/vllm_dashboard_test",
+        "sqlite+aiosqlite:///:memory:",
         echo=False,
     )
     async with engine.begin() as conn:
