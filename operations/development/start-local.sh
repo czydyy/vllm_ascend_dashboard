@@ -221,7 +221,7 @@ start_backend_local() {
     export PYTHONPATH="$BACKEND_DIR:$PYTHONPATH"
 
     # 启动后端
-    uv run uvicorn app.main:app --reload --host 0.0.0.0 --port 8000 &
+    uv run uvicorn api.main:app --reload --host 0.0.0.0 --port 8000 &
     BACKEND_PID=$!
 
     echo $BACKEND_PID > "$PROJECT_ROOT/.backend.pid"
@@ -374,7 +374,7 @@ stop_local() {
     fi
 
     # 清理可能的残留进程
-    pkill -f "uvicorn app.main:app" 2>/dev/null || true
+    pkill -f "uvicorn api.main:app" 2>/dev/null || true
     pkill -f "vite" 2>/dev/null || true
 
     echo ""

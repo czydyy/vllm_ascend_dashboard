@@ -12,12 +12,12 @@ from datetime import datetime
 
 from sqlalchemy import text
 
-from app.core.config import settings
-from app.db.base import SessionLocal
-from app.services.ci_collector import CICollector
+from shared.core.config import settings
+from shared.db.base import SessionLocal
+from shared.services.ci_collector import CICollector
 from .collector_base import CollectorWorker, TaskContext
-from app.services.github_client import GitHubClient
-from app.services.pr_pipeline_collector import PRPipelineCollector
+from shared.services.github_client import GitHubClient
+from shared.services.pr_pipeline_collector import PRPipelineCollector
 
 logger = logging.getLogger(__name__)
 
@@ -99,12 +99,12 @@ class CollectorRunner:
 
     async def _run_model_sync(self, ctx: TaskContext):
         """模型报告同步。"""
-        from app.services.model_sync_service import sync_all_models
+        from shared.services.model_sync_service import sync_all_models
         await sync_all_models()
 
     async def _run_failure_analysis(self, ctx: TaskContext, task_params: dict):
         """Run one failure analysis from the durable task queue."""
-        from app.services.failure_analysis import FailureAnalysisService
+        from shared.services.failure_analysis import FailureAnalysisService
 
         job_id = int(task_params["job_id"])
         force = bool(task_params.get("force", False))
@@ -119,7 +119,7 @@ class CollectorRunner:
 
     async def _run_issues_derivation(self, ctx: TaskContext):
         """Derive test-board issue counts from durable worker execution."""
-        from app.services.issues_found_derivator import IssuesFoundDerivator
+        from shared.services.issues_found_derivator import IssuesFoundDerivator
 
         async with SessionLocal() as db:
             result = await IssuesFoundDerivator(db).derive_all()

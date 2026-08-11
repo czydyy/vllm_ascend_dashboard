@@ -37,9 +37,9 @@ logger = logging.getLogger(__name__)
 from sqlalchemy import text, select
 from sqlalchemy.exc import SQLAlchemyError
 
-from app.core.security import hash_password
-from app.db.base import SessionLocal, engine
-from app.models import Base, User
+from shared.core.security import hash_password
+from shared.db.base import SessionLocal, engine
+from shared.models import Base, User
 
 
 # ============ 版本管理相关 ============

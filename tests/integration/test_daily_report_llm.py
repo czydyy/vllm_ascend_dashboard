@@ -13,8 +13,8 @@ backend_dir = str(Path(__file__).resolve().parents[2] / "backend")
 if backend_dir not in sys.path:
     sys.path.insert(0, backend_dir)
 
-from app.services.daily_report import DailyReportService  # noqa: E402
-from app.services.llm_client import LLMResult  # noqa: E402
+from shared.services.daily_report import DailyReportService  # noqa: E402
+from shared.services.llm_client import LLMResult  # noqa: E402
 
 
 @pytest.fixture
@@ -70,9 +70,9 @@ class TestGenerateAiReport:
 
         with (
             patch(
-                "app.services.skill_registry.get_skill_registry"
+                "shared.services.skill_registry.get_skill_registry"
             ) as mock_registry,
-            patch("app.services.llm_client.LLMClient") as mock_client_cls,
+            patch("shared.services.llm_client.LLMClient") as mock_client_cls,
         ):
             mock_registry.return_value.get_skill_by_scope.return_value = fake_skill
             mock_client = MagicMock()
@@ -175,7 +175,7 @@ def _patch_scheduler_job(mock_session, mock_send=None):
     ]
     if mock_send is not None:
         patches.append(
-            patch("app.services.daily_report.DailyReportService.send_report", new=mock_send)
+            patch("shared.services.daily_report.DailyReportService.send_report", new=mock_send)
         )
     return patches
 

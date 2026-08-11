@@ -62,7 +62,7 @@ jobs:
           GITHUB_TOKEN: github_pat_test_token_for_ci_tests
         run: |
           uv sync --locked --dev
-          uv run ruff check app scripts
+          uv run ruff check api shared scheduler collector ../tests
           uv run pytest -q
           uv run pip-audit --strict
 

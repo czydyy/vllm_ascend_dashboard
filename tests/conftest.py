@@ -10,8 +10,8 @@ backend_dir = str(Path(__file__).resolve().parents[1] / "backend")
 if backend_dir not in sys.path:
     sys.path.insert(0, backend_dir)
 
-from app.models import CIResult, PullRequest, WorkflowConfig  # noqa: E402
-from app.models.test_board import TestCase, TestRun, TestSuiteSnapshot  # noqa: E402
+from shared.models import CIResult, PullRequest, WorkflowConfig  # noqa: E402
+from shared.models.test_board import TestCase, TestRun, TestSuiteSnapshot  # noqa: E402
 from tests.mysql_test_db import create_test_engine, reset_tables  # noqa: E402
 
 

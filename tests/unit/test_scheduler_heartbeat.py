@@ -33,7 +33,7 @@ class FakeSession:
         self.added = []
 
     async def get(self, model, pk):
-        from app.models import SchedulerHeartbeat
+        from shared.models import SchedulerHeartbeat
         if model is SchedulerHeartbeat:
             return self._hb
         return None
@@ -94,9 +94,9 @@ async def test_status_fresh_heartbeat_reports_running(monkeypatch):
 
     即使 API 进程内 APScheduler 未启动（prod 实况），也应报告调度器在运行。
     """
-    import app.db.base as db_base
-    from app.api.v1 import system_config
-    from app.services import scheduler as sched_mod
+    import shared.db.base as db_base
+    from api.v1 import system_config
+    from shared.services import scheduler as sched_mod
 
     hb = FakeHeartbeatRow(running=True, jobs=_FRESH_JOBS, updated_at=datetime.now(UTC))
     session = FakeSession(heartbeat=hb, last_sync=datetime.now(UTC))
@@ -115,9 +115,9 @@ async def test_status_fresh_heartbeat_reports_running(monkeypatch):
 @pytest.mark.asyncio
 async def test_status_stale_heartbeat_reports_not_running(monkeypatch):
     """心跳过期（>90s 未刷新）→ /status 返回 running=False，所有 next_sync 为 None。"""
-    import app.db.base as db_base
-    from app.api.v1 import system_config
-    from app.services import scheduler as sched_mod
+    import shared.db.base as db_base
+    from api.v1 import system_config
+    from shared.services import scheduler as sched_mod
 
     stale = FakeHeartbeatRow(
         running=True,  # 即使旧值是 True，过期后也应判为未运行
@@ -138,9 +138,9 @@ async def test_status_stale_heartbeat_reports_not_running(monkeypatch):
 @pytest.mark.asyncio
 async def test_status_no_heartbeat_falls_back_to_in_process(monkeypatch):
     """无心跳行（嵌入式模式或表未建）→ 回退到进程内 APScheduler 状态。"""
-    import app.db.base as db_base
-    from app.api.v1 import system_config
-    from app.services import scheduler as sched_mod
+    import shared.db.base as db_base
+    from api.v1 import system_config
+    from shared.services import scheduler as sched_mod
 
     session = FakeSession(heartbeat=None)  # 无心跳行
     monkeypatch.setattr(db_base, "SessionLocal", lambda: session)
@@ -161,13 +161,13 @@ async def test_status_no_heartbeat_falls_back_to_in_process(monkeypatch):
 @pytest.mark.asyncio
 async def test_write_heartbeat_serializes_running_and_jobs(monkeypatch):
     """write_heartbeat 把 scheduler.running + 各 job next_run_time 写入心跳行。"""
-    from app.models import SchedulerHeartbeat
-    from app.services import scheduler as sched_mod
+    from shared.models import SchedulerHeartbeat
+    from shared.services import scheduler as sched_mod
     from shared.scheduler_service import DataSyncScheduler
 
     session = FakeSession(heartbeat=None)  # 首次写入 → db.add
     # write_heartbeat 用的是 scheduler.py 顶部 import 的 SessionLocal（模块级绑定），
-    # 必须直接 patch scheduler 模块的这个名字，patch app.db.base 不生效。
+    # 必须直接 patch scheduler 模块的这个名字，patch shared.db.base 不生效。
     monkeypatch.setattr(sched_mod, "SessionLocal", lambda: session)
 
     ds = DataSyncScheduler()
@@ -196,7 +196,7 @@ async def test_write_heartbeat_serializes_running_and_jobs(monkeypatch):
 @pytest.mark.asyncio
 async def test_write_heartbeat_force_running_false_on_shutdown(monkeypatch):
     """关闭时 force_running=False → 即使 scheduler 仍在运行，心跳也写 False。"""
-    from app.services import scheduler as sched_mod
+    from shared.services import scheduler as sched_mod
     from shared.scheduler_service import DataSyncScheduler
 
     session = FakeSession(heartbeat=None)

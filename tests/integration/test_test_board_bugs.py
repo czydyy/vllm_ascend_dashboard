@@ -3,8 +3,8 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 
-from app.services.test_board_service import TestBoardService
-from app.services.test_health_calculator import TestHealthCalculator
+from shared.services.test_board_service import TestBoardService
+from shared.services.test_health_calculator import TestHealthCalculator
 from tests.conftest import make_test_case, make_test_run
 
 # ============================================================================

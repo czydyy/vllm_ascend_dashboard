@@ -21,10 +21,10 @@ os.environ.setdefault("GITHUB_REPO", "vllm-ascend")
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from app.models import PullRequest
-from app.models.test_board import TestCase, TestRun
-from app.schemas.test_board import TestCaseResponse
-from app.services.issues_found_derivator import IssuesFoundDerivator
+from shared.models import PullRequest
+from shared.models.test_board import TestCase, TestRun
+from shared.schemas.test_board import TestCaseResponse
+from shared.services.issues_found_derivator import IssuesFoundDerivator
 from tests.conftest import make_test_case, make_test_run
 from tests.mysql_test_db import create_test_engine, reset_tables
 
@@ -44,8 +44,8 @@ def _make_run(
 @pytest.fixture
 async def rich_db():
     """Dedicated MySQL fixture with test-board and pull-request tables."""
-    from app.models import CIResult, JobOwner
-    from app.models.test_board import TestSuiteSnapshot
+    from shared.models import CIResult, JobOwner
+    from shared.models.test_board import TestSuiteSnapshot
 
     engine = create_test_engine()
     await reset_tables(engine, [

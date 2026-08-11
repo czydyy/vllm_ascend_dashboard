@@ -13,10 +13,10 @@ import pytest_asyncio
 from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
 
-from app.api.deps import get_current_user
-from app.api.v1.test_board import router as test_board_router
-from app.models import User
-from app.services.test_case_matrix_service import get_case_feature_matrix, resolve_case_matrix_path
+from api.deps import get_current_user
+from api.v1.test_board import router as test_board_router
+from shared.models import User
+from shared.services.test_case_matrix_service import get_case_feature_matrix, resolve_case_matrix_path
 
 
 def test_case_matrix_snapshot_is_bundled():

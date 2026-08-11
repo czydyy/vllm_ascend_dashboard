@@ -16,5 +16,5 @@ if [[ -n "${1:-}" ]]; then
     echo "Starting with command: $*"
     exec su appuser -c "cd /app && PYTHONPATH=/app exec $*"
 else
-    exec su appuser -c "cd /app && PYTHONPATH=/app /opt/venv/bin/uvicorn app.main:app --host 0.0.0.0 --port 8000"
+    exec su appuser -c "cd /app && PYTHONPATH=/app /opt/venv/bin/uvicorn api.main:app --host 0.0.0.0 --port 8000"
 fi

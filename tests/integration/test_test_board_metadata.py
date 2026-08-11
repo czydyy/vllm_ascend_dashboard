@@ -23,9 +23,9 @@ import pytest
 from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from app.models.test_board import TestCase as _TC
-from app.schemas.test_board import TestCaseResponse, TestCaseUpdateRequest
-from app.services.test_health_calculator import TestHealthCalculator
+from shared.models.test_board import TestCase as _TC
+from shared.schemas.test_board import TestCaseResponse, TestCaseUpdateRequest
+from shared.services.test_health_calculator import TestHealthCalculator
 from tests.conftest import make_test_case, make_test_run
 from tests.mysql_test_db import create_test_engine, reset_tables
 
@@ -266,14 +266,14 @@ async def app_client(rich_db):
     """构造一个覆盖了 get_db / get_current_user 的真实 ASGI 测试客户端。
 
     使用专用 MySQL rich_db fixture。采用最小 FastAPI app（仅挂载 test_board 路由），
-    避免 app.main 的中间件触发 MySQL 连接。
+    避免 api.main 的中间件触发 MySQL 连接。
     """
     from fastapi import FastAPI
     from httpx import ASGITransport, AsyncClient
 
-    from app.api.deps import get_current_user, get_db
-    from app.api.v1.test_board import router as test_board_router
-    from app.models import User
+    from api.deps import get_current_user, get_db
+    from api.v1.test_board import router as test_board_router
+    from shared.models import User
 
     app = FastAPI()
     app.include_router(test_board_router, prefix="/api/v1")
@@ -411,8 +411,8 @@ class TestPatchEndpoint:
 @pytest.fixture
 async def rich_db():
     """Dedicated MySQL fixture for test-board metadata tests."""
-    from app.models import CIResult, JobOwner
-    from app.models.test_board import TestCase, TestRun, TestSuiteSnapshot
+    from shared.models import CIResult, JobOwner
+    from shared.models.test_board import TestCase, TestRun, TestSuiteSnapshot
 
     engine = create_test_engine()
     await reset_tables(engine, [
@@ -430,8 +430,8 @@ class TestParseJobResultsIncrement:
 
     @pytest.mark.asyncio
     async def test_failed_run_increments_both_counters(self, rich_db):
-        from app.models import CIJob, CIResult
-        from app.services.test_board_service import TestBoardService
+        from shared.models import CIJob, CIResult
+        from shared.services.test_board_service import TestBoardService
 
         now = datetime.now(UTC)
         rich_db.add(CIResult(
@@ -459,15 +459,15 @@ class TestParseJobResultsIncrement:
         await rich_db.commit()
 
         assert count == 1, "应解析出 1 个用例级结果"
-        from app.models.test_board import TestCase as TC
+        from shared.models.test_board import TestCase as TC
         case = (await rich_db.execute(select(TC).where(TC.test_name == "single-node (main, Qwen3-8B)"))).scalar_one()
         assert case.lifetime_runs == 1, "lifetime_runs 应递增到 1"
         assert case.lifetime_failures == 1, "失败结果应同时递增 lifetime_failures"
 
     @pytest.mark.asyncio
     async def test_passed_run_increments_only_runs(self, rich_db):
-        from app.models import CIJob, CIResult
-        from app.services.test_board_service import TestBoardService
+        from shared.models import CIJob, CIResult
+        from shared.services.test_board_service import TestBoardService
 
         now = datetime.now(UTC)
         rich_db.add(CIResult(
@@ -493,7 +493,7 @@ class TestParseJobResultsIncrement:
         await svc._parse_job_results(ci_job, classifier)
         await rich_db.commit()
 
-        from app.models.test_board import TestCase as TC
+        from shared.models.test_board import TestCase as TC
         case = (await rich_db.execute(select(TC).where(TC.test_name == "single-node (main, Qwen3-8B)"))).scalar_one()
         assert case.lifetime_runs == 1
         assert case.lifetime_failures == 0, "通过结果不应递增 lifetime_failures"

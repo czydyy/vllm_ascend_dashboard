@@ -7,8 +7,8 @@ queue.Queue.get(timeout=1)，在 uvicorn 事件循环线程中执行会阻塞事
 import asyncio
 import time
 
-from app.core import logging as dblog
-from app.models import AppLog, Base
+from shared.core import logging as dblog
+from shared.models import AppLog, Base
 
 
 def test_applog_model_registered():

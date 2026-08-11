@@ -15,10 +15,10 @@ backend_dir = str(Path(__file__).resolve().parents[2] / "backend")
 if backend_dir not in sys.path:
     sys.path.insert(0, backend_dir)
 
-from app.api.deps import get_db  # noqa: E402
-from app.core.security import create_access_token  # noqa: E402
-from app.main import app  # noqa: E402
-from app.models import Base, CodeComplexityDetail, CodeMetricsSnapshot, User  # noqa: E402
+from api.deps import get_db  # noqa: E402
+from shared.core.security import create_access_token  # noqa: E402
+from api.main import app  # noqa: E402
+from shared.models import Base, CodeComplexityDetail, CodeMetricsSnapshot, User  # noqa: E402
 from tests.mysql_test_db import create_test_engine, reset_tables  # noqa: E402
 
 

@@ -432,7 +432,7 @@ GET /api/v1/performance/compare?
 ### 4.1 GitHub API 客户端
 
 ```python
-# backend/app/services/github_client.py
+# backend/shared/services/github_client.py
 
 from typing import Optional
 import httpx
@@ -512,15 +512,15 @@ class GitHubClient:
 ### 4.2 CI 数据采集服务
 
 ```python
-# backend/app/services/ci_collector.py
+# backend/shared/services/ci_collector.py
 
 from datetime import datetime, timedelta, timezone
 from typing import List
 import json
 import logging
-from app.services.github_client import GitHubClient
-from app.models.ci_result import CIResult
-from app.db.session import SessionLocal
+from shared.services.github_client import GitHubClient
+from shared.models.ci_result import CIResult
+from shared.db.session import SessionLocal
 
 logger = logging.getLogger(__name__)
 
@@ -676,14 +676,14 @@ class CICollector:
 ### 4.3 性能数据解析服务
 
 ```python
-# backend/app/services/performance_parser.py
+# backend/shared/services/performance_parser.py
 
 import json
 import yaml
 import logging
 from datetime import datetime
 from typing import Optional
-from app.models.performance_data import PerformanceData
+from shared.models.performance_data import PerformanceData
 
 logger = logging.getLogger(__name__)
 
@@ -747,13 +747,13 @@ class PerformanceParser:
 ### 4.4 定时同步任务
 
 ```python
-# backend/app/services/scheduler.py
+# backend/shared/services/scheduler.py
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
-from app.services.ci_collector import CICollector
-from app.services.github_client import GitHubClient
-from app.core.config import settings
+from shared.services.ci_collector import CICollector
+from shared.services.github_client import GitHubClient
+from shared.core.config import settings
 import logging
 
 logger = logging.getLogger(__name__)
@@ -1007,7 +1007,7 @@ services:
     ports:
       - "8000:8000"
     environment:
-      - DATABASE_URL=sqlite+aiosqlite:///./app.db
+      - DATABASE_URL=mysql+aiomysql://<user>:<password>@mysql:3306/vllm_dashboard
       - GITHUB_TOKEN=${GITHUB_TOKEN}
       - JWT_SECRET=${JWT_SECRET}
       - ENVIRONMENT=production
@@ -1094,7 +1094,7 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
     CMD curl -f http://localhost:8000/api/v1/health || exit 1
 
 # 运行应用
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["uvicorn", "api.main:app", "--host", "0.0.0.0", "--port", "8000"]
 ```
 
 ### 6.3 前端 Dockerfile
@@ -1139,7 +1139,7 @@ CMD ["nginx", "-g", "daemon off;"]
 ### 7.1 GitHub API 限流处理
 
 ```python
-# backend/app/core/exceptions.py
+# backend/shared/core/exceptions.py
 
 import logging
 from fastapi import HTTPException, Request
@@ -1184,7 +1184,7 @@ async def github_rate_limit_handler(request: Request, call_next):
 ### 7.2 数据解析失败处理
 
 ```python
-# backend/app/services/data_parser.py
+# backend/shared/services/data_parser.py
 
 from typing import Optional, Tuple, Any, Callable
 import logging
@@ -1227,7 +1227,7 @@ async def parse_with_fallback(
 ### 7.3 重试机制
 
 ```python
-# backend/app/core/retry.py
+# backend/shared/core/retry.py
 
 import asyncio
 import logging
@@ -1307,7 +1307,7 @@ def retry_on_failure(
 ### 8.2 密码加密
 
 ```python
-# backend/app/core/security.py
+# backend/shared/core/security.py
 
 from passlib.context import CryptContext
 
@@ -1366,7 +1366,7 @@ def create_refresh_token(data: dict) -> str:
 ### 9.1 日志配置
 
 ```python
-# backend/app/core/logging_config.py
+# backend/shared/core/logging_config.py
 
 import logging
 import sys
@@ -1604,7 +1604,7 @@ GITHUB_OWNER=vllm-project
 GITHUB_REPO=vllm-ascend
 
 # 数据库
-DATABASE_URL=sqlite+aiosqlite:///./app.db
+DATABASE_URL=mysql+aiomysql://<user>:<password>@mysql:3306/vllm_dashboard
 # 生产环境
 # DATABASE_URL=mysql+aiomysql://user:pass@localhost/vllm_dashboard
 

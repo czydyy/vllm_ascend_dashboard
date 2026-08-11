@@ -2,9 +2,9 @@ import pytest
 from pydantic import ValidationError
 from types import SimpleNamespace
 
-from app.schemas.issue_diagnosis import IssueDiagnosisRequest
-from app.services.issue_diagnosis import IssueDiagnosisService
-from app.services import llm_client as llm_client_module
+from shared.schemas.issue_diagnosis import IssueDiagnosisRequest
+from shared.services.issue_diagnosis import IssueDiagnosisService
+from shared.services import llm_client as llm_client_module
 
 
 def test_pr_request_requires_pr_number():

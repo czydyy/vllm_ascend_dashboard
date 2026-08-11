@@ -4,7 +4,7 @@
 在 base_url 已含 /v1（如 DashScope compatible-mode）时产生双重 /v1/v1/ 路径
 导致上游 400 "Invalid model name" 的问题。
 """
-from app.services.format_proxy import FormatProxy
+from shared.services.format_proxy import FormatProxy
 
 
 def _make(base: str) -> FormatProxy:
@@ -53,7 +53,7 @@ def test_no_double_v1():
 
 def test_detect_api_error_signatures():
     """failure_analysis 的 API 错误检测应识别上游错误，避免误标 completed。"""
-    from app.services.failure_analysis import FailureAnalysisService
+    from shared.services.failure_analysis import FailureAnalysisService
 
     detect = FailureAnalysisService._detect_api_error
     # 真实复现的上游错误

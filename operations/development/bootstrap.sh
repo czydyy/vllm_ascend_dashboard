@@ -75,9 +75,9 @@ import sys
 sys.path.insert(0, 'backend')
 
 from sqlalchemy.orm import Session
-from app.db.base import engine, SessionLocal
-from app.models import User, Base
-from app.core.security import hash_password
+from shared.db.base import engine, SessionLocal
+from shared.models import User, Base
+from shared.core.security import hash_password
 
 # 创建表
 Base.metadata.create_all(bind=engine)

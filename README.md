@@ -81,7 +81,7 @@ cd backend
 uv sync
 
 # 运行开发服务器
-uv run uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
+uv run uvicorn api.main:app --reload --host 0.0.0.0 --port 8000
 
 # 运行测试
 uv run pytest

@@ -11,7 +11,7 @@ uv sync --dev
 ## Run
 
 ```bash
-uv run uvicorn app.main:app --reload
+uv run uvicorn api.main:app --reload
 ```
 
 ## API Docs

@@ -13,14 +13,14 @@ backend_dir = str(Path(__file__).resolve().parents[2] / "backend")
 if backend_dir not in sys.path:
     sys.path.insert(0, backend_dir)
 
-from app.models import (  # noqa: E402
+from shared.models import (  # noqa: E402
     KubernetesClusterConfig,
     ProjectDashboardConfig,
     ResourceNodeMetrics,
     ResourceNpuMetrics,
 )
-from app.schemas.resource_metrics import RESOURCE_METRICS_CONFIG_KEY  # noqa: E402
-from app.services.resource_metrics import ResourceMetricsService  # noqa: E402
+from shared.schemas.resource_metrics import RESOURCE_METRICS_CONFIG_KEY  # noqa: E402
+from shared.services.resource_metrics import ResourceMetricsService  # noqa: E402
 from tests.mysql_test_db import create_test_engine, reset_tables  # noqa: E402
 
 

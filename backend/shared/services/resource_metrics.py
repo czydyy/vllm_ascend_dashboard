@@ -1,0 +1,412 @@
+import asyncio
+import logging
+from datetime import UTC, datetime, timedelta
+from typing import Any
+
+from sqlalchemy import delete, func, select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from shared.models import (
+    KubernetesClusterConfig,
+    ProjectDashboardConfig,
+    ResourceNodeMetrics,
+    ResourceNpuMetrics,
+)
+from shared.schemas.resource_metrics import RESOURCE_METRICS_CONFIG_KEY
+from shared.services.resource_dashboard import ResourceDashboardService
+
+logger = logging.getLogger(__name__)
+
+DEFAULT_CONFIG = {"interval_minutes": 1, "retention_days": 30}
+
+TIME_RANGE_GRANULARITY = {
+    "1h": 1,
+    "24h": 5,
+    "7d": 60,
+    "30d": 360,
+}
+
+TIME_RANGE_DURATION = {
+    "1h": timedelta(hours=1),
+    "24h": timedelta(hours=24),
+    "7d": timedelta(days=7),
+    "30d": timedelta(days=30),
+}
+
+
+class ResourceMetricsService:
+    def __init__(self, db: AsyncSession) -> None:
+        self.db = db
+
+    async def collect_snapshot(self) -> int:
+        stmt = select(KubernetesClusterConfig).where(KubernetesClusterConfig.enabled.is_(True))
+        result = await self.db.execute(stmt)
+        clusters = list(result.scalars().all())
+
+        if not clusters:
+            logger.info("No enabled clusters, skipping metrics collection")
+            return 0
+
+        service = ResourceDashboardService()
+        dashboard = await asyncio.wait_for(
+            service.build_dashboard(clusters, include_pods=True),
+            timeout=30,
+        )
+
+        count = 0
+        now = datetime.now(UTC)
+        for cluster_summary in dashboard.clusters:
+            if cluster_summary.error:
+                logger.error(f"Cluster {cluster_summary.cluster_name} has error: {cluster_summary.error}, skipping")
+                continue
+
+            executing_pods = cluster_summary.executing_pods or []
+            top_pods = sorted(executing_pods, key=lambda p: p.requests.npu, reverse=True)[:5]
+            top_pods_data = [
+                {
+                    "name": p.name,
+                    "namespace": p.namespace,
+                    "npu": p.requests.npu,
+                    "pr_number": p.pr_number,
+                    "pr_url": p.pr_url,
+                    "phase": p.phase,
+                }
+                for p in top_pods
+            ]
+
+            pr_numbers = [p.pr_number for p in executing_pods if p.pr_number]
+            metric = ResourceNpuMetrics(
+                cluster_id=cluster_summary.cluster_id,
+                cluster_name=cluster_summary.cluster_name,
+                npu_total=cluster_summary.total.npu,
+                npu_used=cluster_summary.used.npu,
+                npu_available=cluster_summary.available.npu,
+                npu_utilization=round(cluster_summary.used.npu / cluster_summary.total.npu * 100, 2) if cluster_summary.total.npu > 0 else 0,
+                executing_pods_count=cluster_summary.executing_pods_count,
+                pr_count=len(set(pr_numbers)),
+                top_pods_json=top_pods_data,
+                collected_at=now,
+            )
+            self.db.add(metric)
+            count += 1
+
+            # 存储节点级指标
+            for node in (cluster_summary.node_resources or []):
+                if node.total.npu <= 0:
+                    continue
+                cpu_pct = round(node.used.cpu_cores / node.total.cpu_cores * 100, 2) if node.total.cpu_cores > 0 else 0
+                mem_pct = round(node.used.memory_bytes / node.total.memory_bytes * 100, 2) if node.total.memory_bytes > 0 else 0
+                npu_pct = round(node.used.npu / node.total.npu * 100, 2) if node.total.npu > 0 else 0
+                node_metric = ResourceNodeMetrics(
+                    cluster_id=cluster_summary.cluster_id,
+                    cluster_name=cluster_summary.cluster_name,
+                    node_name=node.node_name,
+                    cpu_cores_total=node.total.cpu_cores,
+                    cpu_cores_used=node.used.cpu_cores,
+                    cpu_cores_available=node.available.cpu_cores,
+                    cpu_utilization=cpu_pct,
+                    memory_bytes_total=node.total.memory_bytes,
+                    memory_bytes_used=node.used.memory_bytes,
+                    memory_bytes_available=node.available.memory_bytes,
+                    memory_utilization=mem_pct,
+                    npu_total=node.total.npu,
+                    npu_used=node.used.npu,
+                    npu_available=node.available.npu,
+                    npu_utilization=npu_pct,
+                    executing_pods_count=node.executing_pods_count,
+                    collected_at=now,
+                )
+                self.db.add(node_metric)
+
+        await self.db.commit()
+        logger.info(f"Collected NPU metrics for {count} clusters")
+        return count
+
+    async def query_npu_metrics(
+        self,
+        cluster_ids: list[int] | None = None,
+        time_range: str = "24h",
+        start_time: datetime | None = None,
+        end_time: datetime | None = None,
+    ) -> dict:
+        granularity_minutes = TIME_RANGE_GRANULARITY.get(time_range, 5)
+        duration = TIME_RANGE_DURATION.get(time_range, timedelta(hours=24))
+
+        if end_time is None:
+            end_time = datetime.now(UTC)
+        if start_time is None:
+            start_time = end_time - duration
+
+        cluster_query = select(KubernetesClusterConfig).where(KubernetesClusterConfig.enabled.is_(True))
+        if cluster_ids:
+            cluster_query = cluster_query.where(KubernetesClusterConfig.id.in_(cluster_ids))
+        cluster_query = cluster_query.order_by(KubernetesClusterConfig.display_order.asc(), KubernetesClusterConfig.name.asc())
+        cluster_result = await self.db.execute(cluster_query)
+        clusters = list(cluster_result.scalars().all())
+
+        result_clusters = []
+
+        for cluster in clusters:
+            stmt = select(ResourceNpuMetrics).where(
+                ResourceNpuMetrics.cluster_id == cluster.id,
+                ResourceNpuMetrics.collected_at >= start_time,
+                ResourceNpuMetrics.collected_at <= end_time,
+            ).order_by(ResourceNpuMetrics.collected_at.asc())
+
+            metrics_result = await self.db.execute(stmt)
+            raw_metrics = list(metrics_result.scalars().all())
+
+            if granularity_minutes <= 1:
+                aggregated = raw_metrics
+            else:
+                aggregated = self._aggregate_metrics(raw_metrics, granularity_minutes)
+
+            points = [self._normalize_metric(m) for m in aggregated]
+
+            result_clusters.append({
+                "cluster_id": cluster.id,
+                "cluster_name": cluster.name,
+                "metrics": points,
+            })
+
+        return {"clusters": result_clusters}
+
+    async def query_node_metrics(
+        self,
+        cluster_ids: list[int] | None = None,
+        node_names: list[str] | None = None,
+        time_range: str = "24h",
+        start_time: datetime | None = None,
+        end_time: datetime | None = None,
+    ) -> dict:
+        granularity_minutes = TIME_RANGE_GRANULARITY.get(time_range, 5)
+        duration = TIME_RANGE_DURATION.get(time_range, timedelta(hours=24))
+
+        if end_time is None:
+            end_time = datetime.now(UTC)
+        if start_time is None:
+            start_time = end_time - duration
+
+        cluster_query = select(KubernetesClusterConfig).where(KubernetesClusterConfig.enabled.is_(True))
+        if cluster_ids:
+            cluster_query = cluster_query.where(KubernetesClusterConfig.id.in_(cluster_ids))
+        cluster_query = cluster_query.order_by(
+            KubernetesClusterConfig.display_order.asc(), KubernetesClusterConfig.name.asc()
+        )
+        cluster_result = await self.db.execute(cluster_query)
+        clusters = list(cluster_result.scalars().all())
+
+        result_clusters = []
+
+        for cluster in clusters:
+            stmt = select(ResourceNodeMetrics).where(
+                ResourceNodeMetrics.cluster_id == cluster.id,
+                ResourceNodeMetrics.collected_at >= start_time,
+                ResourceNodeMetrics.collected_at <= end_time,
+            ).order_by(ResourceNodeMetrics.collected_at.asc())
+
+            if node_names:
+                stmt = stmt.where(ResourceNodeMetrics.node_name.in_(node_names))
+
+            metrics_result = await self.db.execute(stmt)
+            raw_metrics = list(metrics_result.scalars().all())
+
+            # 按 node_name 分组
+            node_groups: dict[str, list[ResourceNodeMetrics]] = {}
+            for m in raw_metrics:
+                node_groups.setdefault(m.node_name, []).append(m)
+
+            nodes = []
+            for node_name in sorted(node_groups.keys()):
+                node_raw = node_groups[node_name]
+                if granularity_minutes <= 1:
+                    aggregated = node_raw
+                else:
+                    aggregated = self._aggregate_node_metrics(node_raw, granularity_minutes)
+                points = [self._normalize_node_metric(m) for m in aggregated]
+                nodes.append({
+                    "node_name": node_name,
+                    "metrics": points,
+                })
+
+            result_clusters.append({
+                "cluster_id": cluster.id,
+                "cluster_name": cluster.name,
+                "nodes": nodes,
+            })
+
+        return {"clusters": result_clusters}
+
+    def _aggregate_metrics(self, raw_metrics: list[ResourceNpuMetrics], granularity_minutes: int) -> list[dict]:
+        if not raw_metrics:
+            return []
+
+        grouped: dict[str, list[ResourceNpuMetrics]] = {}
+        for m in raw_metrics:
+            bucket = self._time_bucket(m.collected_at, granularity_minutes)
+            if bucket not in grouped:
+                grouped[bucket] = []
+            grouped[bucket].append(m)
+
+        result = []
+        for bucket_key in sorted(grouped.keys()):
+            group = grouped[bucket_key]
+            avg_utilization = sum(m.npu_utilization for m in group) / len(group)
+            avg_pods_count = sum(m.executing_pods_count for m in group) / len(group)
+            avg_pr_count = sum(m.pr_count for m in group) / len(group)
+            last_metric = group[-1]
+
+            result.append({
+                "collected_at": last_metric.collected_at,
+                "npu_utilization": round(avg_utilization, 2),
+                "npu_total": last_metric.npu_total,
+                "npu_used": last_metric.npu_used,
+                "npu_available": last_metric.npu_available,
+                "executing_pods_count": round(avg_pods_count),
+                "pr_count": round(avg_pr_count),
+                "top_pods": last_metric.top_pods_json or [],
+            })
+
+        return result
+
+    def _normalize_metric(self, m: ResourceNpuMetrics | dict) -> dict:
+        if isinstance(m, ResourceNpuMetrics):
+            dt = m.collected_at
+            result = {
+                "npu_utilization": m.npu_utilization,
+                "npu_total": m.npu_total,
+                "npu_used": m.npu_used,
+                "npu_available": m.npu_available,
+                "executing_pods_count": m.executing_pods_count,
+                "pr_count": m.pr_count,
+                "top_pods": m.top_pods_json or [],
+            }
+        else:
+            dt = m.get("collected_at")
+            result = dict(m)
+        # MySQL TIMESTAMP 按 session 时区返回 naive datetime（容器为 UTC），
+        # 补上 UTC 时区，使 Pydantic 序列化为带 +00:00 的 ISO 串，
+        # 前端 dayjs 据此按浏览器本地时区显示，避免 8 小时偏差。
+        if dt is not None and getattr(dt, "tzinfo", None) is None:
+            dt = dt.replace(tzinfo=UTC)
+        result["collected_at"] = dt
+        return result
+
+    def _aggregate_node_metrics(
+        self, raw_metrics: list[ResourceNodeMetrics], granularity_minutes: int
+    ) -> list[dict]:
+        if not raw_metrics:
+            return []
+
+        grouped: dict[str, list[ResourceNodeMetrics]] = {}
+        for m in raw_metrics:
+            bucket = self._time_bucket(m.collected_at, granularity_minutes)
+            if bucket not in grouped:
+                grouped[bucket] = []
+            grouped[bucket].append(m)
+
+        result = []
+        for bucket_key in sorted(grouped.keys()):
+            group = grouped[bucket_key]
+            avg_npu_utilization = sum(m.npu_utilization for m in group) / len(group)
+            avg_cpu_utilization = sum(m.cpu_utilization for m in group) / len(group)
+            avg_memory_utilization = sum(m.memory_utilization for m in group) / len(group)
+            avg_pods_count = sum(m.executing_pods_count for m in group) / len(group)
+            last_metric = group[-1]
+
+            result.append({
+                "collected_at": last_metric.collected_at,
+                "npu_utilization": round(avg_npu_utilization, 2),
+                "npu_total": last_metric.npu_total,
+                "npu_used": last_metric.npu_used,
+                "npu_available": last_metric.npu_available,
+                "cpu_utilization": round(avg_cpu_utilization, 2),
+                "memory_utilization": round(avg_memory_utilization, 2),
+                "executing_pods_count": round(avg_pods_count),
+            })
+
+        return result
+
+    def _normalize_node_metric(self, m: ResourceNodeMetrics | dict) -> dict:
+        if isinstance(m, ResourceNodeMetrics):
+            dt = m.collected_at
+            result = {
+                "npu_utilization": m.npu_utilization,
+                "npu_total": m.npu_total,
+                "npu_used": m.npu_used,
+                "npu_available": m.npu_available,
+                "cpu_utilization": m.cpu_utilization,
+                "memory_utilization": m.memory_utilization,
+                "executing_pods_count": m.executing_pods_count,
+            }
+        else:
+            dt = m.get("collected_at")
+            result = dict(m)
+        if dt is not None and getattr(dt, "tzinfo", None) is None:
+            dt = dt.replace(tzinfo=UTC)
+        result["collected_at"] = dt
+        return result
+
+    def _time_bucket(self, dt: datetime, granularity_minutes: int) -> str:
+        total_minutes = int(dt.timestamp()) // 60
+        bucket = total_minutes // granularity_minutes
+        return str(bucket)
+
+    async def cleanup_old_metrics(self) -> int:
+        config = await self._get_config()
+        retention_days = config.get("retention_days", 30)
+        cutoff = datetime.now(UTC) - timedelta(days=retention_days)
+
+        stmt = delete(ResourceNpuMetrics).where(ResourceNpuMetrics.collected_at < cutoff)
+        result = await self.db.execute(stmt)
+        deleted = result.rowcount
+
+        # 清理节点级指标，避免数据无限增长
+        node_stmt = delete(ResourceNodeMetrics).where(ResourceNodeMetrics.collected_at < cutoff)
+        node_result = await self.db.execute(node_stmt)
+        deleted += node_result.rowcount
+
+        await self.db.commit()
+
+        logger.info(f"Cleaned up {deleted} metrics records (cluster + node) older than {retention_days} days")
+        return deleted
+
+    async def get_config(self) -> dict:
+        return await self._get_config()
+
+    async def update_config(self, interval_minutes: int | None = None, retention_days: int | None = None) -> dict:
+        current = await self._get_config()
+        if interval_minutes is not None:
+            current["interval_minutes"] = interval_minutes
+        if retention_days is not None:
+            current["retention_days"] = retention_days
+
+        stmt = select(ProjectDashboardConfig).where(
+            ProjectDashboardConfig.config_key == RESOURCE_METRICS_CONFIG_KEY
+        )
+        result = await self.db.execute(stmt)
+        config_row = result.scalar_one_or_none()
+
+        if config_row:
+            config_row.config_value = current
+            config_row.updated_at = datetime.now(UTC)
+        else:
+            config_row = ProjectDashboardConfig(
+                config_key=RESOURCE_METRICS_CONFIG_KEY,
+                config_value=current,
+                description="NPU 指标采集配置",
+            )
+            self.db.add(config_row)
+
+        await self.db.commit()
+        return current
+
+    async def _get_config(self) -> dict:
+        stmt = select(ProjectDashboardConfig).where(
+            ProjectDashboardConfig.config_key == RESOURCE_METRICS_CONFIG_KEY
+        )
+        result = await self.db.execute(stmt)
+        config_row = result.scalar_one_or_none()
+        if config_row and config_row.config_value:
+            return dict(config_row.config_value)
+        return dict(DEFAULT_CONFIG)

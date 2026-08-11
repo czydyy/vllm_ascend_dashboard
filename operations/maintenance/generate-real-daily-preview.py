@@ -15,9 +15,9 @@ repository_root = Path(__file__).resolve().parents[2]
 backend_root = repository_root / "backend"
 sys.path.insert(0, str(backend_root))
 
-from app.db.base import SessionLocal, engine
-from app.models import DailyReportHistory
-from app.services.daily_report import DailyReportService
+from shared.db.base import SessionLocal, engine
+from shared.models import DailyReportHistory
+from shared.services.daily_report import DailyReportService
 
 
 def parse_args() -> argparse.Namespace:

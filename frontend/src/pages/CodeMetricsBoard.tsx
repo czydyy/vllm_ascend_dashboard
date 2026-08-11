@@ -50,7 +50,7 @@ function groupLanguageLoc(loc: Record<string, number>): Record<string, number> {
   LANG_GROUP_ORDER.forEach((k) => { if (groups[k] > 0) result[k] = groups[k] })
   return result
 }
-// 注意：与后端 backend/app/api/v1/code_metrics.py:_KNOWN_MODULES 保持同步，
+// 注意：与后端 backend/api/v1/code_metrics.py:_KNOWN_MODULES 保持同步，
 // 新增模块时请同时修改两端。
 const KNOWN_MODULE_SEGMENTS = ['vllm_ascend', 'csrc', 'tests', 'benchmarks', 'tools', 'docs', 'examples', 'configs']
 

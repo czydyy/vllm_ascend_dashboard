@@ -36,9 +36,9 @@ backend_dir = str(Path(__file__).resolve().parents[2] / "backend")
 if backend_dir not in sys.path:
     sys.path.insert(0, backend_dir)
 
-from app.models import AppLog  # noqa: E402
-from app.schemas.logs import LogQueryRequest  # noqa: E402
-from app.services.log_service import (  # noqa: E402
+from shared.models import AppLog  # noqa: E402
+from shared.schemas.logs import LogQueryRequest  # noqa: E402
+from shared.services.log_service import (  # noqa: E402
     LogService,
     _parse_cli_log_file,
     _parse_failure_analysis_file,
@@ -315,7 +315,7 @@ class TestGetSources:
         )
 
         with patch(
-            "app.services.log_service._CLI_LOG_DIR", cli_dir
+            "shared.services.log_service._CLI_LOG_DIR", cli_dir
         ):
             service = LogService()
             result = await service.get_sources(db_with_app_logs)
@@ -335,7 +335,7 @@ class TestGetSources:
         (wf_dir / "2.md").write_text("# report 2", encoding="utf-8")
 
         with patch(
-            "app.services.log_service._FAILURE_ANALYSIS_DIR", fa_dir
+            "shared.services.log_service._FAILURE_ANALYSIS_DIR", fa_dir
         ):
             service = LogService()
             result = await service.get_sources(db_with_app_logs)
@@ -658,7 +658,7 @@ class TestGetEntry:
         log_file.write_text(_make_cli_log(), encoding="utf-8")
 
         with patch(
-            "app.services.log_service._CLI_LOG_DIR", cli_dir
+            "shared.services.log_service._CLI_LOG_DIR", cli_dir
         ):
             service = LogService()
             entry = await service.get_entry(
@@ -679,7 +679,7 @@ class TestGetEntry:
         (wf_dir / "42.md").write_text("# Root cause", encoding="utf-8")
 
         with patch(
-            "app.services.log_service._FAILURE_ANALYSIS_DIR", fa_dir
+            "shared.services.log_service._FAILURE_ANALYSIS_DIR", fa_dir
         ):
             service = LogService()
             entry = await service.get_entry(
@@ -708,7 +708,7 @@ class TestGetEntry:
 class TestDBLogHandler:
     def test_handler_emits_entry(self):
         """DBLogHandler should push an entry into the queue without errors."""
-        from app.core.logging import DBLogHandler, _log_queue
+        from shared.core.logging import DBLogHandler, _log_queue
 
         # Drain the queue first
         while not _log_queue.empty():
@@ -737,7 +737,7 @@ class TestDBLogHandler:
         assert entry["traceback"] is None
 
     def test_handler_captures_exception_traceback(self):
-        from app.core.logging import DBLogHandler, _log_queue
+        from shared.core.logging import DBLogHandler, _log_queue
 
         while not _log_queue.empty():
             try:
@@ -768,7 +768,7 @@ class TestDBLogHandler:
 
     def test_setup_db_logging_is_idempotent(self):
         """Calling setup_db_logging twice should not double-register."""
-        from app.core.logging import setup_db_logging
+        from shared.core.logging import setup_db_logging
 
         setup_db_logging()
         count_after_first = len(logging.getLogger().handlers)
@@ -786,8 +786,8 @@ class TestDBLogHandler:
 @pytest.fixture
 def test_client(db_with_app_logs):
     """Create a FastAPI TestClient patched to use our test DB."""
-    from app.api.deps import get_db
-    from app.main import app
+    from api.deps import get_db
+    from api.main import app
 
     async def override_get_db():
         yield db_with_app_logs

@@ -28,10 +28,10 @@ sys.path.insert(0, str(repository_root / "backend"))
 
 from sqlalchemy import select
 
-from app.core.config import settings
-from app.db.base import SessionLocal
-from app.models import PullRequest
-from app.services.github_client import GitHubClient
+from shared.core.config import settings
+from shared.db.base import SessionLocal
+from shared.models import PullRequest
+from shared.services.github_client import GitHubClient
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 logger = logging.getLogger(__name__)

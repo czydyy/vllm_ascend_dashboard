@@ -4,7 +4,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from app.services.daily_report import DailyReportService
+from shared.services.daily_report import DailyReportService
 
 
 @pytest.mark.asyncio
@@ -45,7 +45,7 @@ async def test_resource_query_uses_explicit_report_window(monkeypatch):
         query_npu_metrics = query
 
     monkeypatch.setattr(
-        "app.services.resource_metrics.ResourceMetricsService",
+        "shared.services.resource_metrics.ResourceMetricsService",
         FakeResourceMetricsService,
     )
     service = DailyReportService(MagicMock())
@@ -232,7 +232,7 @@ def test_preview_and_delivery_share_the_same_email_renderer(monkeypatch):
         ci_summary={}, model_summary={}, github_summary={},
     )
     monkeypatch.setattr(
-        "app.services.chart_renderer.render_charts",
+        "shared.services.chart_renderer.render_charts",
         lambda data: {"nightly": b"png-bytes"},
     )
     service = DailyReportService(MagicMock())

@@ -10,11 +10,11 @@ import asyncio
 
 import pytest
 
-from app.services.version_quality_file_store import (
+from shared.services.version_quality_file_store import (
     VersionQualityFileStore,
     _sanitize_component,
 )
-from app.services.version_quality_service import (
+from shared.services.version_quality_service import (
     VersionQualityService,
     _sanitize_html,
 )

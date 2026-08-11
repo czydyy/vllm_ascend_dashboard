@@ -10,10 +10,10 @@ from apscheduler.events import EVENT_JOB_ERROR, EVENT_JOB_EXECUTED
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.interval import IntervalTrigger
 
-from app.core.config import settings
-from app.db.base import SessionLocal
-from app.services.ci_collector import CICollector
-from app.services.github_client import GitHubClient
+from shared.core.config import settings
+from shared.db.base import SessionLocal
+from shared.services.ci_collector import CICollector
+from shared.services.github_client import GitHubClient
 
 logger = logging.getLogger(__name__)
 
@@ -22,7 +22,7 @@ async def _read_config_async(config_key: str) -> dict | None:
     """从数据库读取配置（仅限异步上下文调用）。"""
     try:
         from sqlalchemy import select as sa_select
-        from app.models import ProjectDashboardConfig
+        from shared.models import ProjectDashboardConfig
         async with SessionLocal() as db:
             stmt = sa_select(ProjectDashboardConfig).where(
                 ProjectDashboardConfig.config_key == config_key
@@ -466,7 +466,7 @@ class DataSyncScheduler:
         """
         import os
 
-        from app.models import SchedulerHeartbeat
+        from shared.models import SchedulerHeartbeat
 
         running = bool(self.scheduler.running) if force_running is None else force_running
         jobs_payload: dict[str, dict] = {}
@@ -535,8 +535,8 @@ class DataSyncScheduler:
 
         from sqlalchemy import select
 
-        from app.models import NightlyTestCase
-        from app.services.nightly_config_parser import NightlyConfigParser, load_model_fo_map
+        from shared.models import NightlyTestCase
+        from shared.services.nightly_config_parser import NightlyConfigParser, load_model_fo_map
 
         fo_map = load_model_fo_map()
         parser = NightlyConfigParser()
@@ -596,7 +596,7 @@ class DataSyncScheduler:
 
         from sqlalchemy import select
 
-        from app.models import CIJob, DailyFailureRecord, NightlyTestCase
+        from shared.models import CIJob, DailyFailureRecord, NightlyTestCase
 
         beijing_tz = timezone(timedelta(hours=8))
         now_utc = datetime.now(UTC)
@@ -765,7 +765,7 @@ class DataSyncScheduler:
         db_session = SessionLocal()
 
         try:
-            from app.services.task_manager import TaskManager
+            from shared.services.task_manager import TaskManager
             async with db_session as db:
                 task_id = await TaskManager.create_task(
                     db, "ci_sync",
@@ -801,8 +801,29 @@ class DataSyncScheduler:
                     force_full_refresh=force_full_refresh,
                 )
 
-                # 同步完成后，分析新发现的失败 jobs（LLM 失败分析，best-effort；
-                # 仅 scheduler 全量路径触发，COLLECTOR_MODE collector 不自动跑以控制 LLM 成本）
+                # 同步完成后，更新所有启用的 workflow 的 last_sync_at
+                from sqlalchemy import update
+
+                from shared.models import WorkflowConfig
+
+                await db.execute(
+                    update(WorkflowConfig)
+                    .where(WorkflowConfig.enabled == True)
+                    .values(last_sync_at=datetime.now(UTC))
+                )
+                await db.commit()
+
+                # 同步完成后，更新本地代码仓库
+                try:
+                    from shared.services.github_cache import get_github_cache
+                    cache = get_github_cache()
+                    if cache.clone():
+                        cache.pull()
+                    logger.info("Local repo updated after CI sync")
+                except Exception as e:
+                    logger.warning(f"Failed to update local repo (non-fatal): {e}")
+
+                # 同步完成后，分析新发现的失败 jobs
                 try:
                     await self._analyze_failed_jobs(db)
                 except Exception as analyze_err:
@@ -820,7 +841,7 @@ class DataSyncScheduler:
                 # Step 3: 标记任务完成
                 if task_id:
                     try:
-                        from app.services.task_manager import TaskManager
+                        from shared.services.task_manager import TaskManager
                         async with SessionLocal() as td:
                             await TaskManager.complete_task(td, task_id)
                             await td.commit()
@@ -834,7 +855,7 @@ class DataSyncScheduler:
                 # 标记任务失败
                 if task_id:
                     try:
-                        from app.services.task_manager import TaskManager
+                        from shared.services.task_manager import TaskManager
                         async with SessionLocal() as td:
                             await TaskManager.fail_task(td, task_id, str(e)[:500])
                             await td.commit()
@@ -850,7 +871,7 @@ class DataSyncScheduler:
 
         async with SessionLocal() as db:
             try:
-                from app.services.pr_pipeline_collector import PRPipelineCollector
+                from shared.services.pr_pipeline_collector import PRPipelineCollector
 
                 collector = PRPipelineCollector(
                     github_client=self.github_client,
@@ -875,7 +896,7 @@ class DataSyncScheduler:
         async with SessionLocal() as db:
             try:
                 from sqlalchemy import delete as sa_delete
-                from app.models import UserLoginLog, FeatureUsageLog, TokenBlacklist
+                from shared.models import UserLoginLog, FeatureUsageLog, TokenBlacklist
                 lr = await db.execute(sa_delete(UserLoginLog).where(UserLoginLog.login_time < cutoff))
                 ur = await db.execute(sa_delete(FeatureUsageLog).where(FeatureUsageLog.access_time < cutoff))
                 tr = await db.execute(sa_delete(TokenBlacklist).where(TokenBlacklist.expires_at < datetime.now(UTC)))
@@ -892,7 +913,7 @@ class DataSyncScheduler:
         logger.info("=" * 60)
 
         try:
-            from app.services.github_cache import get_github_cache, get_github_cache_for_repo
+            from shared.services.github_cache import get_github_cache, get_github_cache_for_repo
             
             results = []
             
@@ -938,7 +959,7 @@ class DataSyncScheduler:
 
         async with SessionLocal() as db:
             try:
-                from app.services.model_sync_service import ModelSyncService
+                from shared.services.model_sync_service import ModelSyncService
 
                 sync_service = ModelSyncService(db, self.github_client)
 
@@ -957,7 +978,7 @@ class DataSyncScheduler:
                 # 同步完成后，更新所有启用的 workflow 的 last_sync_at
                 from sqlalchemy import update
 
-                from app.models import ModelSyncConfig
+                from shared.models import ModelSyncConfig
 
                 await db.execute(
                     update(ModelSyncConfig)
@@ -987,10 +1008,10 @@ class DataSyncScheduler:
             from datetime import date, timedelta
             from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
             from sqlalchemy.orm import sessionmaker
-            from app.models.daily_summary import DailySummary
-            from app.models import ProjectDashboardConfig
-            from app.services.daily_summary import DailySummaryService
-            from app.services.daily_report import _today_shanghai
+            from shared.models.daily_summary import DailySummary
+            from shared.models import ProjectDashboardConfig
+            from shared.services.daily_summary import DailySummaryService
+            from shared.services.daily_report import _today_shanghai
             from sqlalchemy import select
 
             # 创建数据库会话
@@ -1057,8 +1078,8 @@ class DataSyncScheduler:
             from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
             from sqlalchemy.orm import sessionmaker
             from sqlalchemy import select
-            from app.models import ProjectDashboardConfig
-            from app.services.daily_report import DailyReportService, REPORT_CONFIG_KEY, _today_shanghai
+            from shared.models import ProjectDashboardConfig
+            from shared.services.daily_report import DailyReportService, REPORT_CONFIG_KEY, _today_shanghai
 
             if not settings.REPORT_ENABLED:
                 logger.info("Report disabled, skipping")
@@ -1117,7 +1138,7 @@ class DataSyncScheduler:
         logger.info("=" * 60)
 
         try:
-            from app.services.resource_metrics import ResourceMetricsService
+            from shared.services.resource_metrics import ResourceMetricsService
 
             async with SessionLocal() as db:
                 service = ResourceMetricsService(db)
@@ -1126,7 +1147,7 @@ class DataSyncScheduler:
 
                 # 评估告警规则
                 try:
-                    from app.services.alert_evaluator import AlertEvaluator
+                    from shared.services.alert_evaluator import AlertEvaluator
                     evaluator = AlertEvaluator(db)
                     alerts_triggered = await evaluator.evaluate_all_rules()
                     if alerts_triggered > 0:
@@ -1146,8 +1167,8 @@ class DataSyncScheduler:
         try:
             from sqlalchemy import select
 
-            from app.models import CIJob, JobFailureAnalysis
-            from app.services.failure_analysis import FailureAnalysisService
+            from shared.models import CIJob, JobFailureAnalysis
+            from shared.services.failure_analysis import FailureAnalysisService
 
             svc = FailureAnalysisService()
             count = 0
@@ -1205,7 +1226,7 @@ class DataSyncScheduler:
         logger.info("=" * 60)
 
         try:
-            from app.services.resource_metrics import ResourceMetricsService
+            from shared.services.resource_metrics import ResourceMetricsService
 
             async with SessionLocal() as db:
                 service = ResourceMetricsService(db)
@@ -1222,14 +1243,14 @@ class DataSyncScheduler:
             self._initialize_github_client()
         async with SessionLocal() as db:
             try:
-                from app.services.test_board_service import TestBoardService
+                from shared.services.test_board_service import TestBoardService
                 svc = TestBoardService(db, self.github_client)
                 count = await svc.parse_ci_results(days_back=7)
                 logger.info(f"TEST BOARD RESULT PARSE JOB COMPLETED - {count} results parsed")
                 # CI 同步后自动推导发现问题数（auto_issues_found），保持数据最新
                 if count > 0:
                     try:
-                        from app.services.issues_found_derivator import IssuesFoundDerivator
+                        from shared.services.issues_found_derivator import IssuesFoundDerivator
                         derivator = IssuesFoundDerivator(db)
                         derivation = await derivator.derive_all()
                         logger.info(
@@ -1246,7 +1267,7 @@ class DataSyncScheduler:
         logger.info("TEST BOARD HEALTH CALC JOB STARTED")
         async with SessionLocal() as db:
             try:
-                from app.services.test_health_calculator import TestHealthCalculator
+                from shared.services.test_health_calculator import TestHealthCalculator
                 calc = TestHealthCalculator(db)
                 count = await calc.calculate_all_health_scores()
                 logger.info(f"TEST BOARD HEALTH CALC JOB COMPLETED - {count} cases updated")
@@ -1257,7 +1278,7 @@ class DataSyncScheduler:
         logger.info("TEST BOARD SUITE SNAPSHOT JOB STARTED")
         async with SessionLocal() as db:
             try:
-                from app.services.test_health_calculator import TestHealthCalculator
+                from shared.services.test_health_calculator import TestHealthCalculator
                 calc = TestHealthCalculator(db)
                 count = await calc.calculate_suite_snapshot()
                 logger.info(f"TEST BOARD SUITE SNAPSHOT JOB COMPLETED - {count} snapshots")
@@ -1268,7 +1289,7 @@ class DataSyncScheduler:
         logger.info("TEST BOARD RUN CLEANUP JOB STARTED")
         async with SessionLocal() as db:
             try:
-                from app.services.test_health_calculator import TestHealthCalculator
+                from shared.services.test_health_calculator import TestHealthCalculator
                 calc = TestHealthCalculator(db)
                 deleted = await calc.cleanup_old_test_runs()
                 logger.info(f"TEST BOARD RUN CLEANUP JOB COMPLETED - {deleted} records deleted")
@@ -1280,7 +1301,7 @@ class DataSyncScheduler:
         logger.info("TEST BOARD STALE CASE CLEANUP JOB STARTED")
         async with SessionLocal() as db:
             try:
-                from app.services.test_health_calculator import TestHealthCalculator
+                from shared.services.test_health_calculator import TestHealthCalculator
                 calc = TestHealthCalculator(db)
                 deleted = await calc.cleanup_stale_cases()
                 logger.info(f"TEST BOARD STALE CASE CLEANUP JOB COMPLETED - {deleted} stale cases deleted")
@@ -1381,14 +1402,14 @@ class DataSyncScheduler:
                 )
 
                 # 同步完成后，更新进度
-                from app.services.sync_progress import get_sync_progress
+                from shared.services.sync_progress import get_sync_progress
                 progress = get_sync_progress()
                 progress.complete()
 
                 # 同步完成后，更新所有启用的 workflow 的 last_sync_at
                 from sqlalchemy import update
 
-                from app.models import WorkflowConfig
+                from shared.models import WorkflowConfig
 
                 await db.execute(
                     update(WorkflowConfig)
@@ -1442,8 +1463,8 @@ class DataSyncScheduler:
     async def _sync_support_matrix_job(self) -> None:
         """每日同步上游支持矩阵"""
         try:
-            from app.db.base import SessionLocal
-            from app.services.support_matrix_sync import sync_support_matrix
+            from shared.db.base import SessionLocal
+            from shared.services.support_matrix_sync import sync_support_matrix
 
             async with SessionLocal() as db:
                 result = await sync_support_matrix(db, dry_run=False)
@@ -1461,7 +1482,7 @@ class DataSyncScheduler:
     async def _cleanup_code_metrics_job(self):
         """定时清理过期代码度量明细数据（365天保留）"""
         try:
-            from app.models import CodeMetricsSnapshot, CodeComplexityDetail, CodeDuplicationDetail, CodeSecurityDetail
+            from shared.models import CodeMetricsSnapshot, CodeComplexityDetail, CodeDuplicationDetail, CodeSecurityDetail
             from sqlalchemy import delete, select
             cutoff_date = date.today() - timedelta(days=365)
             async with SessionLocal() as db:
@@ -1484,7 +1505,7 @@ class DataSyncScheduler:
             if not self.github_client:
                 self._initialize_github_client()
 
-            from app.api.v1.code_metrics import _sync_heatmap_from_github
+            from api.v1.code_metrics import _sync_heatmap_from_github
 
             async with SessionLocal() as db:
                 result = await _sync_heatmap_from_github(
@@ -1504,7 +1525,7 @@ class DataSyncScheduler:
     async def _collect_code_metrics_job(self):
         """定时本地采集代码度量"""
         try:
-            from app.services.code_metrics_collector import CodeMetricsCollector
+            from shared.services.code_metrics_collector import CodeMetricsCollector
             async with SessionLocal() as db:
                 collector = CodeMetricsCollector(db)
                 result = await collector.collect("main")

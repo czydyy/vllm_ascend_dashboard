@@ -58,7 +58,7 @@ build-backend = "hatchling.build"
 litellm = ["maturin"]
 
 [tool.hatch.build.targets.wheel]
-packages = ["app"]
+packages = ["api", "shared", "scheduler", "collector"]
 
 [tool.ruff]
 target-version = "py311"
@@ -105,4 +105,4 @@ ignore_missing_imports = true
 asyncio_mode = "auto"
 testpaths = ["../tests"]
 pythonpath = [".."]
-addopts = "-v --cov=app --cov-report=term-missing"
+addopts = "-v --cov=api --cov=shared --cov=scheduler --cov=collector --cov-report=term-missing"

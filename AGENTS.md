@@ -72,7 +72,7 @@ uv sync                    # 安装依赖
 uv run pytest              # 运行测试
 uv run ruff check .        # 代码检查
 uv run mypy .              # 类型检查
-uv run uvicorn app.main:app --reload  # 开发服务器
+uv run uvicorn api.main:app --reload  # 开发服务器
 ```
 
 ### 前端

@@ -9,8 +9,8 @@ from types import SimpleNamespace
 repository_root = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(repository_root / "backend"))
 
-from app.db.base import SessionLocal, engine
-from app.services.daily_report import DailyReportService, _today_shanghai
+from shared.db.base import SessionLocal, engine
+from shared.services.daily_report import DailyReportService, _today_shanghai
 
 
 def build_verification_markdown(snapshot: dict) -> str:
