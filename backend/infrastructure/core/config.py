@@ -17,7 +17,8 @@ class Settings(BaseSettings):
     LOG_LEVEL: str = "INFO"
 
     # GitHub 配置
-    GITHUB_TOKEN: str
+    # Optional bootstrap value; runtime changes are stored in MySQL.
+    GITHUB_TOKEN: str = ""
     GITHUB_OWNER: str = "vllm-project"
     GITHUB_REPO: str = "vllm-ascend"
 
@@ -120,6 +121,8 @@ class Settings(BaseSettings):
     @classmethod
     def validate_github_token(cls, v: str) -> str:
         """验证 GitHub Token 格式"""
+        if not v:
+            return v
         if not (v.startswith("ghp_") or v.startswith("github_pat_") or len(v) >= 10):
             raise ValueError("GITHUB_TOKEN must be a valid GitHub token (ghp_*, github_pat_*, or valid length)")
         return v

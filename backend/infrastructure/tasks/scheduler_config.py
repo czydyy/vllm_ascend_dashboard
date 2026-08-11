@@ -6,7 +6,9 @@ import uuid
 from typing import Any
 
 from sqlalchemy import select, text
+from sqlalchemy.ext.asyncio import AsyncSession
 
+from infrastructure.core.config import settings
 from infrastructure.db.base import SessionLocal
 from infrastructure.persistence.models import ProjectDashboardConfig
 
@@ -24,8 +26,42 @@ SCHEDULER_RUNTIME_FIELDS = frozenset(
         "model_sync_runs_limit",
         "project_dashboard_cache_interval_minutes",
         "data_retention_days",
+        "github_cache_dir",
     }
 )
+
+SCHEDULER_RUNTIME_SETTING_MAP = {
+    "ci_sync_interval_minutes": "CI_SYNC_INTERVAL_MINUTES",
+    "ci_sync_days_back": "CI_SYNC_DAYS_BACK",
+    "ci_sync_max_runs_per_workflow": "CI_SYNC_MAX_RUNS_PER_WORKFLOW",
+    "ci_sync_force_full_refresh": "CI_SYNC_FORCE_FULL_REFRESH",
+    "model_sync_interval_minutes": "MODEL_SYNC_INTERVAL_MINUTES",
+    "model_sync_days_back": "MODEL_SYNC_DAYS_BACK",
+    "model_sync_runs_limit": "MODEL_SYNC_RUNS_LIMIT",
+    "project_dashboard_cache_interval_minutes": "PROJECT_DASHBOARD_CACHE_INTERVAL_MINUTES",
+    "data_retention_days": "DATA_RETENTION_DAYS",
+    "github_cache_dir": "GITHUB_CACHE_DIR",
+}
+
+
+async def load_scheduler_runtime_config(db: AsyncSession | None = None) -> dict[str, Any]:
+    """Load scheduler-owned runtime settings into the current process."""
+    if db is not None:
+        result = await db.execute(
+            select(ProjectDashboardConfig).where(
+                ProjectDashboardConfig.config_key == SCHEDULER_RUNTIME_CONFIG_KEY
+            )
+        )
+        row = result.scalar_one_or_none()
+        config = dict(row.config_value or {}) if row else {}
+    else:
+        async with SessionLocal() as session:
+            return await load_scheduler_runtime_config(session)
+
+    for config_key, setting_name in SCHEDULER_RUNTIME_SETTING_MAP.items():
+        if config_key in config:
+            setattr(settings, setting_name, config[config_key])
+    return config
 
 
 async def persist_scheduler_runtime_config(overrides: dict[str, Any]) -> None:
@@ -59,6 +95,22 @@ async def persist_scheduler_runtime_config(overrides: dict[str, Any]) -> None:
             else:
                 row.config_value = config
 
+            version_result = await db.execute(
+                text(
+                    """
+                    SELECT aggregate_version
+                    FROM control_outbox
+                    WHERE aggregate_type = 'scheduler'
+                      AND aggregate_id = 'runtime-config'
+                      AND event_type = 'scheduler.config.reload'
+                    ORDER BY aggregate_version DESC
+                    LIMIT 1
+                    FOR UPDATE
+                    """
+                )
+            )
+            current_version = version_result.scalar_one_or_none() or 0
+
             await db.execute(
                 text(
                     """
@@ -70,7 +122,7 @@ async def persist_scheduler_runtime_config(overrides: dict[str, Any]) -> None:
                 ),
                 {
                     "event_id": str(uuid.uuid4()),
-                    "version": 1,
+                    "version": int(current_version) + 1,
                     "payload": json.dumps({"changed": sorted(values)}),
                 },
             )

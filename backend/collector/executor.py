@@ -49,6 +49,10 @@ class CollectorRunner:
                 task_params = json.loads(task_params)
             task_params = task_params or {}
 
+        from infrastructure.tasks.scheduler_config import load_scheduler_runtime_config
+
+        await load_scheduler_runtime_config()
+
         if task_type in {
             "ci_sync",
             "pr_sync",

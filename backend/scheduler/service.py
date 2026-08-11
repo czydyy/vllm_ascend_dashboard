@@ -418,6 +418,7 @@ class DataSyncScheduler:
                     "model_sync_runs_limit": "MODEL_SYNC_RUNS_LIMIT",
                     "project_dashboard_cache_interval_minutes": "PROJECT_DASHBOARD_CACHE_INTERVAL_MINUTES",
                     "data_retention_days": "DATA_RETENTION_DAYS",
+                    "github_cache_dir": "GITHUB_CACHE_DIR",
                 }
                 for config_key, setting_name in field_map.items():
                     if config_key in runtime_config:

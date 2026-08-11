@@ -429,11 +429,13 @@ async def lifespan(app: FastAPI):
     await init_db()
 
     try:
+        from infrastructure.core.app_runtime_config import load_app_runtime_config
         from infrastructure.core.github_config import load_github_runtime_config
 
+        await load_app_runtime_config()
         await load_github_runtime_config()
     except Exception as exc:
-        logger.warning("Failed to load shared GitHub configuration: %s", exc)
+        logger.warning("Failed to load shared runtime configuration: %s", exc)
 
     # 安装 DB 日志处理器，将应用日志持久化到数据库
     # 放在 init_db 之后：确保 app_logs 表已创建，worker 首次 flush 即可成功

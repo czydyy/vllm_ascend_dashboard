@@ -37,10 +37,14 @@ async def get_system_config(
     返回可公开的配置信息（敏感数据如 token 会脱敏显示）
     """
     # 时区配置从数据库读取，默认 Asia/Shanghai
+    from infrastructure.core.app_runtime_config import load_app_runtime_config
     from infrastructure.core.github_config import load_github_runtime_config
+    from infrastructure.tasks.scheduler_config import load_scheduler_runtime_config
     from sqlalchemy import select
 
+    await load_app_runtime_config()
     await load_github_runtime_config()
+    await load_scheduler_runtime_config()
     from infrastructure.persistence.models import ProjectDashboardConfig
     from infrastructure.db.base import SessionLocal
     
@@ -97,19 +101,17 @@ async def get_system_config(
 async def update_app_config(
     log_level: str | None = Query(None),
     debug: bool | None = Query(None),
-    current_user: Annotated[User, Depends(get_current_active_super_admin_user)] = None
+    current_user: Annotated[User, Depends(get_current_active_super_admin_user)] = None,
+    db: AsyncSession = Depends(get_db),
 ):
     """
     更新应用配置
 
     需要超级管理员权限（super_admin）
-    同时更新运行时配置和 .env 文件
+    更新 API 运行时配置并持久化到 MySQL 控制面
     """
-    from infrastructure.core.config_manager import update_env_config
-    import logging
-
     updates = []
-    env_updates = {}
+    runtime_updates = {}
 
     if log_level is not None:
         valid_levels = ["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]
@@ -122,7 +124,7 @@ async def update_app_config(
         # 更新运行时配置
         old_level = settings.LOG_LEVEL
         settings.LOG_LEVEL = log_level.upper()
-        env_updates['log_level'] = log_level.upper()
+        runtime_updates['log_level'] = log_level.upper()
         updates.append(f"日志级别：{old_level} → {log_level.upper()}")
         
         # 动态调整 logging 级别（无需重启）
@@ -143,19 +145,16 @@ async def update_app_config(
 
     if debug is not None:
         settings.DEBUG = debug
-        env_updates['debug'] = debug
+        runtime_updates['debug'] = debug
         updates.append(f"调试模式：{'开启' if debug else '关闭'}")
 
-    # 同步更新 .env 文件
-    if env_updates:
-        try:
-            success = update_env_config(env_updates)
-            if success:
-                updates.append(".env 文件已更新")
-            else:
-                logger.warning("Failed to update .env file")
-        except Exception as e:
-            logger.error(f"Failed to update .env file: {e}")
+    if runtime_updates:
+        from infrastructure.core.app_runtime_config import persist_app_runtime_config
+
+        await persist_app_runtime_config(runtime_updates, db)
+        updates.append("运行时配置已保存到 MySQL 控制面")
+        if debug is not None:
+            updates.append("Debug 启动行为将在服务重启后生效")
 
     return {
         "success": True,
@@ -174,7 +173,7 @@ async def update_github_config(
     更新 GitHub 配置
 
     需要超级管理员权限（super_admin）
-    同时更新运行时配置和 .env 文件
+    更新运行时配置并通过 MySQL/control_outbox 通知 Scheduler
 
     注意：GitHub 项目固定为 vllm-project/vllm-ascend，不可修改
     """
@@ -220,13 +219,12 @@ async def update_sync_config(
     更新同步配置
 
     需要超级管理员权限（super_admin）
-    同时更新运行时配置和 .env 文件
+    更新运行时配置并通过 MySQL/control_outbox 通知 Scheduler
     """
-    from infrastructure.core.config_manager import update_env_config
     from infrastructure.tasks.scheduler_config import persist_scheduler_runtime_config
 
     updates = []
-    env_updates = {}
+    runtime_updates = {}
 
     # 验证参数
     if ci_sync_interval_minutes is not None:
@@ -287,73 +285,60 @@ async def update_sync_config(
 
     if github_cache_dir is not None:
         settings.GITHUB_CACHE_DIR = github_cache_dir
-        env_updates['github_cache_dir'] = github_cache_dir
+        runtime_updates['github_cache_dir'] = github_cache_dir
         updates.append(f"GitHub 缓存目录：{github_cache_dir or '默认 (data/)'}")
 
     # 更新配置（运行时）
     if ci_sync_interval_minutes is not None:
         settings.CI_SYNC_INTERVAL_MINUTES = ci_sync_interval_minutes
-        env_updates['ci_sync_interval_minutes'] = ci_sync_interval_minutes
+        runtime_updates['ci_sync_interval_minutes'] = ci_sync_interval_minutes
         updates.append(f"CI 同步间隔：{ci_sync_interval_minutes}分钟")
 
     if ci_sync_days_back is not None:
         settings.CI_SYNC_DAYS_BACK = ci_sync_days_back
-        env_updates['ci_sync_days_back'] = ci_sync_days_back
+        runtime_updates['ci_sync_days_back'] = ci_sync_days_back
         updates.append(f"同步天数范围：{ci_sync_days_back}天")
 
     if ci_sync_max_runs_per_workflow is not None:
         settings.CI_SYNC_MAX_RUNS_PER_WORKFLOW = ci_sync_max_runs_per_workflow
-        env_updates['ci_sync_max_runs_per_workflow'] = ci_sync_max_runs_per_workflow
+        runtime_updates['ci_sync_max_runs_per_workflow'] = ci_sync_max_runs_per_workflow
         updates.append(f"每个 Workflow 最多采集：{ci_sync_max_runs_per_workflow}条")
 
     if ci_sync_force_full_refresh is not None:
         settings.CI_SYNC_FORCE_FULL_REFRESH = ci_sync_force_full_refresh
-        env_updates['ci_sync_force_full_refresh'] = ci_sync_force_full_refresh
+        runtime_updates['ci_sync_force_full_refresh'] = ci_sync_force_full_refresh
         updates.append(f"全量覆盖刷新：{'开启' if ci_sync_force_full_refresh else '关闭'}")
 
     if data_retention_days is not None:
         settings.DATA_RETENTION_DAYS = data_retention_days
-        env_updates['data_retention_days'] = data_retention_days
+        runtime_updates['data_retention_days'] = data_retention_days
         updates.append(f"数据保留天数：{data_retention_days}天")
 
     if project_dashboard_cache_interval_minutes is not None:
         settings.PROJECT_DASHBOARD_CACHE_INTERVAL_MINUTES = project_dashboard_cache_interval_minutes
-        env_updates['project_dashboard_cache_interval_minutes'] = project_dashboard_cache_interval_minutes
+        runtime_updates['project_dashboard_cache_interval_minutes'] = project_dashboard_cache_interval_minutes
         updates.append(f"Project Dashboard 缓存更新间隔：{project_dashboard_cache_interval_minutes}分钟")
 
     # 模型同步配置更新
     if model_sync_interval_minutes is not None:
         settings.MODEL_SYNC_INTERVAL_MINUTES = model_sync_interval_minutes
-        env_updates['model_sync_interval_minutes'] = model_sync_interval_minutes
+        runtime_updates['model_sync_interval_minutes'] = model_sync_interval_minutes
         updates.append(f"模型同步间隔：{model_sync_interval_minutes}分钟")
 
     if model_sync_days_back is not None:
         settings.MODEL_SYNC_DAYS_BACK = model_sync_days_back
-        env_updates['model_sync_days_back'] = model_sync_days_back
+        runtime_updates['model_sync_days_back'] = model_sync_days_back
         updates.append(f"模型同步天数范围：{model_sync_days_back}天")
 
     if model_sync_runs_limit is not None:
         settings.MODEL_SYNC_RUNS_LIMIT = model_sync_runs_limit
-        env_updates['model_sync_runs_limit'] = model_sync_runs_limit
+        runtime_updates['model_sync_runs_limit'] = model_sync_runs_limit
         updates.append(f"每个 Workflow 最多获取 Runs: {model_sync_runs_limit}条")
 
-    if github_cache_dir is not None:
-        settings.GITHUB_CACHE_DIR = github_cache_dir
-        env_updates['github_cache_dir'] = github_cache_dir
-        updates.append(f"GitHub 缓存目录：{github_cache_dir or '默认 (data/)'}")
-
-    # 同步更新 .env 文件
-    if env_updates:
-        try:
-            success = update_env_config(env_updates)
-            if success:
-                updates.append(".env 文件已更新")
-            else:
-                logger.warning("Failed to update .env file")
-        except Exception as e:
-            logger.error(f"Failed to update .env file: {e}")
-
-    await persist_scheduler_runtime_config(env_updates)
+    # Persist to the MySQL control plane and notify Scheduler.
+    await persist_scheduler_runtime_config(runtime_updates)
+    if runtime_updates:
+        updates.append("运行时配置已保存到 MySQL 控制面")
     updates.append("scheduler configuration reload queued")
 
     return {
@@ -371,16 +356,24 @@ async def trigger_sync_config(
     手动触发配置重载
 
     需要超级管理员权限（super_admin）
-    从环境变量重新加载配置
+    从 MySQL 控制面重新加载配置
     """
 
     try:
-        # 重新读取环境变量
-        # 注意：Python 中无法直接重载已导入的模块配置
-        # 这里只返回当前配置状态
+        from infrastructure.tasks.scheduler_config import (
+            load_scheduler_runtime_config,
+            persist_scheduler_runtime_config,
+        )
+
+        # Reload the durable control-plane values into this API process.  The
+        # Scheduler receives its own reload through control_outbox.
+        await load_scheduler_runtime_config()
+        await persist_scheduler_runtime_config(
+            {"ci_sync_interval_minutes": settings.CI_SYNC_INTERVAL_MINUTES}
+        )
         return {
             "success": True,
-            "message": "配置重载功能受限，请通过重启服务应用新配置",
+            "message": "已从 MySQL 控制面重新加载配置；Scheduler 通过 control_outbox 自动刷新",
             "current_config": {
                 "ci_sync_interval_minutes": settings.CI_SYNC_INTERVAL_MINUTES,
                 "data_retention_days": settings.DATA_RETENTION_DAYS,

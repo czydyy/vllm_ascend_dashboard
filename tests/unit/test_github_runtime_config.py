@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from infrastructure.core import github_config
+from infrastructure.core import app_runtime_config
 from infrastructure.core.config import settings
 from infrastructure.core.security import encrypt_api_key
 
@@ -35,3 +36,16 @@ def test_invalid_runtime_token_does_not_replace_bootstrap_token(monkeypatch) -> 
 
     assert applied is False
     assert settings.GITHUB_TOKEN == "bootstrap-token"
+
+
+def test_app_runtime_config_updates_process_settings(monkeypatch) -> None:
+    monkeypatch.setattr(settings, "LOG_LEVEL", "INFO")
+    monkeypatch.setattr(settings, "DEBUG", True)
+
+    applied = app_runtime_config._apply_runtime_config(
+        {"log_level": "warning", "debug": False}
+    )
+
+    assert applied == {"log_level": "WARNING", "debug": False}
+    assert settings.LOG_LEVEL == "WARNING"
+    assert settings.DEBUG is False
