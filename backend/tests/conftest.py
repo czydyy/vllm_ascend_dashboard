@@ -4,8 +4,8 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest_asyncio
-from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
+from sqlalchemy.pool import StaticPool
 
 backend_dir = str(Path(__file__).resolve().parent.parent)
 if backend_dir not in sys.path:
@@ -17,19 +17,12 @@ from app.models.test_board import TestCase, TestRun, TestSuiteSnapshot  # noqa: 
 
 @pytest_asyncio.fixture
 async def db_session():
-    """Create test database with all required tables (MySQL)."""
-    # Use test database on the same MySQL server
-    test_db_url = "mysql+aiomysql://dashboard:dashboard123@localhost:3306/vllm_dashboard_test"
+    """Create an isolated in-memory database with the required tables."""
     engine = create_async_engine(
-        test_db_url,
+        "sqlite+aiosqlite:///:memory:",
         echo=False,
+        poolclass=StaticPool,
     )
-    # Create test database if it doesn't exist
-    try:
-        async with engine.begin() as conn:
-            await conn.run_sync(lambda c: c.execute(text("CREATE DATABASE IF NOT EXISTS vllm_dashboard_test")))
-    except Exception:
-        pass
     async with engine.begin() as conn:
         await conn.run_sync(
             lambda sync_conn: Base.metadata.create_all(
