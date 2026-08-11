@@ -18,7 +18,7 @@ services:
     command: ["litellm", "--config", "/app/litellm_config.yaml", "--port", "4000"]
     volumes:
       # Backend writes the same runtime file after provider changes.
-      - ../../config/litellm_config.yaml:/app/litellm_config.yaml
+      - ../../config-templates/litellm_config.yaml:/app/litellm_config.yaml
     expose:
       - "4000"
     networks:
@@ -66,7 +66,7 @@ services:
       # This includes /app/data/repos for git cache
       - backend_data:/app/data
       # LiteLLM runtime config shared with the gateway container
-      - ../../config/litellm_config.yaml:/app/litellm_config.yaml
+      - ../../config-templates/litellm_config.yaml:/app/litellm_config.yaml
       # Log files
       - backend_logs:/app/logs
     # Do NOT expose backend port to public - only accessible via nginx proxy
@@ -112,7 +112,7 @@ services:
       # Binlog bind mount（Phase 0：宿主机可直接访问，用于归档和 PITR）
       - /data/mysql/binlog:/var/log/mysql
       # Optional: custom MySQL configuration
-      - ../../config/mysql.cnf:/etc/mysql/conf.d/custom.cnf:ro
+      - ../../config-templates/mysql.cnf:/etc/mysql/conf.d/custom.cnf:ro
       # Optional: initialization scripts
       - ../../mysql/init:/docker-entrypoint-initdb.d:ro
     # MySQL should NOT be exposed to public - only accessible by backend service

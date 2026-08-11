@@ -21,7 +21,7 @@ services:
       AGENT_PROXY_ALLOWED_HOSTS: vllm-litellm-dev
     volumes:
       - vllm_backend_data:/app/data
-      - ./deploy/config/litellm_runtime.yaml:/app/litellm_config.yaml
+      - ../../config-templates/litellm_runtime.yaml:/app/litellm_config.yaml
       - /var/run/docker.sock:/var/run/docker.sock
     ports:
       - "8000:8000"

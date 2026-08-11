@@ -27,7 +27,7 @@ services:
     entrypoint: []
     command: ["litellm", "--config", "/app/litellm_config.yaml", "--port", "4000"]
     volumes:
-      - ../../config/litellm_config.yaml:/app/litellm_config.yaml
+      - ../../config-templates/litellm_config.yaml:/app/litellm_config.yaml
     healthcheck:
       test: ["CMD", "python3", "-c", "import socket; s=socket.socket(); s.connect(('localhost',4000)); s.close()"]
       interval: 10s
@@ -55,7 +55,7 @@ services:
       - "${DEV_BACKEND_PORT:-8000}:8000"
     volumes:
       - dev_backend_data:/app/data
-      - ../../config/litellm_config.yaml:/app/litellm_config.yaml
+      - ../../config-templates/litellm_config.yaml:/app/litellm_config.yaml
     depends_on:
       mysql:
         condition: service_healthy
