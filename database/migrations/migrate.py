@@ -27,10 +27,12 @@ if (repository_root / "backend").is_dir():
     from database.bootstrap import create_tables_with_latest_schema
     from database.migrations.mysql_schema import migrate as migrate_mysql_schema
     from database.migrations.task_queue import run as migrate_phase_a
+    from database.migrations.process_runtime import run as migrate_process_runtime
 else:
     from scripts.init_db import create_tables_with_latest_schema
     from scripts.migration.mysql_schema import migrate as migrate_mysql_schema
     from scripts.migration.task_queue import run as migrate_phase_a
+    from scripts.migration.process_runtime import run as migrate_process_runtime
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
 logger = logging.getLogger("database_migration")
@@ -49,6 +51,7 @@ async def migrate() -> None:
     await create_tables_with_latest_schema()
     await migrate_mysql_schema()
     await migrate_phase_a()
+    await migrate_process_runtime()
     users_after = await _user_count()
     if users_after != users_before:
         raise RuntimeError(

@@ -1647,6 +1647,7 @@ async def start_scheduler_async() -> None:
     scheduler = get_scheduler()
     scheduler.start()
     await scheduler.apply_db_config_overrides()
+    await scheduler.write_heartbeat()
 
 
 async def stop_scheduler_async() -> None:

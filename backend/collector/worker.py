@@ -7,6 +7,7 @@ Collector 基础模块：租约领取、续约、优雅退出。
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import os
 import signal
@@ -70,6 +71,7 @@ class CollectorWorker:
         self._semaphore = asyncio.Semaphore(max_concurrent)
         self._task_contexts: dict[int, TaskContext] = {}
         self._futures: dict[int, asyncio.Task] = {}
+        self._heartbeat_task: asyncio.Task | None = None
 
     # ── 公共 API ──
 
@@ -81,6 +83,7 @@ class CollectorWorker:
     async def run(self):
         """主循环：领取任务 → 执行 → 续约，直到收到 SIGTERM 后优雅退出。"""
         self._setup_signal_handlers()
+        self._heartbeat_task = asyncio.create_task(self._heartbeat_loop())
         logger.info("Collector %s started (capabilities=%s, max_concurrent=%d)",
                      self.node_id, self.capabilities, self._max_concurrent)
 
@@ -116,7 +119,46 @@ class CollectorWorker:
 
         await self._flush_all_checkpoints()
         await self._release_all_leases()
+        if self._heartbeat_task:
+            self._heartbeat_task.cancel()
+            await asyncio.gather(self._heartbeat_task, return_exceptions=True)
+        await self._write_heartbeat(running=False)
         logger.info("Collector %s shutdown complete", self.node_id)
+
+    async def _heartbeat_loop(self) -> None:
+        while not self._draining:
+            await self._write_heartbeat(running=True)
+            await asyncio.sleep(20)
+
+    async def _write_heartbeat(self, *, running: bool) -> None:
+        """Publish process health and in-flight task count for API and operations."""
+        try:
+            async with self._session_factory() as db:
+                await db.execute(
+                    text(
+                        """
+                        INSERT INTO collector_heartbeats
+                            (node_id, capabilities, running, active_tasks, pid, updated_at)
+                        VALUES (:node_id, :capabilities, :running, :active_tasks, :pid, NOW())
+                        ON DUPLICATE KEY UPDATE
+                            capabilities = VALUES(capabilities),
+                            running = VALUES(running),
+                            active_tasks = VALUES(active_tasks),
+                            pid = VALUES(pid),
+                            updated_at = NOW()
+                        """
+                    ),
+                    {
+                        "node_id": self.node_id,
+                        "capabilities": json.dumps(self.capabilities),
+                        "running": running,
+                        "active_tasks": len(self._futures),
+                        "pid": os.getpid(),
+                    },
+                )
+                await db.commit()
+        except Exception as exc:
+            logger.warning("Collector heartbeat write failed: %s", exc)
 
     async def _execute_with_lease(self, ctx: TaskContext):
         """

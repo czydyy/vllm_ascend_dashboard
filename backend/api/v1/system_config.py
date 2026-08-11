@@ -405,6 +405,7 @@ async def get_system_status(
     from datetime import UTC, datetime, timedelta
 
     from sqlalchemy import func, select
+    from sqlalchemy import text
 
     from shared.db.base import SessionLocal
     from shared.models import SchedulerHeartbeat, WorkflowConfig
@@ -423,6 +424,20 @@ async def get_system_status(
         except Exception as e:
             logger.warning(f"Failed to get last sync time: {e}")
             last_sync = None
+        try:
+            collector_rows = (
+                await db.execute(
+                    text(
+                        "SELECT node_id, capabilities, running, active_tasks, updated_at "
+                        "FROM collector_heartbeats"
+                    )
+                )
+            ).mappings().all()
+        except Exception as e:
+            # The table is introduced by the process-runtime migration.  Keep
+            # status available during a rolling upgrade before every node has run it.
+            logger.warning(f"Failed to read collector heartbeats: {e}")
+            collector_rows = []
 
     def _to_iso(v):
         """datetime 或已是 ISO 字符串统一转为 ISO 字符串。"""
@@ -435,6 +450,19 @@ async def get_system_status(
     # 心跳新鲜度阈值：心跳间隔 20s，90s ≈ 4 次未刷新即判定调度器已停止
     STALE_THRESHOLD = timedelta(seconds=90)
     now = datetime.now(UTC)
+
+    active_collectors = []
+    for row in collector_rows:
+        updated = row["updated_at"]
+        if updated is not None and updated.tzinfo is None:
+            updated = updated.replace(tzinfo=UTC)
+        is_healthy = bool(row["running"]) and updated is not None and (now - updated) < STALE_THRESHOLD
+        active_collectors.append({
+            "node_id": row["node_id"],
+            "running": is_healthy,
+            "active_tasks": row["active_tasks"],
+            "updated_at": _to_iso(row["updated_at"]),
+        })
 
     if heartbeat is not None and heartbeat.updated_at is not None:
         # 独立 scheduler 进程模式：用心跳判断存活（API 进程内 APScheduler 为空）
@@ -486,6 +514,10 @@ async def get_system_status(
                     "cron_minute": getattr(settings, 'DAILY_SUMMARY_CRON_MINUTE', 0),
                 },
             },
+        },
+        "collectors": {
+            "active_count": sum(1 for collector in active_collectors if collector["running"]),
+            "nodes": active_collectors,
         },
         "database": {
             "connected": True,  # 如果能响应说明数据库连接正常
