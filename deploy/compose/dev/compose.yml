@@ -61,6 +61,23 @@ services:
         condition: service_healthy
       litellm:
         condition: service_healthy
+      migration:
+        condition: service_completed_successfully
+
+  migration:
+    build:
+      context: ../../../
+      dockerfile: backend/api/Dockerfile
+    env_file:
+      - ../../../.env.local
+    environment:
+      DATABASE_URL: mysql+aiomysql://${MYSQL_USER:-dashboard}:${MYSQL_PASSWORD}@mysql:3306/${MYSQL_DATABASE:-vllm_dashboard}
+      ENVIRONMENT: development
+      DATA_DIR: /app/data
+    command: python database/migrations/migrate.py
+    depends_on:
+      mysql:
+        condition: service_healthy
 
   frontend:
     build:
@@ -90,6 +107,14 @@ services:
     depends_on:
       mysql:
         condition: service_healthy
+      migration:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "python", "-m", "scheduler.health"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 30s
     profiles: ["workers"]
 
   collector:
@@ -110,6 +135,14 @@ services:
     depends_on:
       mysql:
         condition: service_healthy
+      migration:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "python", "-m", "collector.health"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 30s
     profiles: ["workers"]
 
 volumes:
