@@ -8,7 +8,7 @@ import httpx
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from shared.models import CIResult, PullRequest
+from infrastructure.persistence.models import CIResult, PullRequest
 from shared.services.github_client import GitHubAPIError, GitHubClient, GitHubRateLimitError
 
 logger = logging.getLogger(__name__)

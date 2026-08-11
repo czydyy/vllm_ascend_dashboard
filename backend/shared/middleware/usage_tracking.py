@@ -6,7 +6,7 @@ from starlette.middleware.base import BaseHTTPMiddleware
 
 from infrastructure.core.security import decode_token
 from infrastructure.db.base import SessionLocal
-from shared.models import FeatureUsageLog
+from infrastructure.persistence.models import FeatureUsageLog
 
 logger = logging.getLogger(__name__)
 
@@ -52,7 +52,7 @@ class UsageTrackingMiddleware(BaseHTTPMiddleware):
             if username:
                 try:
                     from sqlalchemy import select
-                    from shared.models import User
+                    from infrastructure.persistence.models import User
                     async with SessionLocal() as db:
                         user_id = (await db.execute(select(User.id).where(User.username == username))).scalar_one_or_none()
                 except Exception:

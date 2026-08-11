@@ -4,7 +4,7 @@ from fastapi import APIRouter, HTTPException, Query, status
 from sqlalchemy import select
 
 from api.deps import CurrentAdminUser, CurrentUser, DbSession
-from shared.models import KubernetesClusterConfig
+from infrastructure.persistence.models import KubernetesClusterConfig
 from contracts.schemas import (
     ClusterResourceSummary,
     KubernetesClusterCreate,

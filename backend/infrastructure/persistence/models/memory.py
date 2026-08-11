@@ -10,7 +10,7 @@ from sqlalchemy import Column, ForeignKey, Integer, String, Text, TIMESTAMP
 from sqlalchemy.orm import relationship
 from sqlalchemy.types import JSON
 
-from shared.models import Base
+from infrastructure.persistence.models import Base
 
 
 class AnalysisMemory(Base):

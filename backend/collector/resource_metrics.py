@@ -8,7 +8,7 @@ from datetime import UTC, datetime, timedelta
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from shared.models import (
+from infrastructure.persistence.models import (
     KubernetesClusterConfig,
     ProjectDashboardConfig,
     ResourceNodeMetrics,

@@ -33,7 +33,7 @@ class FakeSession:
         self.added = []
 
     async def get(self, model, pk):
-        from shared.models import SchedulerHeartbeat
+        from infrastructure.persistence.models import SchedulerHeartbeat
         if model is SchedulerHeartbeat:
             return self._hb
         return None
@@ -148,7 +148,7 @@ async def test_status_no_heartbeat_is_not_running(monkeypatch):
 @pytest.mark.asyncio
 async def test_write_heartbeat_serializes_running_and_jobs(monkeypatch):
     """write_heartbeat 把 scheduler.running + 各 job next_run_time 写入心跳行。"""
-    from shared.models import SchedulerHeartbeat
+    from infrastructure.persistence.models import SchedulerHeartbeat
     import scheduler.service as sched_mod
     from scheduler.service import DataSyncScheduler
 

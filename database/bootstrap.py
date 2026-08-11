@@ -39,7 +39,7 @@ from sqlalchemy.exc import SQLAlchemyError
 
 from infrastructure.core.security import hash_password
 from infrastructure.db.base import SessionLocal, engine
-from shared.models import Base, User
+from infrastructure.persistence.models import Base, User
 
 
 # ============ 版本管理相关 ============

@@ -14,7 +14,7 @@ from datetime import UTC, datetime
 from sqlalchemy import and_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from shared.models.memory import AnalysisMemory
+from infrastructure.persistence.models.memory import AnalysisMemory
 
 logger = logging.getLogger(__name__)
 

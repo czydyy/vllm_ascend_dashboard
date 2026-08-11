@@ -10,7 +10,7 @@ from typing import Any
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from shared.models import CIJob, CIResult, WorkflowConfig
+from infrastructure.persistence.models import CIJob, CIResult, WorkflowConfig
 from shared.services.github_client import GitHubAPIError, GitHubClient, GitHubRateLimitError
 from shared.services.sync_progress import get_sync_progress
 
@@ -314,7 +314,7 @@ class CICollector:
         try:
             # 从 WorkflowConfig 获取正确的 workflow_name
             from sqlalchemy import select
-            from shared.models import WorkflowConfig
+            from infrastructure.persistence.models import WorkflowConfig
             
             stmt = select(WorkflowConfig.workflow_name).where(
                 WorkflowConfig.workflow_file == workflow_file

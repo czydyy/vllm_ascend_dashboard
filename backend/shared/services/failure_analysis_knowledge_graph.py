@@ -11,7 +11,7 @@ from collections import Counter
 from datetime import UTC, datetime
 from typing import Any
 
-from shared.models import JobFailureAnalysis
+from infrastructure.persistence.models import JobFailureAnalysis
 
 
 def build_failure_analysis_knowledge_graph(analysis: JobFailureAnalysis) -> dict[str, Any]:

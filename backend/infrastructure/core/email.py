@@ -19,7 +19,7 @@ from email.mime.text import MIMEText
 import aiosmtplib
 from sqlalchemy import select
 
-from shared.models import ProjectDashboardConfig
+from infrastructure.persistence.models import ProjectDashboardConfig
 
 logger = logging.getLogger(__name__)
 

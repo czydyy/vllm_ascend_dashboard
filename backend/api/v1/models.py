@@ -16,7 +16,7 @@ logger = logging.getLogger(__name__)
 
 from api.deps import CurrentAdminUser, DbSession
 from infrastructure.core.config import settings
-from shared.models import ModelConfig, ModelReport
+from infrastructure.persistence.models import ModelConfig, ModelReport
 from contracts.schemas import (
     Message,
     ModelComparisonResponse,

@@ -219,7 +219,7 @@ async def diagnose_pr(
         result = await diag_service.diagnose(pr_number)
         # Save to history
         try:
-            from shared.models import IssueDiagnosisHistory
+            from infrastructure.persistence.models import IssueDiagnosisHistory
             history = IssueDiagnosisHistory(
                 user_id=current_user.id,
                 diagnosis_type="pr_pipeline",

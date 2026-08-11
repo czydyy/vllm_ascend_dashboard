@@ -20,7 +20,7 @@ import pytest
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from shared.models.test_board import TestCase, TestRun
+from infrastructure.persistence.models.test_board import TestCase, TestRun
 from contracts.schemas.test_board import TestCaseResponse
 from shared.services.test_board_service import TestBoardService
 from shared.services.test_health_calculator import TestHealthCalculator
@@ -30,8 +30,8 @@ from tests.mysql_test_db import create_test_engine, reset_tables
 
 @pytest.fixture
 async def rich_db():
-    from shared.models import CIResult, JobOwner
-    from shared.models.test_board import TestSuiteSnapshot
+    from infrastructure.persistence.models import CIResult, JobOwner
+    from infrastructure.persistence.models.test_board import TestSuiteSnapshot
 
     engine = create_test_engine()
     await reset_tables(engine, [

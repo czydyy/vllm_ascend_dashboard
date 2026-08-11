@@ -8,7 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.types import Unicode
 
 from infrastructure.core.config import settings
-from shared.models import PullRequest
+from infrastructure.persistence.models import PullRequest
 from shared.utils.company_detector import detect_company
 from contracts.schemas.pr_pipeline import (
     PRPipelineContributor,

@@ -101,7 +101,7 @@ async def list_diagnosis_history(
     liked_only: bool = Query(False),
 ):
     """获取诊断历史记录列表"""
-    from shared.models import IssueDiagnosisHistory, User
+    from infrastructure.persistence.models import IssueDiagnosisHistory, User
     query = select(IssueDiagnosisHistory, User.username).outerjoin(User, IssueDiagnosisHistory.user_id == User.id)
     if diagnosis_type:
         query = query.where(IssueDiagnosisHistory.diagnosis_type == diagnosis_type)
@@ -147,7 +147,7 @@ async def diagnosis_stats(
     db: DbSession,
 ):
     """获取诊断统计数据"""
-    from shared.models import IssueDiagnosisHistory
+    from infrastructure.persistence.models import IssueDiagnosisHistory
     from sqlalchemy import func as sql_func
     total = (await db.execute(select(sql_func.count(IssueDiagnosisHistory.id)))).scalar() or 0
     success = (await db.execute(select(sql_func.count(IssueDiagnosisHistory.id)).where(IssueDiagnosisHistory.status == "success"))).scalar() or 0
@@ -172,7 +172,7 @@ async def get_diagnosis_detail(
     db: DbSession,
 ):
     """获取完整诊断报告"""
-    from shared.models import IssueDiagnosisHistory
+    from infrastructure.persistence.models import IssueDiagnosisHistory
     stmt = select(IssueDiagnosisHistory).where(IssueDiagnosisHistory.id == history_id)
     record = (await db.execute(stmt)).scalar_one_or_none()
     if not record:
@@ -199,7 +199,7 @@ async def toggle_like(
     db: DbSession,
 ):
     """切换点赞状态"""
-    from shared.models import IssueDiagnosisHistory
+    from infrastructure.persistence.models import IssueDiagnosisHistory
     stmt = select(IssueDiagnosisHistory).where(IssueDiagnosisHistory.id == history_id)
     record = (await db.execute(stmt)).scalar_one_or_none()
     if not record:
@@ -219,7 +219,7 @@ async def save_diagnosis(
     db: DbSession,
 ):
     """保存诊断记录（用于流式诊断完成后前端调用）"""
-    from shared.models import IssueDiagnosisHistory
+    from infrastructure.persistence.models import IssueDiagnosisHistory
     record = IssueDiagnosisHistory(
         user_id=current_user.id,
         diagnosis_type=body.get("diagnosis_type", ""),

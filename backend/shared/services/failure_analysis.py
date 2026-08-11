@@ -10,8 +10,8 @@ from typing import Optional
 from sqlalchemy import select, delete, and_, func, desc, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from shared.models import CIJob, CIResult, ProjectDashboardConfig, JobFailureAnalysis
-from shared.models.daily_summary import LLMProviderConfig
+from infrastructure.persistence.models import CIJob, CIResult, ProjectDashboardConfig, JobFailureAnalysis
+from infrastructure.persistence.models.daily_summary import LLMProviderConfig
 from shared.services.failure_analysis_file_store import FailureAnalysisFileStore
 from infrastructure.core.config import settings
 

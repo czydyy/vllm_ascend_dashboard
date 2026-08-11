@@ -4,7 +4,7 @@ from fastapi import APIRouter, HTTPException, Query, status
 from sqlalchemy import select
 
 from api.deps import CurrentUser, DbSession
-from shared.models import AlertCondition, AlertConditionGroup, AlertHistory as AlertHistoryModel, AlertRule
+from infrastructure.persistence.models import AlertCondition, AlertConditionGroup, AlertHistory as AlertHistoryModel, AlertRule
 from contracts.schemas import (
     AlertConditionCreate,
     AlertConditionResponse,

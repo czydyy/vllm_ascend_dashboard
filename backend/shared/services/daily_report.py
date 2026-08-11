@@ -19,14 +19,14 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from infrastructure.core.config import settings
 from infrastructure.core.email import get_smtp_config, send_email
-from shared.models import (
+from infrastructure.persistence.models import (
     CIResult,
     DailyReportHistory,
     ModelConfig,
     ModelReport,
     ProjectDashboardConfig,
 )
-from shared.models.test_board import TestCase, TestRun
+from infrastructure.persistence.models.test_board import TestCase, TestRun
 from shared.services.daily_data_file_store import DailyDataFileStore
 
 logger = logging.getLogger(__name__)
@@ -386,7 +386,7 @@ class DailyReportService:
     async def _collect_test_data(self, start_dt, end_dt) -> dict:
         """采集测试看板概况"""
         try:
-            from shared.models.test_board import TestRun
+            from infrastructure.persistence.models.test_board import TestRun
 
             rows = list((await self.db.execute(
                 select(TestRun).where(
@@ -414,7 +414,7 @@ class DailyReportService:
     async def _collect_pr_pipeline_data(self, start_dt, end_dt) -> dict:
         """采集 PR 流水线概况"""
         try:
-            from shared.models import PullRequest
+            from infrastructure.persistence.models import PullRequest
             from shared.services.pr_pipeline_service import PRPipelineService
             svc = PRPipelineService()
             overview = await svc.get_overview(self.db, settings.GITHUB_OWNER, settings.GITHUB_REPO, days=1)
@@ -454,7 +454,7 @@ class DailyReportService:
     async def _collect_diagnosis_stats(self, start_dt, end_dt) -> dict:
         """采集问题定位统计"""
         try:
-            from shared.models import IssueDiagnosisHistory
+            from infrastructure.persistence.models import IssueDiagnosisHistory
             yesterday_count = (await self.db.execute(
                 select(func.count(IssueDiagnosisHistory.id)).where(
                     IssueDiagnosisHistory.created_at >= start_dt,
@@ -519,7 +519,7 @@ class DailyReportService:
         将全量看板数据作为 user prompt 传给 LLM。
         """
         try:
-            from shared.models.daily_summary import LLMProviderConfig
+            from infrastructure.persistence.models.daily_summary import LLMProviderConfig
             from shared.services.llm_client import LLMClient
             from shared.services.skill_registry import get_skill_registry
 

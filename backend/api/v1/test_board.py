@@ -19,8 +19,8 @@ from api.deps import (
 )
 from infrastructure.core.config import settings
 from infrastructure.db.base import SessionLocal
-from shared.models import User
-from shared.models.test_board import TestCase
+from infrastructure.persistence.models import User
+from infrastructure.persistence.models.test_board import TestCase
 from contracts.schemas.test_board import (
     FailureAnnotationRequest,
     TestBoardSyncRequest,
@@ -81,7 +81,7 @@ async def get_filter_options(
 ):
     from sqlalchemy import distinct, select
 
-    from shared.models.test_board import TestCase
+    from infrastructure.persistence.models.test_board import TestCase
 
     test_types = (
         await db.execute(select(distinct(TestCase.test_type)).where(TestCase.test_type.isnot(None)))
@@ -167,7 +167,7 @@ async def get_runs(
 
     from sqlalchemy import desc, func, select
 
-    from shared.models.test_board import TestRun
+    from infrastructure.persistence.models.test_board import TestRun
 
     cutoff = datetime.now(UTC) - timedelta(days=days)
     stmt = select(TestRun).where(TestRun.started_at >= cutoff)
@@ -287,7 +287,7 @@ async def get_trends(
 
     from sqlalchemy import select
 
-    from shared.models.test_board import TestSuiteSnapshot
+    from infrastructure.persistence.models.test_board import TestSuiteSnapshot
 
     stmt = (
         select(TestSuiteSnapshot)
@@ -356,7 +356,7 @@ async def annotate_failure(
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
-    from shared.models.test_board import FailureAnnotation
+    from infrastructure.persistence.models.test_board import FailureAnnotation
 
     annotation = FailureAnnotation(
         test_run_id=request.test_run_id,

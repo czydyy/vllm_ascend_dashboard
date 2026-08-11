@@ -111,7 +111,7 @@ class LiteLLMSync:
     async def sync_from_db(self, db_session) -> int:
         """从 DB 读取 provider → 生成 YAML → 写入文件 → 热加载"""
         from sqlalchemy import select
-        from shared.models.daily_summary import LLMProviderConfig
+        from infrastructure.persistence.models.daily_summary import LLMProviderConfig
 
         stmt = select(LLMProviderConfig).where(LLMProviderConfig.is_active == True)
         result = await db_session.execute(stmt)

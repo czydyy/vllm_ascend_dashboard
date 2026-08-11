@@ -9,7 +9,7 @@ from sqlalchemy import select
 
 from api.deps import CurrentAdminUser, DbSession
 from infrastructure.core.config import settings
-from shared.models import ModelSyncConfig
+from infrastructure.persistence.models import ModelSyncConfig
 from contracts.schemas import (
     Message,
     ModelSyncConfigCreate,

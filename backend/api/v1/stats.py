@@ -7,7 +7,7 @@ from sqlalchemy import select, func, distinct, text, inspect
 
 from api.deps import CurrentAdminUser, DbSession
 from infrastructure.db.base import engine
-from shared.models import User, UserLoginLog, FeatureUsageLog, Base
+from infrastructure.persistence.models import User, UserLoginLog, FeatureUsageLog, Base
 from contracts.schemas import LoginStatsResponse, FeatureUsageStatsResponse, FeatureUsageTrendPoint
 
 router = APIRouter()

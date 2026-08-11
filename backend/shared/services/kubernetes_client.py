@@ -8,7 +8,7 @@ from kubernetes_asyncio import client, config
 from kubernetes_asyncio.client import ApiClient, CoreV1Api, CustomObjectsApi
 
 from infrastructure.core.config import settings
-from shared.models import KubernetesClusterConfig
+from infrastructure.persistence.models import KubernetesClusterConfig
 
 
 def _fernet() -> Fernet:

@@ -15,7 +15,7 @@ from sqlalchemy.exc import SQLAlchemyError
 
 from api.deps import CurrentAdminUser, CurrentSuperAdminUser, CurrentUser, DbSession
 from infrastructure.core.config import settings
-from shared.models import CIJob, CIResult, DailyFailureRecord, JobFailureAnalysis, JobOwner, NightlyTestCase, User, WorkflowConfig
+from infrastructure.persistence.models import CIJob, CIResult, DailyFailureRecord, JobFailureAnalysis, JobOwner, NightlyTestCase, User, WorkflowConfig
 from contracts.schemas import (
     CIDailyReport,
     CIJobDetailResponse,
@@ -491,7 +491,7 @@ async def debug_workflows():
 
             # 检查配置的 workflow 是否存在
             from infrastructure.db.base import SessionLocal
-            from shared.models import WorkflowConfig
+            from infrastructure.persistence.models import WorkflowConfig
             from sqlalchemy import select
 
             async with SessionLocal() as db:
@@ -961,7 +961,7 @@ async def analyze_failed_job(
     force: bool = Query(default=False, description="强制重新分析"),
 ):
     """触发失败分析（异步后台执行，立即返回，前端轮询 GET 接口获取结果）"""
-    from shared.models import CIJob, JobFailureAnalysis
+    from infrastructure.persistence.models import CIJob, JobFailureAnalysis
     from shared.services.failure_analysis import FailureAnalysisService
 
     # 1. 验证 job 存在
@@ -1042,7 +1042,7 @@ async def cancel_analysis(
     db: DbSession,
 ):
     """取消正在进行的失败分析"""
-    from shared.models import JobFailureAnalysis
+    from infrastructure.persistence.models import JobFailureAnalysis
 
     stmt = select(JobFailureAnalysis).where(
         JobFailureAnalysis.job_id == job_id,
@@ -1231,7 +1231,7 @@ async def get_failure_analysis_agent_config(
     db: DbSession,
 ):
     """获取失败分析 Agent 的最大步骤数和总超时。"""
-    from shared.models import ProjectDashboardConfig
+    from infrastructure.persistence.models import ProjectDashboardConfig
 
     stmt = select(ProjectDashboardConfig).where(
         ProjectDashboardConfig.config_key == "failure_analysis_agent_config"
@@ -1251,7 +1251,7 @@ async def update_failure_analysis_agent_config(
     db: DbSession,
 ):
     """更新失败分析 Agent 运行限制。"""
-    from shared.models import ProjectDashboardConfig
+    from infrastructure.persistence.models import ProjectDashboardConfig
 
     try:
         runtime = str(data.get("runtime", "claude_cli")).strip().lower()
@@ -1296,7 +1296,7 @@ async def get_public_analysis(
     db: DbSession,
 ):
     """通过分享链接查看分析报告（无需登录）"""
-    from shared.models import JobFailureAnalysis
+    from infrastructure.persistence.models import JobFailureAnalysis
 
     stmt = select(JobFailureAnalysis).where(JobFailureAnalysis.share_token == share_token)
     result = await db.execute(stmt)
@@ -1313,7 +1313,7 @@ async def get_public_analysis_report(
     download: bool = Query(default=False),
 ):
     """通过分享链接查看/下载分析报告全文（无需登录）"""
-    from shared.models import JobFailureAnalysis
+    from infrastructure.persistence.models import JobFailureAnalysis
 
     stmt = select(JobFailureAnalysis).where(JobFailureAnalysis.share_token == share_token)
     result = await db.execute(stmt)
@@ -1342,7 +1342,7 @@ async def download_public_analysis_pdf(
     import markdown
     from fastapi.responses import StreamingResponse
 
-    from shared.models import JobFailureAnalysis
+    from infrastructure.persistence.models import JobFailureAnalysis
 
     stmt = select(JobFailureAnalysis).where(JobFailureAnalysis.share_token == share_token)
     result = await db.execute(stmt)

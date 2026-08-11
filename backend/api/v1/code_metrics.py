@@ -10,7 +10,7 @@ from fastapi.responses import StreamingResponse
 from sqlalchemy import delete, select
 
 from api.deps import CurrentAdminUser, CurrentUser, DbSession
-from shared.models import (
+from infrastructure.persistence.models import (
     CodeComplexityDetail,
     CodeDuplicationDetail,
     CodeMetricsFileHeatmap,
@@ -84,7 +84,7 @@ async def _sync_heatmap_from_github(
     Fetches PR file lists from the GitHub API (not from stored PR.data) and
     upserts into the ``code_metrics_file_heatmap`` table.
     """
-    from shared.models import PullRequest
+    from infrastructure.persistence.models import PullRequest
     from collections import Counter
 
     cutoff = datetime.now(timezone.utc) - timedelta(days=days)
@@ -731,7 +731,7 @@ async def get_derived_metrics(
     days: int = Query(30, ge=1, le=365),
 ):
     """从 PR 数据聚合衍生指标：PR 大小分布、代码变更量、修改类型分布"""
-    from shared.models import PullRequest
+    from infrastructure.persistence.models import PullRequest
 
     cutoff = datetime.now(timezone.utc) - timedelta(days=days)
     stmt = select(PullRequest).where(
@@ -908,7 +908,7 @@ async def get_ci_correlation(
     days: int = Query(30, ge=1, le=365),
 ):
     """分析代码度量与 CI 结果的关联性"""
-    from shared.models import CIResult
+    from infrastructure.persistence.models import CIResult
     from sqlalchemy import func as sql_func
 
     cutoff = date.today() - timedelta(days=days)

@@ -23,7 +23,7 @@ import pytest
 from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from shared.models.test_board import TestCase as _TC
+from infrastructure.persistence.models.test_board import TestCase as _TC
 from contracts.schemas.test_board import TestCaseResponse, TestCaseUpdateRequest
 from shared.services.test_health_calculator import TestHealthCalculator
 from tests.conftest import make_test_case, make_test_run
@@ -273,7 +273,7 @@ async def app_client(rich_db):
 
     from api.deps import get_current_user, get_db
     from api.v1.test_board import router as test_board_router
-    from shared.models import User
+    from infrastructure.persistence.models import User
 
     app = FastAPI()
     app.include_router(test_board_router, prefix="/api/v1")
@@ -411,8 +411,8 @@ class TestPatchEndpoint:
 @pytest.fixture
 async def rich_db():
     """Dedicated MySQL fixture for test-board metadata tests."""
-    from shared.models import CIResult, JobOwner
-    from shared.models.test_board import TestCase, TestRun, TestSuiteSnapshot
+    from infrastructure.persistence.models import CIResult, JobOwner
+    from infrastructure.persistence.models.test_board import TestCase, TestRun, TestSuiteSnapshot
 
     engine = create_test_engine()
     await reset_tables(engine, [
@@ -430,7 +430,7 @@ class TestParseJobResultsIncrement:
 
     @pytest.mark.asyncio
     async def test_failed_run_increments_both_counters(self, rich_db):
-        from shared.models import CIJob, CIResult
+        from infrastructure.persistence.models import CIJob, CIResult
         from shared.services.test_board_service import TestBoardService
 
         now = datetime.now(UTC)
@@ -459,14 +459,14 @@ class TestParseJobResultsIncrement:
         await rich_db.commit()
 
         assert count == 1, "应解析出 1 个用例级结果"
-        from shared.models.test_board import TestCase as TC
+        from infrastructure.persistence.models.test_board import TestCase as TC
         case = (await rich_db.execute(select(TC).where(TC.test_name == "single-node (main, Qwen3-8B)"))).scalar_one()
         assert case.lifetime_runs == 1, "lifetime_runs 应递增到 1"
         assert case.lifetime_failures == 1, "失败结果应同时递增 lifetime_failures"
 
     @pytest.mark.asyncio
     async def test_passed_run_increments_only_runs(self, rich_db):
-        from shared.models import CIJob, CIResult
+        from infrastructure.persistence.models import CIJob, CIResult
         from shared.services.test_board_service import TestBoardService
 
         now = datetime.now(UTC)
@@ -493,7 +493,7 @@ class TestParseJobResultsIncrement:
         await svc._parse_job_results(ci_job, classifier)
         await rich_db.commit()
 
-        from shared.models.test_board import TestCase as TC
+        from infrastructure.persistence.models.test_board import TestCase as TC
         case = (await rich_db.execute(select(TC).where(TC.test_name == "single-node (main, Qwen3-8B)"))).scalar_one()
         assert case.lifetime_runs == 1
         assert case.lifetime_failures == 0, "通过结果不应递增 lifetime_failures"

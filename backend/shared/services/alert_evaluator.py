@@ -11,7 +11,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from infrastructure.core.email import get_smtp_config, send_email
-from shared.models import (
+from infrastructure.persistence.models import (
     AlertCondition,
     AlertConditionGroup,
     AlertHistory,

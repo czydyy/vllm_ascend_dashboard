@@ -22,7 +22,7 @@ async def _read_config_async(config_key: str) -> dict | None:
     """从数据库读取配置（仅限异步上下文调用）。"""
     try:
         from sqlalchemy import select as sa_select
-        from shared.models import ProjectDashboardConfig
+        from infrastructure.persistence.models import ProjectDashboardConfig
         async with SessionLocal() as db:
             stmt = sa_select(ProjectDashboardConfig).where(
                 ProjectDashboardConfig.config_key == config_key
@@ -555,7 +555,7 @@ class DataSyncScheduler:
         """
         import os
 
-        from shared.models import SchedulerHeartbeat
+        from infrastructure.persistence.models import SchedulerHeartbeat
 
         running = bool(self.scheduler.running) if force_running is None else force_running
         jobs_payload: dict[str, dict] = {}
@@ -624,7 +624,7 @@ class DataSyncScheduler:
 
         from sqlalchemy import select
 
-        from shared.models import NightlyTestCase
+        from infrastructure.persistence.models import NightlyTestCase
         from shared.services.nightly_config_parser import NightlyConfigParser, load_model_fo_map
 
         fo_map = load_model_fo_map()
@@ -685,7 +685,7 @@ class DataSyncScheduler:
 
         from sqlalchemy import select
 
-        from shared.models import CIJob, DailyFailureRecord, NightlyTestCase
+        from infrastructure.persistence.models import CIJob, DailyFailureRecord, NightlyTestCase
 
         beijing_tz = timezone(timedelta(hours=8))
         now_utc = datetime.now(UTC)
@@ -917,7 +917,7 @@ class DataSyncScheduler:
                 # 同步完成后，更新所有启用的 workflow 的 last_sync_at
                 from sqlalchemy import update
 
-                from shared.models import WorkflowConfig
+                from infrastructure.persistence.models import WorkflowConfig
 
                 await db.execute(
                     update(WorkflowConfig)
@@ -1006,7 +1006,7 @@ class DataSyncScheduler:
         async with SessionLocal() as db:
             try:
                 from sqlalchemy import delete as sa_delete
-                from shared.models import UserLoginLog, FeatureUsageLog, TokenBlacklist
+                from infrastructure.persistence.models import UserLoginLog, FeatureUsageLog, TokenBlacklist
                 lr = await db.execute(sa_delete(UserLoginLog).where(UserLoginLog.login_time < cutoff))
                 ur = await db.execute(sa_delete(FeatureUsageLog).where(FeatureUsageLog.access_time < cutoff))
                 tr = await db.execute(sa_delete(TokenBlacklist).where(TokenBlacklist.expires_at < datetime.now(UTC)))
@@ -1112,7 +1112,7 @@ class DataSyncScheduler:
                 # 同步完成后，更新所有启用的 workflow 的 last_sync_at
                 from sqlalchemy import update
 
-                from shared.models import ModelSyncConfig
+                from infrastructure.persistence.models import ModelSyncConfig
 
                 await db.execute(
                     update(ModelSyncConfig)
@@ -1142,8 +1142,8 @@ class DataSyncScheduler:
             from datetime import date, timedelta
             from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
             from sqlalchemy.orm import sessionmaker
-            from shared.models.daily_summary import DailySummary
-            from shared.models import ProjectDashboardConfig
+            from infrastructure.persistence.models.daily_summary import DailySummary
+            from infrastructure.persistence.models import ProjectDashboardConfig
             from shared.services.daily_summary import DailySummaryService
             from shared.services.daily_report import _today_shanghai
             from sqlalchemy import select
@@ -1212,7 +1212,7 @@ class DataSyncScheduler:
             from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
             from sqlalchemy.orm import sessionmaker
             from sqlalchemy import select
-            from shared.models import ProjectDashboardConfig
+            from infrastructure.persistence.models import ProjectDashboardConfig
             from shared.services.daily_report import DailyReportService, REPORT_CONFIG_KEY, _today_shanghai
 
             if not settings.REPORT_ENABLED:
@@ -1290,7 +1290,7 @@ class DataSyncScheduler:
         try:
             from sqlalchemy import select
 
-            from shared.models import CIJob, JobFailureAnalysis
+            from infrastructure.persistence.models import CIJob, JobFailureAnalysis
             from shared.services.failure_analysis import FailureAnalysisService
 
             svc = FailureAnalysisService()
@@ -1531,7 +1531,7 @@ class DataSyncScheduler:
                 # 同步完成后，更新所有启用的 workflow 的 last_sync_at
                 from sqlalchemy import update
 
-                from shared.models import WorkflowConfig
+                from infrastructure.persistence.models import WorkflowConfig
 
                 await db.execute(
                     update(WorkflowConfig)
@@ -1604,7 +1604,7 @@ class DataSyncScheduler:
     async def _cleanup_code_metrics_job(self):
         """定时清理过期代码度量明细数据（365天保留）"""
         try:
-            from shared.models import CodeMetricsSnapshot, CodeComplexityDetail, CodeDuplicationDetail, CodeSecurityDetail
+            from infrastructure.persistence.models import CodeMetricsSnapshot, CodeComplexityDetail, CodeDuplicationDetail, CodeSecurityDetail
             from sqlalchemy import delete, select
             cutoff_date = date.today() - timedelta(days=365)
             async with SessionLocal() as db:

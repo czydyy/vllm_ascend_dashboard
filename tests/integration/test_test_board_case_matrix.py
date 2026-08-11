@@ -15,7 +15,7 @@ from httpx import ASGITransport, AsyncClient
 
 from api.deps import get_current_user
 from api.v1.test_board import router as test_board_router
-from shared.models import User
+from infrastructure.persistence.models import User
 from shared.services.test_case_matrix_service import get_case_feature_matrix, resolve_case_matrix_path
 
 

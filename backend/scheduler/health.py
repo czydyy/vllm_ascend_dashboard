@@ -7,7 +7,7 @@ from datetime import UTC, datetime, timedelta
 
 async def is_healthy() -> bool:
     from infrastructure.db.base import SessionLocal
-    from shared.models import SchedulerHeartbeat
+    from infrastructure.persistence.models import SchedulerHeartbeat
 
     async with SessionLocal() as db:
         heartbeat = await db.get(SchedulerHeartbeat, 1)

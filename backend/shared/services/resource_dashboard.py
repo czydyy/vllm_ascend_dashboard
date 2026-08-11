@@ -5,7 +5,7 @@ from decimal import Decimal
 from typing import Any
 
 from infrastructure.core.config import settings
-from shared.models import KubernetesClusterConfig
+from infrastructure.persistence.models import KubernetesClusterConfig
 from contracts.schemas import (
     ClusterResourceSummary,
     ResourceDashboardResponse,

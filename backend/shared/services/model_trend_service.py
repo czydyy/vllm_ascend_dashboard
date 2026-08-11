@@ -10,7 +10,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload
 
-from shared.models import ModelReport
+from infrastructure.persistence.models import ModelReport
 
 logger = logging.getLogger(__name__)
 

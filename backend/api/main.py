@@ -47,7 +47,7 @@ from infrastructure.core.config import settings
 from infrastructure.core.logging import setup_db_logging
 from infrastructure.db.base import engine
 from shared.middleware.usage_tracking import UsageTrackingMiddleware
-from shared.models import Base
+from infrastructure.persistence.models import Base
 # Database DDL is allowed only for local development. Production migrations
 # must be executed by the explicit release/migration job before the API starts.
 _AUTO_MIGRATE = os.environ.get(
@@ -181,7 +181,7 @@ async def _warmup_claude_code_cli():
         from sqlalchemy import select
         from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-        from shared.models.daily_summary import LLMProviderConfig
+        from infrastructure.persistence.models.daily_summary import LLMProviderConfig
         from shared.services.claude_code_cli import ClaudeCodeCLI
 
         async_session = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
@@ -221,7 +221,7 @@ async def _cleanup_stale_analyses():
         async with async_session() as db:
             from sqlalchemy import or_, update
 
-            from shared.models import JobFailureAnalysis
+            from infrastructure.persistence.models import JobFailureAnalysis
 
             cutoff = datetime.now(UTC) - timedelta(hours=1)
 
@@ -363,7 +363,7 @@ async def _init_llm_provider_configs():
     from sqlalchemy import select
     from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-    from shared.models.daily_summary import LLMProviderConfig
+    from infrastructure.persistence.models.daily_summary import LLMProviderConfig
 
     # 创建临时会话
     async_session = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)

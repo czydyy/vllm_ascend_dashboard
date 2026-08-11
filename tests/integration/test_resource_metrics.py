@@ -14,7 +14,7 @@ backend_dir = str(Path(__file__).resolve().parents[2] / "backend")
 if backend_dir not in sys.path:
     sys.path.insert(0, backend_dir)
 
-from shared.models import (  # noqa: E402
+from infrastructure.persistence.models import (  # noqa: E402
     KubernetesClusterConfig,
     ProjectDashboardConfig,
     ResourceNodeMetrics,

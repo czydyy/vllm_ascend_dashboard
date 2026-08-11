@@ -17,8 +17,8 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from infrastructure.core.config import settings
-from shared.models import CIResult, ProjectDashboardConfig
-from shared.models.daily_summary import LLMProviderConfig
+from infrastructure.persistence.models import CIResult, ProjectDashboardConfig
+from infrastructure.persistence.models.daily_summary import LLMProviderConfig
 from shared.services.github_cache import get_github_cache
 from shared.services.github_client import GitHubClient
 from shared.services.llm_client import LLMClient, LLMResult

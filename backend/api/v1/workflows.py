@@ -6,7 +6,7 @@ from fastapi import APIRouter, HTTPException, Query, status
 from sqlalchemy import select
 
 from api.deps import DbSession
-from shared.models import WorkflowConfig
+from infrastructure.persistence.models import WorkflowConfig
 from contracts.schemas import WorkflowConfigCreate, WorkflowConfigResponse, WorkflowConfigUpdate
 
 router = APIRouter()

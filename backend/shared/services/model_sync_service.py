@@ -12,7 +12,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from infrastructure.core.config import settings
-from shared.models import ModelConfig, ModelReport, ModelSyncConfig
+from infrastructure.persistence.models import ModelConfig, ModelReport, ModelSyncConfig
 from shared.services.github_client import GitHubClient
 from shared.services.model_report_parser import ModelReportParser
 

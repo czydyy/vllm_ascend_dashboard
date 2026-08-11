@@ -6,7 +6,7 @@ from datetime import datetime, timedelta, timezone
 
 from sqlalchemy import select
 
-from shared.models import CodeMetricsFileHeatmap, PullRequest
+from infrastructure.persistence.models import CodeMetricsFileHeatmap, PullRequest
 
 
 async def sync_heatmap_from_github(

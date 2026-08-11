@@ -8,7 +8,7 @@ import asyncio
 import time
 
 from infrastructure.core import logging as dblog
-from shared.models import AppLog, Base
+from infrastructure.persistence.models import AppLog, Base
 
 
 def test_applog_model_registered():

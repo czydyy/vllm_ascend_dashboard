@@ -6,7 +6,7 @@ from typing import Any
 from sqlalchemy import select, and_, or_, desc, delete
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from shared.models.test_board import TestCase, TestRun, TestSuiteSnapshot
+from infrastructure.persistence.models.test_board import TestCase, TestRun, TestSuiteSnapshot
 
 logger = logging.getLogger(__name__)
 

@@ -5,7 +5,7 @@ from datetime import UTC, datetime, timedelta
 from sqlalchemy import func as sa_func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from shared.models import PullRequest
+from infrastructure.persistence.models import PullRequest
 from shared.services.github_client import GitHubRateLimitError
 from collector.pr_pipeline import PRPipelineCollector
 

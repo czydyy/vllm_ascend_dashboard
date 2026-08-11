@@ -7,8 +7,8 @@ from sqlalchemy import select, func, and_, or_, desc, asc, delete, text, case
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from infrastructure.core.config import settings
-from shared.models import CIJob, CIResult, JobOwner, JobFailureAnalysis, WorkflowConfig
-from shared.models.test_board import TestCase, TestRun, TestSuiteSnapshot, FailureAnnotation
+from infrastructure.persistence.models import CIJob, CIResult, JobOwner, JobFailureAnalysis, WorkflowConfig
+from infrastructure.persistence.models.test_board import TestCase, TestRun, TestSuiteSnapshot, FailureAnnotation
 from shared.services.test_timing_parser import TestTimingParser
 from shared.services.junit_xml_parser import JUnitXMLParser
 from shared.services.test_health_calculator import TestHealthCalculator

@@ -11,7 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from api.deps import get_current_active_admin_user, get_current_user
 from api.deps import get_db as get_db_session
 from infrastructure.db.base import get_db
-from shared.models import User
+from infrastructure.persistence.models import User
 from contracts.schemas import (
     PRActionRequest,
     ProjectDashboardConfigUpdate,
@@ -121,7 +121,7 @@ async def get_model_support_matrix(
     """
     from sqlalchemy import select
 
-    from shared.models import ProjectDashboardConfig
+    from infrastructure.persistence.models import ProjectDashboardConfig
 
     # 从数据库读取配置
     stmt = select(ProjectDashboardConfig).where(
@@ -160,7 +160,7 @@ async def update_model_support_matrix(
     """
     from sqlalchemy import select
 
-    from shared.models import ProjectDashboardConfig
+    from infrastructure.persistence.models import ProjectDashboardConfig
 
     entries = data.get("entries", [])
     featureColumns = data.get("featureColumns")
@@ -429,7 +429,7 @@ async def force_merge_pr(
 
     from sqlalchemy import select
 
-    from shared.models import ProjectDashboardConfig
+    from infrastructure.persistence.models import ProjectDashboardConfig
 
     github_api = get_github_api_service()
 
@@ -540,7 +540,7 @@ async def get_force_merge_records(
     """
     from sqlalchemy import select
 
-    from shared.models import ProjectDashboardConfig
+    from infrastructure.persistence.models import ProjectDashboardConfig
 
     stmt = select(ProjectDashboardConfig).where(
         ProjectDashboardConfig.config_key == "force_merge_records"
@@ -796,7 +796,7 @@ async def get_dashboard_config(
     """
     from sqlalchemy import select
 
-    from shared.models import ProjectDashboardConfig
+    from infrastructure.persistence.models import ProjectDashboardConfig
 
     stmt = select(ProjectDashboardConfig)
     result = await db.execute(stmt)
@@ -831,7 +831,7 @@ async def update_dashboard_config(
     """
     from sqlalchemy import select
 
-    from shared.models import ProjectDashboardConfig
+    from infrastructure.persistence.models import ProjectDashboardConfig
 
     stmt = select(ProjectDashboardConfig).where(
         ProjectDashboardConfig.config_key == config_key

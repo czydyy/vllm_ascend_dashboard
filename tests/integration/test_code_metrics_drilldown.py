@@ -18,7 +18,7 @@ if backend_dir not in sys.path:
 from api.deps import get_db  # noqa: E402
 from infrastructure.core.security import create_access_token  # noqa: E402
 from api.main import app  # noqa: E402
-from shared.models import Base, CodeComplexityDetail, CodeMetricsSnapshot, User  # noqa: E402
+from infrastructure.persistence.models import Base, CodeComplexityDetail, CodeMetricsSnapshot, User  # noqa: E402
 from tests.mysql_test_db import create_test_engine, reset_tables  # noqa: E402
 
 

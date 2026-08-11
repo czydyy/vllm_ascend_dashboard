@@ -14,7 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from api.deps import get_current_active_admin_user, get_current_active_super_admin_user, get_current_user, get_db
 from infrastructure.core.config import settings
 from infrastructure.core.email import SMTP_CONFIG_KEY
-from shared.models import ProjectDashboardConfig, User
+from infrastructure.persistence.models import ProjectDashboardConfig, User
 
 logger = logging.getLogger(__name__)
 
@@ -33,7 +33,7 @@ async def get_system_config(
     """
     # 时区配置从数据库读取，默认 Asia/Shanghai
     from sqlalchemy import select
-    from shared.models import ProjectDashboardConfig
+    from infrastructure.persistence.models import ProjectDashboardConfig
     from infrastructure.db.base import SessionLocal
     
     timezone_str = 'Asia/Shanghai'  # 默认时区
@@ -408,7 +408,7 @@ async def get_system_status(
     from sqlalchemy import text
 
     from infrastructure.db.base import SessionLocal
-    from shared.models import SchedulerHeartbeat, WorkflowConfig
+    from infrastructure.persistence.models import SchedulerHeartbeat, WorkflowConfig
 
     # 一次 DB 读取：调度器心跳 + 最近同步时间
     async with SessionLocal() as db:
@@ -647,8 +647,8 @@ async def get_daily_summary_config(
 
     所有登录用户可访问
     """
-    from shared.models.daily_summary import LLMProviderConfig
-    from shared.models import ProjectDashboardConfig
+    from infrastructure.persistence.models.daily_summary import LLMProviderConfig
+    from infrastructure.persistence.models import ProjectDashboardConfig
 
     try:
         # 获取定时任务配置
@@ -714,7 +714,7 @@ async def update_daily_summary_config(
 
     需要管理员权限
     """
-    from shared.models import ProjectDashboardConfig
+    from infrastructure.persistence.models import ProjectDashboardConfig
 
     try:
         # 更新定时任务配置
@@ -790,7 +790,7 @@ async def get_llm_providers(
 
     需要管理员权限
     """
-    from shared.models.daily_summary import LLMProviderConfig
+    from infrastructure.persistence.models.daily_summary import LLMProviderConfig
     try:
         stmt = select(LLMProviderConfig).order_by(LLMProviderConfig.display_order)
         result = await db.execute(stmt)
@@ -837,7 +837,7 @@ async def update_llm_provider(
     - api_key: API Key
     - api_base_url: API 基础 URL
     """
-    from shared.models.daily_summary import LLMProviderConfig
+    from infrastructure.persistence.models.daily_summary import LLMProviderConfig
 
     try:
         stmt = select(LLMProviderConfig).where(LLMProviderConfig.provider == provider)
@@ -922,7 +922,7 @@ async def create_llm_provider(
     db: AsyncSession = Depends(get_db)
 ):
     """创建新的 LLM 提供商（需 super_admin）"""
-    from shared.models.daily_summary import LLMProviderConfig
+    from infrastructure.persistence.models.daily_summary import LLMProviderConfig
     from infrastructure.core.security import encrypt_api_key
 
     provider_name = config.get("provider", "").strip()
@@ -977,7 +977,7 @@ async def delete_llm_provider(
     db: AsyncSession = Depends(get_db)
 ):
     """删除 LLM 提供商（需 super_admin）"""
-    from shared.models.daily_summary import LLMProviderConfig
+    from infrastructure.persistence.models.daily_summary import LLMProviderConfig
 
     stmt = select(LLMProviderConfig).where(LLMProviderConfig.provider == provider)
     result = await db.execute(stmt)
@@ -1096,7 +1096,7 @@ async def get_system_prompt_config(
     - ascend: vLLM Ascend 项目提示词
     - vllm: vLLM 项目提示词
     """
-    from shared.models import ProjectDashboardConfig
+    from infrastructure.persistence.models import ProjectDashboardConfig
 
     try:
         config_key, default_prompts, default_description = get_system_prompt_scope_config(scope)
@@ -1144,7 +1144,7 @@ async def update_system_prompt_config(
         }
     }
     """
-    from shared.models import ProjectDashboardConfig
+    from infrastructure.persistence.models import ProjectDashboardConfig
 
     try:
         if 'prompts' not in config:

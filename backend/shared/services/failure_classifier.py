@@ -4,8 +4,8 @@ from typing import Any
 from sqlalchemy import select, and_
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from shared.models import JobFailureAnalysis, CIJob
-from shared.models.test_board import TestRun
+from infrastructure.persistence.models import JobFailureAnalysis, CIJob
+from infrastructure.persistence.models.test_board import TestRun
 
 logger = logging.getLogger(__name__)
 

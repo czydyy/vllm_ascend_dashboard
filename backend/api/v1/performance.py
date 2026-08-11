@@ -7,7 +7,7 @@ from fastapi import APIRouter, HTTPException, Query, status
 from sqlalchemy import select
 
 from api.deps import DbSession
-from shared.models import PerformanceData
+from infrastructure.persistence.models import PerformanceData
 from contracts.schemas import Message, PerformanceComparison, PerformanceDataResponse
 
 router = APIRouter()

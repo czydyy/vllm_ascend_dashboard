@@ -25,8 +25,8 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from shared.models import PullRequest
-from shared.models.test_board import TestCase, TestRun
+from infrastructure.persistence.models import PullRequest
+from infrastructure.persistence.models.test_board import TestCase, TestRun
 
 logger = logging.getLogger(__name__)
 

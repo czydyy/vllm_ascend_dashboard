@@ -5,7 +5,7 @@ from typing import Any
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from shared.models import (
+from infrastructure.persistence.models import (
     KubernetesClusterConfig,
     ProjectDashboardConfig,
     ResourceNodeMetrics,

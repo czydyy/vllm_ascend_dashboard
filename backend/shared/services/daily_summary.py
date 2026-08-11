@@ -12,8 +12,8 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from infrastructure.core.config import settings
-from shared.models.daily_summary import DailySummary, DailyPR, DailyIssue, DailyCommit, LLMProviderConfig
-from shared.models import ProjectDashboardConfig
+from infrastructure.persistence.models.daily_summary import DailySummary, DailyPR, DailyIssue, DailyCommit, LLMProviderConfig
+from infrastructure.persistence.models import ProjectDashboardConfig
 from shared.services.github_client import GitHubClient
 from shared.services.claude_code_cli import run_with_fallback
 from shared.services.github_cache import get_github_cache, get_github_cache_for_repo

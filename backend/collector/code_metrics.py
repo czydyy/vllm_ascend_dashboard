@@ -10,7 +10,7 @@ from pathlib import Path
 from sqlalchemy import select, delete
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from shared.models import (
+from infrastructure.persistence.models import (
     CodeMetricsSnapshot, CodeComplexityDetail, CodeDuplicationDetail,
     CodeSecurityDetail,
 )
