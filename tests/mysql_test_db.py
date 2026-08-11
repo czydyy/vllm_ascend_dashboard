@@ -25,10 +25,17 @@ async def reset_tables(engine: AsyncEngine, tables: Iterable[Table]) -> None:
     table_list = list(sort_tables(list(tables)))
 
     def recreate(sync_conn) -> None:
-        for table in reversed(table_list):
-            table.drop(sync_conn, checkfirst=True)
-        for table in table_list:
-            table.create(sync_conn, checkfirst=True)
+        # Fixtures reset a subset of a shared integration database. Other
+        # tables can hold foreign keys into that subset, so MySQL must not
+        # enforce those constraints while the owned tables are recreated.
+        sync_conn.execute(text("SET FOREIGN_KEY_CHECKS = 0"))
+        try:
+            for table in reversed(table_list):
+                table.drop(sync_conn, checkfirst=True)
+            for table in table_list:
+                table.create(sync_conn, checkfirst=True)
+        finally:
+            sync_conn.execute(text("SET FOREIGN_KEY_CHECKS = 1"))
 
     async with engine.begin() as conn:
         await conn.run_sync(recreate)

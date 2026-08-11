@@ -6,6 +6,7 @@ import sys
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
+import pytest
 import pytest_asyncio
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
@@ -21,7 +22,10 @@ from shared.models import (  # noqa: E402
 )
 from shared.schemas.resource_metrics import RESOURCE_METRICS_CONFIG_KEY  # noqa: E402
 from shared.services.resource_metrics import ResourceMetricsService  # noqa: E402
+from collector.resource_metrics import ResourceMetricsCollector  # noqa: E402
 from tests.mysql_test_db import create_test_engine, reset_tables  # noqa: E402
+
+pytestmark = pytest.mark.asyncio
 
 
 @pytest_asyncio.fixture
@@ -278,7 +282,7 @@ async def test_cleanup_old_metrics_node(db_session: AsyncSession):
     ])
     await db_session.commit()
 
-    service = ResourceMetricsService(db_session)
+    service = ResourceMetricsCollector(db_session)
     deleted = await service.cleanup_old_metrics()
 
     assert deleted == 2  # 1 cluster-level + 1 node-level

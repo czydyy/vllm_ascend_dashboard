@@ -1,0 +1,134 @@
+"""Collector-only resource metric collection and retention work."""
+from __future__ import annotations
+
+import asyncio
+import logging
+from datetime import UTC, datetime, timedelta
+
+from sqlalchemy import delete, select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from shared.models import (
+    KubernetesClusterConfig,
+    ProjectDashboardConfig,
+    ResourceNodeMetrics,
+    ResourceNpuMetrics,
+)
+from shared.schemas.resource_metrics import RESOURCE_METRICS_CONFIG_KEY
+from shared.services.resource_dashboard import ResourceDashboardService
+
+logger = logging.getLogger(__name__)
+
+
+class ResourceMetricsCollector:
+    """Writes node/NPU snapshots; it is intentionally unavailable to API routes."""
+
+    def __init__(self, db: AsyncSession) -> None:
+        self.db = db
+
+    async def collect_snapshot(self) -> int:
+        clusters = list(
+            (
+                await self.db.execute(
+                    select(KubernetesClusterConfig).where(
+                        KubernetesClusterConfig.enabled.is_(True)
+                    )
+                )
+            ).scalars()
+        )
+        if not clusters:
+            logger.info("No enabled clusters; skipping resource metric collection")
+            return 0
+
+        dashboard = await asyncio.wait_for(
+            ResourceDashboardService().build_dashboard(clusters, include_pods=True),
+            timeout=30,
+        )
+        now = datetime.now(UTC)
+        collected = 0
+        for summary in dashboard.clusters:
+            if summary.error:
+                logger.warning("Skipping cluster %s: %s", summary.cluster_name, summary.error)
+                continue
+            pods = summary.executing_pods or []
+            top_pods = sorted(pods, key=lambda pod: pod.requests.npu, reverse=True)[:5]
+            self.db.add(
+                ResourceNpuMetrics(
+                    cluster_id=summary.cluster_id,
+                    cluster_name=summary.cluster_name,
+                    npu_total=summary.total.npu,
+                    npu_used=summary.used.npu,
+                    npu_available=summary.available.npu,
+                    npu_utilization=self._percentage(summary.used.npu, summary.total.npu),
+                    executing_pods_count=summary.executing_pods_count,
+                    pr_count=len({pod.pr_number for pod in pods if pod.pr_number}),
+                    top_pods_json=[
+                        {
+                            "name": pod.name,
+                            "namespace": pod.namespace,
+                            "npu": pod.requests.npu,
+                            "pr_number": pod.pr_number,
+                            "pr_url": pod.pr_url,
+                            "phase": pod.phase,
+                        }
+                        for pod in top_pods
+                    ],
+                    collected_at=now,
+                )
+            )
+            collected += 1
+            for node in summary.node_resources or []:
+                if node.total.npu <= 0:
+                    continue
+                self.db.add(
+                    ResourceNodeMetrics(
+                        cluster_id=summary.cluster_id,
+                        cluster_name=summary.cluster_name,
+                        node_name=node.node_name,
+                        cpu_cores_total=node.total.cpu_cores,
+                        cpu_cores_used=node.used.cpu_cores,
+                        cpu_cores_available=node.available.cpu_cores,
+                        cpu_utilization=self._percentage(node.used.cpu_cores, node.total.cpu_cores),
+                        memory_bytes_total=node.total.memory_bytes,
+                        memory_bytes_used=node.used.memory_bytes,
+                        memory_bytes_available=node.available.memory_bytes,
+                        memory_utilization=self._percentage(node.used.memory_bytes, node.total.memory_bytes),
+                        npu_total=node.total.npu,
+                        npu_used=node.used.npu,
+                        npu_available=node.available.npu,
+                        npu_utilization=self._percentage(node.used.npu, node.total.npu),
+                        executing_pods_count=node.executing_pods_count,
+                        collected_at=now,
+                    )
+                )
+        await self.db.commit()
+        return collected
+
+    async def cleanup_old_metrics(self) -> int:
+        config = await self._get_config()
+        cutoff = datetime.now(UTC) - timedelta(days=int(config["retention_days"]))
+        npu_result = await self.db.execute(
+            delete(ResourceNpuMetrics).where(ResourceNpuMetrics.collected_at < cutoff)
+        )
+        node_result = await self.db.execute(
+            delete(ResourceNodeMetrics).where(ResourceNodeMetrics.collected_at < cutoff)
+        )
+        await self.db.commit()
+        return npu_result.rowcount + node_result.rowcount
+
+    async def _get_config(self) -> dict:
+        row = (
+            await self.db.execute(
+                select(ProjectDashboardConfig).where(
+                    ProjectDashboardConfig.config_key == RESOURCE_METRICS_CONFIG_KEY
+                )
+            )
+        ).scalar_one_or_none()
+        return dict(row.config_value) if row and row.config_value else {
+            "interval_minutes": 1,
+            "retention_days": 30,
+        }
+
+    @staticmethod
+    def _percentage(used: float, total: float) -> float:
+        return round(used / total * 100, 2) if total > 0 else 0

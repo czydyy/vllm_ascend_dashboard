@@ -174,10 +174,10 @@ class CollectorRunner:
     async def _run_resource_metrics_collect(self, ctx: TaskContext):
         """Collect node and NPU metrics from the Collector execution role."""
         from shared.services.alert_evaluator import AlertEvaluator
-        from shared.services.resource_metrics import ResourceMetricsService
+        from collector.resource_metrics import ResourceMetricsCollector
 
         async with SessionLocal() as db:
-            count = await ResourceMetricsService(db).collect_snapshot()
+            count = await ResourceMetricsCollector(db).collect_snapshot()
             alerts = await AlertEvaluator(db).evaluate_all_rules()
         logger.info(
             "Resource metrics task %d completed: clusters=%d alerts=%d",
@@ -188,10 +188,10 @@ class CollectorRunner:
 
     async def _run_resource_metrics_cleanup(self, ctx: TaskContext):
         """Delete expired resource metrics from the Collector execution role."""
-        from shared.services.resource_metrics import ResourceMetricsService
+        from collector.resource_metrics import ResourceMetricsCollector
 
         async with SessionLocal() as db:
-            deleted = await ResourceMetricsService(db).cleanup_old_metrics()
+            deleted = await ResourceMetricsCollector(db).cleanup_old_metrics()
         logger.info("Resource metrics cleanup task %d deleted %d rows", ctx.task_id, deleted)
 
     async def _run_issues_derivation(self, ctx: TaskContext):
