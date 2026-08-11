@@ -10,7 +10,7 @@ from contracts.schemas import (
     ResourceMetricsConfigResponse,
     ResourceMetricsConfigUpdate,
 )
-from shared.read_models.resource_metrics import ResourceMetricsQueryService
+from infrastructure.persistence.read_models.resource_metrics import ResourceMetricsQueryService
 
 router = APIRouter()
 

@@ -45,7 +45,7 @@ async def test_resource_query_uses_explicit_report_window(monkeypatch):
         query_npu_metrics = query
 
     monkeypatch.setattr(
-        "shared.read_models.resource_metrics.ResourceMetricsQueryService",
+        "infrastructure.persistence.read_models.resource_metrics.ResourceMetricsQueryService",
         FakeResourceMetricsQueryService,
     )
     service = DailyReportService(MagicMock())
