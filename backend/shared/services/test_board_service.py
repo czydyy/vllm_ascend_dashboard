@@ -11,8 +11,8 @@ from infrastructure.persistence.models import CIJob, CIResult, JobOwner, JobFail
 from infrastructure.persistence.models.test_board import TestCase, TestRun, TestSuiteSnapshot, FailureAnnotation
 from tooling.parsers.test_timing_parser import TestTimingParser
 from tooling.parsers.junit_xml_parser import JUnitXMLParser
-from shared.services.test_health_calculator import TestHealthCalculator
-from shared.services.failure_classifier import FailureClassifier
+from tooling.analytics.test_health_calculator import TestHealthCalculator
+from tooling.analytics.failure_classifier import FailureClassifier
 from infrastructure.clients.github_client import GitHubClient
 
 logger = logging.getLogger(__name__)

@@ -31,7 +31,7 @@ from contracts.schemas.test_board import (
 )
 from infrastructure.clients.github_client import GitHubClient
 from shared.services.test_board_service import TestBoardService
-from shared.services.test_case_matrix_service import get_case_feature_matrix
+from tooling.analytics.test_case_matrix_service import get_case_feature_matrix
 
 logger = logging.getLogger(__name__)
 

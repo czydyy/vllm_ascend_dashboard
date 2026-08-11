@@ -232,7 +232,7 @@ def test_preview_and_delivery_share_the_same_email_renderer(monkeypatch):
         ci_summary={}, model_summary={}, github_summary={},
     )
     monkeypatch.setattr(
-        "shared.services.chart_renderer.render_charts",
+        "tooling.rendering.chart_renderer.render_charts",
         lambda data: {"nightly": b"png-bytes"},
     )
     service = DailyReportService(MagicMock())

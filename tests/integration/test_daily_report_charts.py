@@ -1,4 +1,4 @@
-from shared.services.chart_renderer import render_charts
+from tooling.rendering.chart_renderer import render_charts
 
 
 def test_nightly_chart_uses_a2_a3_case_statistics():

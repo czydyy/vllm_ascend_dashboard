@@ -14,7 +14,7 @@ _EXPORTS = {
     "ModelSyncService": ("shared.services.model_sync_service", "ModelSyncService"),
     "ModelTrendService": ("shared.services.model_trend_service", "ModelTrendService"),
     "StartupCommandGenerator": (
-        "shared.services.startup_command_generator",
+        "tooling.generators.startup_command_generator",
         "StartupCommandGenerator",
     ),
 }

@@ -23,7 +23,7 @@ sys.path.insert(0, str(backend_root))
 import markdown as md_lib
 from jinja2 import Environment, FileSystemLoader
 
-from shared.services.chart_renderer import render_charts
+from tooling.rendering.chart_renderer import render_charts
 
 TEMPLATES_DIR = backend_root / "templates"
 OUTPUT_FILE = backend_root / "debug_email_preview.html"

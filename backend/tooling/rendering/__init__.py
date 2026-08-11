@@ -1,0 +1,1 @@
+"""Stateless chart rendering helpers."""

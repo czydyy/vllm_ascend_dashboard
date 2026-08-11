@@ -67,7 +67,7 @@ class CodeMetricsCollector:
             results["collection_tools"].append("grep")
 
         # 3. 计算健康度
-        from shared.services.code_metrics_health import calculate_health_score
+        from tooling.analytics.code_metrics_health import calculate_health_score
         health = calculate_health_score(results)
         results.update(health)
 

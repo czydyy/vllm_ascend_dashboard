@@ -1389,7 +1389,7 @@ class DataSyncScheduler:
         logger.info("TEST BOARD HEALTH CALC JOB STARTED")
         async with SessionLocal() as db:
             try:
-                from shared.services.test_health_calculator import TestHealthCalculator
+                from tooling.analytics.test_health_calculator import TestHealthCalculator
                 calc = TestHealthCalculator(db)
                 count = await calc.calculate_all_health_scores()
                 logger.info(f"TEST BOARD HEALTH CALC JOB COMPLETED - {count} cases updated")
@@ -1400,7 +1400,7 @@ class DataSyncScheduler:
         logger.info("TEST BOARD SUITE SNAPSHOT JOB STARTED")
         async with SessionLocal() as db:
             try:
-                from shared.services.test_health_calculator import TestHealthCalculator
+                from tooling.analytics.test_health_calculator import TestHealthCalculator
                 calc = TestHealthCalculator(db)
                 count = await calc.calculate_suite_snapshot()
                 logger.info(f"TEST BOARD SUITE SNAPSHOT JOB COMPLETED - {count} snapshots")
@@ -1411,7 +1411,7 @@ class DataSyncScheduler:
         logger.info("TEST BOARD RUN CLEANUP JOB STARTED")
         async with SessionLocal() as db:
             try:
-                from shared.services.test_health_calculator import TestHealthCalculator
+                from tooling.analytics.test_health_calculator import TestHealthCalculator
                 calc = TestHealthCalculator(db)
                 deleted = await calc.cleanup_old_test_runs()
                 logger.info(f"TEST BOARD RUN CLEANUP JOB COMPLETED - {deleted} records deleted")
@@ -1423,7 +1423,7 @@ class DataSyncScheduler:
         logger.info("TEST BOARD STALE CASE CLEANUP JOB STARTED")
         async with SessionLocal() as db:
             try:
-                from shared.services.test_health_calculator import TestHealthCalculator
+                from tooling.analytics.test_health_calculator import TestHealthCalculator
                 calc = TestHealthCalculator(db)
                 deleted = await calc.cleanup_stale_cases()
                 logger.info(f"TEST BOARD STALE CASE CLEANUP JOB COMPLETED - {deleted} stale cases deleted")

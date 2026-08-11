@@ -682,7 +682,7 @@ class DailyReportService:
         """Render the final draft email; preview and delivery must share this path."""
         if not history.ai_report_content:
             raise ValueError("Report draft has no generated content")
-        from shared.services.chart_renderer import render_charts
+        from tooling.rendering.chart_renderer import render_charts
 
         report_data = self._get_draft_report_snapshot(history)
         chart_images = render_charts(report_data)
@@ -770,7 +770,7 @@ class DailyReportService:
             report_data = await self.generate_report(report_date)
 
             # 生成图表 PNG（CID 内嵌图片）
-            from shared.services.chart_renderer import render_charts
+            from tooling.rendering.chart_renderer import render_charts
             chart_images = render_charts(report_data)
             chart_cids = list(chart_images.keys())
             logger.info(f"Charts rendered: {chart_cids}")
