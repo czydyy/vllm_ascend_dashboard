@@ -16,9 +16,7 @@ from shared.schemas.pr_pipeline import (
     PRPipelineTrendsResponse,
     PullRequestResponse,
 )
-from shared.services.pr_pipeline_historical_collector import PRPipelineHistoricalCollector
 from shared.services.pr_pipeline_service import PRPipelineService
-from shared.services.github_client import GitHubClient
 
 logger = logging.getLogger(__name__)
 
@@ -176,15 +174,24 @@ async def historical_sync_pr_pipeline(
     phases = request.phases if request else ["A", "B"]
     months_back = request.months_back if request else 3
 
-    try:
-        github = GitHubClient(settings.GITHUB_TOKEN, OWNER, REPO)
-        collector = PRPipelineHistoricalCollector(github, db)
-        results = await collector.collect_historical(OWNER, REPO, phases, months_back)
-        await github.close()
-        return {"message": "Historical sync completed", "results": results}
-    except Exception as e:
-        logger.error(f"PR pipeline historical sync failed: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=str(e))
+    from uuid import uuid4
+
+    from shared.services.task_manager import TaskManager
+
+    task_id = await TaskManager.create_task(
+        db,
+        "pr_historical_sync",
+        {"phases": phases, "months_back": months_back},
+        f"pr_historical_sync:manual:{uuid4()}",
+        required_capability="python",
+        priority=10,
+    )
+    await db.commit()
+    return {
+        "message": "Historical PR sync task queued",
+        "task_id": task_id,
+        "running": task_id is not None,
+    }
 
 
 @router.get("/{pr_number}", response_model=PullRequestResponse)

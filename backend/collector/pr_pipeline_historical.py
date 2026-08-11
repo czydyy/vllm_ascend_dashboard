@@ -7,7 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from shared.models import PullRequest
 from shared.services.github_client import GitHubRateLimitError
-from shared.services.pr_pipeline_collector import PRPipelineCollector
+from collector.pr_pipeline import PRPipelineCollector
 
 logger = logging.getLogger(__name__)
 

@@ -17,7 +17,7 @@ from shared.db.base import SessionLocal
 from collector.ci import CICollector
 from .worker import CollectorWorker, TaskContext
 from shared.services.github_client import GitHubClient
-from shared.services.pr_pipeline_collector import PRPipelineCollector
+from collector.pr_pipeline import PRPipelineCollector
 
 logger = logging.getLogger(__name__)
 
@@ -59,6 +59,8 @@ class CollectorRunner:
                 await self._run_ci_sync(ctx, task_params)
             elif task_type == "pr_sync":
                 await self._run_pr_sync(ctx, task_params)
+            elif task_type == "pr_historical_sync":
+                await self._run_pr_historical_sync(ctx, task_params)
             elif task_type == "failure_analysis":
                 await self._run_failure_analysis(ctx, task_params)
             elif task_type == "issues_derivation":
@@ -164,5 +166,22 @@ class CollectorRunner:
                     settings.GITHUB_REPO,
                     days_back=int(task_params.get("days_back", 7)),
                 )
+        finally:
+            await github.close()
+
+    async def _run_pr_historical_sync(self, ctx: TaskContext, task_params: dict):
+        """Collect historical PR data; this can be long-running and rate-limited."""
+        from collector.pr_pipeline_historical import PRPipelineHistoricalCollector
+
+        github = GitHubClient(settings.GITHUB_TOKEN)
+        try:
+            async with SessionLocal() as db:
+                result = await PRPipelineHistoricalCollector(github, db).collect_historical(
+                    settings.GITHUB_OWNER,
+                    settings.GITHUB_REPO,
+                    phases=list(task_params.get("phases", ["A", "B"])),
+                    months_back=int(task_params.get("months_back", 3)),
+                )
+            logger.info("Historical PR task %d completed: %s", ctx.task_id, result)
         finally:
             await github.close()

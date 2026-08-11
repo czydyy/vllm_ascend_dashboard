@@ -4,7 +4,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from shared.services.pr_pipeline_collector import PRPipelineCollector
+from collector.pr_pipeline import PRPipelineCollector
 from shared.services.pr_pipeline_service import PRPipelineService
 from tests.conftest import make_ci_result, make_pr
 
