@@ -29,6 +29,21 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
+    services:
+      mysql:
+        image: mysql:8.0
+        env:
+          MYSQL_ROOT_PASSWORD: test-root-password
+          MYSQL_DATABASE: vllm_dashboard_test
+          MYSQL_USER: dashboard
+          MYSQL_PASSWORD: test-database-password
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping -h localhost -uroot -ptest-root-password"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=12
 
     steps:
       - name: Checkout
@@ -41,6 +56,10 @@ jobs:
 
       - name: Backend checks
         working-directory: backend
+        env:
+          TEST_DATABASE_URL: mysql+aiomysql://dashboard:test-database-password@127.0.0.1:3306/vllm_dashboard_test
+          JWT_SECRET: test-jwt-secret-key-at-least-32-chars-long
+          GITHUB_TOKEN: github_pat_test_token_for_ci_tests
         run: |
           uv sync --locked --dev
           uv run ruff check app scripts
@@ -110,8 +129,8 @@ jobs:
         id: backend_image
         uses: docker/build-push-action@v6
         with:
-          context: ./backend
-          file: ./backend/Dockerfile.prod
+          context: .
+          file: ./services/api/Dockerfile
           push: true
           tags: |
             ${{ env.REGISTRY }}/${{ env.IMAGE_NAME_BACKEND }}:${{ steps.version.outputs.version }}

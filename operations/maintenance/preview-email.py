@@ -14,16 +14,19 @@ import os
 import sys
 from pathlib import Path
 
-# 确保 backend 根目录在 sys.path
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+# Keep maintenance operations outside the application package while importing
+# the API service code from the checkout.
+repository_root = Path(__file__).resolve().parents[2]
+backend_root = repository_root / "backend"
+sys.path.insert(0, str(backend_root))
 
 import markdown as md_lib
 from jinja2 import Environment, FileSystemLoader
 
 from app.services.chart_renderer import render_charts
 
-TEMPLATES_DIR = Path(__file__).resolve().parent.parent / "app" / "templates"
-OUTPUT_FILE = Path(__file__).resolve().parent.parent / "debug_email_preview.html"
+TEMPLATES_DIR = backend_root / "app" / "templates"
+OUTPUT_FILE = backend_root / "debug_email_preview.html"
 
 
 def _build_mock_data() -> dict:

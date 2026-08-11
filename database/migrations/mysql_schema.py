@@ -11,7 +11,11 @@ from pathlib import Path
 
 from sqlalchemy import inspect, text
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+repository_root = Path(__file__).resolve().parents[2]
+application_root = repository_root / "backend"
+if not application_root.is_dir():
+    application_root = repository_root
+sys.path.insert(0, str(application_root))
 
 from app.db.base import SessionLocal, engine
 

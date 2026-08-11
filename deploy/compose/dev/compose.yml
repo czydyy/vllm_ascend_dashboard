@@ -36,8 +36,8 @@ services:
 
   backend:
     build:
-      context: ../../../backend
-      dockerfile: Dockerfile.prod
+      context: ../../../
+      dockerfile: services/api/Dockerfile
     env_file:
       - ../../../.env.local
     environment:
@@ -76,15 +76,15 @@ services:
 
   scheduler:
     build:
-      context: ../../../backend
-      dockerfile: Dockerfile.prod
+      context: ../../../
+      dockerfile: services/api/Dockerfile
     env_file:
       - ../../../.env.local
     environment:
       DATABASE_URL: mysql+aiomysql://${MYSQL_USER:-dashboard}:${MYSQL_PASSWORD}@mysql:3306/${MYSQL_DATABASE:-vllm_dashboard}
       ENVIRONMENT: development
       DATA_DIR: /app/data
-    command: python -m app.scheduler
+    command: python services/scheduler/run.py
     volumes:
       - dev_backend_data:/app/data
     depends_on:
@@ -94,8 +94,8 @@ services:
 
   collector:
     build:
-      context: ../../../backend
-      dockerfile: Dockerfile.prod
+      context: ../../../
+      dockerfile: services/api/Dockerfile
     env_file:
       - ../../../.env.local
     environment:
@@ -104,7 +104,7 @@ services:
       DATA_DIR: /app/data
       NODE_ID: collector-dev-1
       CAPABILITIES: python
-    command: python -m app.collector
+    command: python services/collector/run.py
     volumes:
       - dev_backend_data:/app/data
     depends_on:

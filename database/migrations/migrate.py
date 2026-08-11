@@ -13,12 +13,23 @@ from pathlib import Path
 
 from sqlalchemy import text
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+repository_root = Path(__file__).resolve().parents[2]
+# Source checkouts keep application code under ``backend/``; the production
+# image copies it directly to ``/app``.  Support both layouts without making
+# the migration command depend on its former ``backend/scripts`` location.
+application_root = repository_root / "backend"
+if not application_root.is_dir():
+    application_root = repository_root
+sys.path.insert(0, str(application_root))
 
 from app.db.base import SessionLocal, engine
 from scripts.init_db import create_tables_with_latest_schema
-from scripts.migration.mysql_schema import migrate as migrate_mysql_schema
-from scripts.migration.task_queue import run as migrate_phase_a
+if (repository_root / "backend").is_dir():
+    from database.migrations.mysql_schema import migrate as migrate_mysql_schema
+    from database.migrations.task_queue import run as migrate_phase_a
+else:
+    from scripts.migration.mysql_schema import migrate as migrate_mysql_schema
+    from scripts.migration.task_queue import run as migrate_phase_a
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
 logger = logging.getLogger("database_migration")

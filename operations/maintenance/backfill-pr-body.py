@@ -23,7 +23,8 @@ import logging
 import sys
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).parent.parent))
+repository_root = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(repository_root / "backend"))
 
 from sqlalchemy import select
 

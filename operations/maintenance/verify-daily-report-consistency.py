@@ -6,7 +6,8 @@ from datetime import date, timedelta
 from pathlib import Path
 from types import SimpleNamespace
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+repository_root = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(repository_root / "backend"))
 
 from app.db.base import SessionLocal, engine
 from app.services.daily_report import DailyReportService, _today_shanghai

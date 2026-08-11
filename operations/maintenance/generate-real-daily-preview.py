@@ -11,7 +11,9 @@ from pathlib import Path
 
 from sqlalchemy import select
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+repository_root = Path(__file__).resolve().parents[2]
+backend_root = repository_root / "backend"
+sys.path.insert(0, str(backend_root))
 
 from app.db.base import SessionLocal, engine
 from app.models import DailyReportHistory
@@ -30,7 +32,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--output",
         type=Path,
-        default=Path(__file__).resolve().parent.parent / "real_daily_report_preview.html",
+        default=backend_root / "real_daily_report_preview.html",
         help="HTML output path.",
     )
     return parser.parse_args()

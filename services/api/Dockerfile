@@ -13,7 +13,7 @@ WORKDIR /app
 COPY --from=uv /uv /usr/local/bin/uv
 
 # Copy pyproject.toml and README.md (required by hatchling)
-COPY pyproject.toml uv.lock README.md ./
+COPY backend/pyproject.toml backend/uv.lock backend/README.md ./
 
 # Create virtual environment and install dependencies from pyproject.toml
 ENV UV_PROJECT_ENVIRONMENT=/opt/venv
@@ -61,10 +61,12 @@ ENV PATH="/opt/venv/bin:$PATH"
 
 # Install lizard for code complexity analysis
 # Copy application code
-COPY app/ ./app/
+COPY backend/app/ ./app/
+COPY services/scheduler/ ./services/scheduler/
+COPY services/collector/ ./services/collector/
 
 # Copy skills/agents
-COPY .agents/ ./.agents/
+COPY backend/.agents/ ./.agents/
 
 # Install skills for Claude Code CLI (so CLI finds them natively)
 RUN mkdir -p /home/appuser/.claude/skills \
@@ -72,10 +74,11 @@ RUN mkdir -p /home/appuser/.claude/skills \
     && chown -R appuser:appuser /home/appuser/.claude
 
 # Copy scripts directory
-COPY scripts/ ./scripts/
+COPY database/migrations/ ./scripts/migration/
+COPY backend/scripts/init_db.py ./scripts/init_db.py
 
 # Copy entrypoint script
-COPY docker-entrypoint.sh /docker-entrypoint.sh
+COPY services/api/docker-entrypoint.sh /docker-entrypoint.sh
 RUN sed -i 's/\r$//' /docker-entrypoint.sh && chmod +x /docker-entrypoint.sh
 
 # Create data and logs directories for persistent storage
