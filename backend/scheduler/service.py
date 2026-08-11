@@ -1634,27 +1634,21 @@ class DataSyncScheduler:
             logger.error(f"Code metrics cleanup failed: {e}")
 
     async def _sync_heatmap_job(self):
-        """定时同步文件热力图数据（通过 GitHub API 获取 PR 文件列表）"""
-        try:
-            if not self.github_client:
-                self._initialize_github_client()
+        """Queue GitHub heatmap synchronization for Collector execution."""
+        from shared.services.task_manager import TaskManager
 
-            from api.v1.code_metrics import _sync_heatmap_from_github
-
-            async with SessionLocal() as db:
-                result = await _sync_heatmap_from_github(
-                    db,
-                    self.github_client,
-                    settings.GITHUB_OWNER,
-                    settings.GITHUB_REPO,
-                    days=30,
-                )
-                logger.info(
-                    f"Heatmap sync: updated {result.get('updated', 0)} files "
-                    f"({result.get('total_files', 0)} total)"
-                )
-        except Exception as e:
-            logger.error(f"Heatmap sync failed: {e}")
+        dedupe_key = f"code_heatmap_sync:scheduled:{datetime.now(UTC).strftime('%Y-%m-%d')}"
+        async with SessionLocal() as db:
+            task_id = await TaskManager.create_task(
+                db,
+                "code_heatmap_sync",
+                {"days": 30},
+                dedupe_key,
+                required_capability="python",
+            )
+            await db.commit()
+        if task_id:
+            logger.info("Queued code heatmap synchronization task %d", task_id)
 
     async def _collect_code_metrics_job(self):
         """Queue code metrics collection; only Collector may run local tools."""

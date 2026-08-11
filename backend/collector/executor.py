@@ -69,6 +69,8 @@ class CollectorRunner:
                 await self._run_model_sync(ctx, task_params)
             elif task_type == "code_metrics_collect":
                 await self._run_code_metrics_collect(ctx, task_params)
+            elif task_type == "code_heatmap_sync":
+                await self._run_code_heatmap_sync(ctx, task_params)
             else:
                 raise ValueError(f"Unsupported collection task type: {task_type}")
         finally:
@@ -146,6 +148,24 @@ class CollectorRunner:
                 branch=str(task_params.get("branch", "main"))
             )
         logger.info("Code metrics task %d completed: %s", ctx.task_id, result)
+
+    async def _run_code_heatmap_sync(self, ctx: TaskContext, task_params: dict):
+        """Synchronize the code heatmap via GitHub from the Collector role."""
+        from collector.heatmap import sync_heatmap_from_github
+
+        github = GitHubClient(settings.GITHUB_TOKEN)
+        try:
+            async with SessionLocal() as db:
+                result = await sync_heatmap_from_github(
+                    db,
+                    github,
+                    settings.GITHUB_OWNER,
+                    settings.GITHUB_REPO,
+                    days=int(task_params.get("days", 30)),
+                )
+            logger.info("Code heatmap task %d completed: %s", ctx.task_id, result)
+        finally:
+            await github.close()
 
     async def _run_issues_derivation(self, ctx: TaskContext):
         """Derive test-board issue counts from durable worker execution."""

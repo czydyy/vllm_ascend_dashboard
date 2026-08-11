@@ -495,17 +495,20 @@ async def sync_heatmap(
     days: int = Query(30, ge=1, le=365),
 ):
     """从 PR 数据聚合文件变更频率，更新热力图"""
-    from shared.services.github_client import GitHubClient
-    from shared.core.config import settings
+    from uuid import uuid4
 
-    client = GitHubClient(token=settings.GITHUB_TOKEN)
-    try:
-        result = await _sync_heatmap_from_github(
-            db, client, settings.GITHUB_OWNER, settings.GITHUB_REPO, days
-        )
-    finally:
-        await client.close()
-    return result
+    from shared.services.task_manager import TaskManager
+
+    task_id = await TaskManager.create_task(
+        db,
+        "code_heatmap_sync",
+        {"days": days},
+        f"code_heatmap_sync:manual:{uuid4()}",
+        required_capability="python",
+        priority=10,
+    )
+    await db.commit()
+    return {"status": "queued", "task_id": task_id, "days": days}
 
 
 @router.get("/trends", summary="趋势数据")
