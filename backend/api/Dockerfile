@@ -62,8 +62,8 @@ ENV PATH="/opt/venv/bin:$PATH"
 # Install lizard for code complexity analysis
 # Copy application code
 COPY backend/app/ ./app/
-COPY services/scheduler/ ./services/scheduler/
-COPY services/collector/ ./services/collector/
+COPY backend/scheduler/ ./scheduler/
+COPY backend/collector/ ./collector/
 
 # Copy skills/agents
 COPY backend/.agents/ ./.agents/
@@ -78,7 +78,7 @@ COPY database/migrations/ ./scripts/migration/
 COPY database/bootstrap.py ./scripts/init_db.py
 
 # Copy entrypoint script
-COPY services/api/docker-entrypoint.sh /docker-entrypoint.sh
+COPY backend/api/docker-entrypoint.sh /docker-entrypoint.sh
 RUN sed -i 's/\r$//' /docker-entrypoint.sh && chmod +x /docker-entrypoint.sh
 
 # Create data and logs directories for persistent storage
