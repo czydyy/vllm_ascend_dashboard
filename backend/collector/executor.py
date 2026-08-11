@@ -49,6 +49,18 @@ class CollectorRunner:
                 task_params = json.loads(task_params)
             task_params = task_params or {}
 
+        if task_type in {
+            "ci_sync",
+            "pr_sync",
+            "pr_historical_sync",
+            "model_sync",
+            "test_board_sync",
+            "code_heatmap_sync",
+        }:
+            from infrastructure.core.github_config import load_github_runtime_config
+
+            await load_github_runtime_config()
+
         logger.info("Executing task %d type=%s generation=%d", ctx.task_id, task_type, ctx.lease_generation)
 
         # 后台续约

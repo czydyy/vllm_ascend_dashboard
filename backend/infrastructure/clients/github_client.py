@@ -9,6 +9,8 @@ from typing import Any
 
 import httpx
 
+from infrastructure.core.config import settings
+
 logger = logging.getLogger(__name__)
 
 
@@ -43,7 +45,7 @@ class GitHubClient:
     RETRY_DELAY = 1.0  # 秒
     RETRY_BACKOFF = 2.0  # 指数退避因子
 
-    def __init__(self, token: str, owner: str = "vllm-project", repo: str = "vllm-ascend"):
+    def __init__(self, token: str, owner: str | None = None, repo: str | None = None):
         """
         初始化 GitHub 客户端
         
@@ -53,8 +55,8 @@ class GitHubClient:
             repo: 仓库名
         """
         self.token = token
-        self.owner = owner
-        self.repo = repo
+        self.owner = owner or settings.GITHUB_OWNER or "vllm-project"
+        self.repo = repo or settings.GITHUB_REPO or "vllm-ascend"
 
         # 速率限制状态
         self.rate_limit_remaining = 5000
@@ -69,7 +71,7 @@ class GitHubClient:
             limits=httpx.Limits(max_keepalive_connections=10, max_connections=20),
         )
 
-        logger.info(f"GitHubClient initialized for {owner}/{repo}")
+        logger.info(f"GitHubClient initialized for {self.owner}/{self.repo}")
 
     def _get_headers(self) -> dict[str, str]:
         """获取请求头"""

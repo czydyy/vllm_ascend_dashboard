@@ -1434,6 +1434,9 @@ def start_scheduler() -> None:
 
 async def start_scheduler_async() -> None:
     """启动全局调度器并加载 DB 配置覆盖"""
+    from infrastructure.core.github_config import load_github_runtime_config
+
+    await load_github_runtime_config()
     scheduler = get_scheduler()
     scheduler.start()
     await scheduler.apply_db_config_overrides()

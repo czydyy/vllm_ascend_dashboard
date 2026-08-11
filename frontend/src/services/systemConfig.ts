@@ -54,9 +54,7 @@ export const updateAppConfig = async (data: AppConfigUpdate): Promise<{ success:
  * 更新 GitHub 配置
  */
 export const updateGitHubConfig = async (data: GitHubConfigUpdate): Promise<{ success: boolean; message: string; updates: string[] }> => {
-  const response = await api.put('/system/config/github', null, {
-    params: data,
-  })
+  const response = await api.put('/system/config/github', data)
   return response.data
 }
 

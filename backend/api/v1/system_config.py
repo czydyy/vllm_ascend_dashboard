@@ -7,7 +7,8 @@ import re
 from datetime import UTC
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Body, Depends, HTTPException, Query, status
+from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -21,6 +22,10 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
+class GitHubConfigUpdateRequest(BaseModel):
+    github_token: str | None = None
+
+
 @router.get("")
 async def get_system_config(
     current_user: Annotated[User, Depends(get_current_active_super_admin_user)]
@@ -32,7 +37,10 @@ async def get_system_config(
     返回可公开的配置信息（敏感数据如 token 会脱敏显示）
     """
     # 时区配置从数据库读取，默认 Asia/Shanghai
+    from infrastructure.core.github_config import load_github_runtime_config
     from sqlalchemy import select
+
+    await load_github_runtime_config()
     from infrastructure.persistence.models import ProjectDashboardConfig
     from infrastructure.db.base import SessionLocal
     
@@ -158,6 +166,7 @@ async def update_app_config(
 
 @router.put("/github")
 async def update_github_config(
+    payload: GitHubConfigUpdateRequest | None = Body(default=None),
     github_token: str | None = Query(None),
     current_user: Annotated[User, Depends(get_current_active_super_admin_user)] = None
 ):
@@ -169,33 +178,22 @@ async def update_github_config(
 
     注意：GitHub 项目固定为 vllm-project/vllm-ascend，不可修改
     """
-    from infrastructure.core.config_manager import update_env_config
+    from infrastructure.core.github_config import persist_github_runtime_config
 
     updates = []
-    env_updates = {}
 
-    if github_token is not None and len(github_token.strip()) > 0:
+    requested_token = payload.github_token if payload else github_token
+    if requested_token is not None and len(requested_token.strip()) > 0:
         # 验证 token 格式（GitHub token 通常以 ghp_ 或 github_pat_ 开头）
-        token = github_token.strip()
+        token = requested_token.strip()
         if not (token.startswith("ghp_") or token.startswith("github_pat_")) and len(token) < 10:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="GitHub Token 格式不正确，应以 ghp_ 或 github_pat_ 开头",
             )
         settings.GITHUB_TOKEN = token
-        env_updates['github_token'] = token
+        await persist_github_runtime_config(token=token)
         updates.append("GitHub Token 已更新")
-
-    # 同步更新 .env 文件
-    if env_updates:
-        try:
-            success = update_env_config(env_updates)
-            if success:
-                updates.append(".env 文件已更新")
-            else:
-                logger.warning("Failed to update .env file")
-        except Exception as e:
-            logger.error(f"Failed to update .env file: {e}")
 
     return {
         "success": True,
