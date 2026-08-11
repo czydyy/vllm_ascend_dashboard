@@ -116,31 +116,41 @@ backup_tables="$pre_tables_total"
 
 # 恢复校验：将备份恢复到隔离的验证库
 if $VERIFY_RESTORE; then
-    verify_db="vllm_dashboard_verify_${timestamp}"
-    [[ "$verify_db" =~ ^[a-zA-Z0-9_]+$ ]] || die "unsafe verification database name"
+    verify_prefix="vllm_dashboard_verify_${timestamp}"
+    verify_dbs=""
+    sed_args=()
+    for db in $EXISTING_DBS; do
+        verify_db="${verify_prefix}_${db}"
+        [[ "$verify_db" =~ ^[a-zA-Z0-9_]+$ ]] || die "unsafe verification database name"
+        verify_dbs="$verify_dbs $verify_db"
+        sed_args+=( -e "s/\`$db\`/\`$verify_db\`/g" )
+    done
     cleanup_verify() {
-        docker exec "$MYSQL_CONTAINER" sh -c \
-            'exec mysql -uroot -p"$MYSQL_ROOT_PASSWORD" -e "DROP DATABASE IF EXISTS \`$1\`"' sh "$verify_db" \
-            >/dev/null 2>&1 || true
+        for verify_db in $verify_dbs; do
+            docker exec "$MYSQL_CONTAINER" sh -c \
+                'exec mysql -uroot -p"$MYSQL_ROOT_PASSWORD" -e "DROP DATABASE IF EXISTS \`$1\`"' sh "$verify_db" \
+                >/dev/null 2>&1 || true
+        done
     }
     trap cleanup_verify EXIT
 
-    docker exec "$MYSQL_CONTAINER" sh -c \
-        'exec mysql -uroot -p"$MYSQL_ROOT_PASSWORD" -e "CREATE DATABASE \`$1\` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci"' sh "$verify_db"
     # 去掉 GTID_PURGED 语句（verify 用独立临时库，不需要 GTID）
-    sed '/^SET @@GLOBAL.GTID_PURGED=/d' "$backup_file" | \
+    sed '/^SET @@GLOBAL.GTID_PURGED=/d' "$backup_file" | sed "${sed_args[@]}" | \
     docker exec -i "$MYSQL_CONTAINER" sh -c \
-        'exec mysql -uroot -p"$MYSQL_ROOT_PASSWORD" "$1"' sh "$verify_db"
+        'exec mysql -uroot -p"$MYSQL_ROOT_PASSWORD"'
 
     # 验证用户数和表数
     backup_users=0
     backup_tables=0
     for db in $EXISTING_DBS; do
-        db_users="$(docker exec "$MYSQL_CONTAINER" sh -c \
-            'exec mysql -uroot -p"$MYSQL_ROOT_PASSWORD" "$1" -N -e "SELECT COUNT(*) FROM users" 2>/dev/null || echo 0' sh "$db")"
-        db_tables="$(docker exec "$MYSQL_CONTAINER" sh -c \
-            'exec mysql -uroot -p"$MYSQL_ROOT_PASSWORD" "$1" -N -e "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema=\"'$db'\"" 2>/dev/null || echo 0' sh "$verify_db")"
-        backup_users=$((backup_users + db_users))
+        verify_db="${verify_prefix}_${db}"
+        if mysql_root_exec "SELECT 1 FROM information_schema.tables WHERE table_schema='$verify_db' AND table_name='users'" 2>/dev/null | grep -q 1; then
+            db_users="$(mysql_root_exec "SELECT COUNT(*) FROM \`$verify_db\`.users" 2>/dev/null || echo 0)"
+            [[ "$db_users" =~ ^[0-9]+$ ]] || die "restore verification user count is invalid for $verify_db: $db_users"
+            backup_users=$((backup_users + db_users))
+        fi
+        db_tables="$(mysql_root_exec "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema='$verify_db'" 2>/dev/null || echo 0)"
+        [[ "$db_tables" =~ ^[0-9]+$ ]] || die "restore verification table count is invalid for $verify_db: $db_tables"
         backup_tables=$((backup_tables + db_tables))
     done
 
