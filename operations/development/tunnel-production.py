@@ -4,7 +4,7 @@ import paramiko, socket, threading, time, os, sys
 JUMP = os.environ.get("JUMP_HOST", "123.57.0.174")
 PROD = os.environ.get("PROD_HOST", "190.92.220.4")
 KEY = os.environ.get("SSH_KEY", os.path.expanduser("~/.ssh/id_rsa"))
-PASS = os.environ.get("PROD_PASS", "openlab@123")
+PASS = os.environ.get("PROD_PASS")
 MYSQL_IP = os.environ.get("MYSQL_IP", "172.27.0.4")
 
 # Parse FORWARDS from env: "3307:172.27.0.4:3306,8080:127.0.0.1:8080"
@@ -16,6 +16,8 @@ for f in forwards_str.split(","):
         FORWARDS.append((int(parts[0]), (parts[1], int(parts[2]))))
 
 def run():
+    if not PASS:
+        raise RuntimeError("PROD_PASS must be set; the tunnel never embeds production credentials")
     while True:
         try:
             key = paramiko.RSAKey.from_private_key_file(KEY)

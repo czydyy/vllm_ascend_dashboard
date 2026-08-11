@@ -10,7 +10,7 @@ NC='\033[0m' # No Color
 
 # 脚本目录
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
+PROJECT_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 BACKEND_DIR="$PROJECT_ROOT/backend"
 
 # 日志函数
@@ -155,18 +155,10 @@ init_backend() {
 
     # 创建数据库和初始管理员用户
     log_info "初始化数据库..."
-    uv run python scripts/init_db.py || {
+    uv run python ../database/bootstrap.py || {
         log_warning "数据库初始化失败，可能已经初始化过了"
         log_warning "如果需要重新初始化，请先删除数据库文件"
     }
-
-    # 执行数据库升级（确保 schema 与代码同步）
-    log_info "检查并执行数据库升级..."
-    if uv run python scripts/upgrade_db.py; then
-        log_success "数据库升级完成"
-    else
-        log_warning "数据库升级失败，请检查错误信息"
-    fi
 
     cd "$PROJECT_ROOT"
     log_success "后端初始化完成"

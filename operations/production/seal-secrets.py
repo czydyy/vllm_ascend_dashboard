@@ -3,9 +3,9 @@
 Step 0.0: Secret 加密打包工具
 
 用法:
-  python scripts/seal_secrets.py seal   < .env.production > secrets.env.enc
-  python scripts/seal_secrets.py verify < secrets.env.enc
-  python scripts/seal_secrets.py export < secrets.env.enc  # 解密输出（仅本地调试）
+  python operations/production/seal-secrets.py seal   < .env.production > secrets.env.enc
+  python operations/production/seal-secrets.py verify < secrets.env.enc
+  python operations/production/seal-secrets.py export < secrets.env.enc  # 解密输出（仅本地调试）
 """
 import sys
 import json

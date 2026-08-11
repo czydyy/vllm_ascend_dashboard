@@ -1,7 +1,7 @@
 #!/bin/bash
 # Binlog 异地归档脚本
 # 每 4 小时执行一次，归档目标 RPO ≤ 4 小时。
-# cron: 0 */4 * * * bash /root/vllm_ascend_dashboard/scripts/archive_binlog.sh
+# cron: 0 */4 * * * bash /root/vllm_ascend_dashboard/operations/cluster/archive-binlog.sh
 set -euo pipefail
 
 ARCHIVE_HOST="${ARCHIVE_HOST:-node-a}"
