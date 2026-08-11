@@ -954,30 +954,27 @@ class DataSyncScheduler:
                 raise
 
     async def _sync_pr_pipeline_job(self) -> None:
-        logger.info("PR PIPELINE SYNC JOB STARTED")
+        """Queue PR synchronization; Collector owns the GitHub I/O and mutation."""
+        from shared.services.task_manager import TaskManager
 
-        if not self.github_client:
-            self._initialize_github_client()
-
+        days_back = getattr(settings, "PR_PIPELINE_DAYS_BACK", 7)
+        # A stable one-minute window suppresses duplicate enqueues after a
+        # Scheduler restart without preventing the next scheduled run.
+        dedupe_key = f"pr_sync:scheduled:{datetime.now(UTC).strftime('%Y-%m-%dT%H:%M')}"
         async with SessionLocal() as db:
-            try:
-                from shared.services.pr_pipeline_collector import PRPipelineCollector
+            task_id = await TaskManager.create_task(
+                db,
+                "pr_sync",
+                {"days_back": days_back},
+                dedupe_key,
+                required_capability="python",
+            )
+            await db.commit()
 
-                collector = PRPipelineCollector(
-                    github_client=self.github_client,
-                    db_session=db,
-                )
-
-                days_back = getattr(settings, 'PR_PIPELINE_DAYS_BACK', 7)
-                owner = settings.GITHUB_OWNER
-                repo = settings.GITHUB_REPO
-
-                collected = await collector.collect_prs(owner, repo, days_back=days_back)
-
-                logger.info(f"PR PIPELINE SYNC JOB COMPLETED - Collected {collected} PRs")
-            except Exception as e:
-                logger.error(f"PR PIPELINE SYNC JOB FAILED - Error: {e}", exc_info=True)
-                raise
+        if task_id:
+            logger.info("Queued PR pipeline sync task %d", task_id)
+        else:
+            logger.info("PR pipeline sync is already queued or running")
 
     async def _cleanup_logs_job(self) -> None:
         logger.info("LOG CLEANUP JOB STARTED")
