@@ -75,7 +75,7 @@ RUN mkdir -p /home/appuser/.claude/skills \
 
 # Copy scripts directory
 COPY database/migrations/ ./scripts/migration/
-COPY backend/scripts/init_db.py ./scripts/init_db.py
+COPY database/bootstrap.py ./scripts/init_db.py
 
 # Copy entrypoint script
 COPY services/api/docker-entrypoint.sh /docker-entrypoint.sh

@@ -8,7 +8,7 @@
 ### 绝对禁止的操作
 
 1. **禁止直接删除数据库文件**（`rm dashboard.db`）
-2. **禁止在生产环境运行 `init_db.py` 时不加 `--no-users` 参数**（会重置所有用户）
+2. **禁止在生产环境运行 `database/bootstrap.py` 时不加 `--no-users` 参数**（会重置所有用户）
 3. **禁止在未备份数据库的情况下执行部署/升级操作**
 4. **禁止直接修改数据库表结构**（必须通过迁移脚本）
 5. **禁止在未验证备份的情况下继续部署**
@@ -40,14 +40,14 @@ bash operations/production/deploy.sh
 # ❌ 错误：直接拉代码重启（无备份无验证）
 git pull && systemctl restart dashboard-backend
 
-# ❌ 错误：直接运行 init_db.py（会重置用户）
-python scripts/init_db.py
+# ❌ 错误：直接运行 database/bootstrap.py（会重置用户）
+python database/bootstrap.py
 ```
 
 ## 数据库操作规范
 
 - **备份命令**: `bash operations/production/backup.sh`
-- **迁移命令**: `python scripts/init_db.py --no-users`（仅建表/升级，不碰用户）
+- **迁移命令**: `python database/bootstrap.py --no-users`（仅建表/升级，不碰用户）
 - **回滚命令**: `bash operations/production/deploy.sh --rollback`
 - **定时备份**: cron 每小时自动执行 `backup_db.sh --silent`
 - **备份保留**: 30 天，超出自动清理

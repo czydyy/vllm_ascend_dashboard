@@ -38,7 +38,7 @@ def test_application_startup_does_not_alter_existing_schema():
 def test_production_uses_one_explicit_migration_command():
     production_entrypoint = (ROOT / "operations" / "production" / "migrate.sh").read_text(encoding="utf-8")
     migration = (ROOT / "database" / "migrations" / "migrate.py").read_text(encoding="utf-8")
-    initializer = (ROOT / "backend" / "scripts" / "init_db.py").read_text(encoding="utf-8")
+    initializer = (ROOT / "database" / "bootstrap.py").read_text(encoding="utf-8")
 
     assert "scripts/migration/migrate.py" in production_entrypoint
     assert "scripts/init_db.py" not in production_entrypoint

@@ -21,7 +21,11 @@ from datetime import datetime
 from pathlib import Path
 
 # 添加父目录到路径以便导入
-sys.path.insert(0, str(Path(__file__).parent.parent))
+repository_root = Path(__file__).resolve().parents[1]
+application_root = repository_root / "backend"
+if not application_root.is_dir():
+    application_root = repository_root
+sys.path.insert(0, str(application_root))
 
 # 配置日志
 logging.basicConfig(

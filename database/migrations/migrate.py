@@ -23,11 +23,12 @@ if not application_root.is_dir():
 sys.path.insert(0, str(application_root))
 
 from app.db.base import SessionLocal, engine
-from scripts.init_db import create_tables_with_latest_schema
 if (repository_root / "backend").is_dir():
+    from database.bootstrap import create_tables_with_latest_schema
     from database.migrations.mysql_schema import migrate as migrate_mysql_schema
     from database.migrations.task_queue import run as migrate_phase_a
 else:
+    from scripts.init_db import create_tables_with_latest_schema
     from scripts.migration.mysql_schema import migrate as migrate_mysql_schema
     from scripts.migration.task_queue import run as migrate_phase_a
 
