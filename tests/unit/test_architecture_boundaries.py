@@ -43,3 +43,7 @@ def test_scheduler_never_depends_on_collector_implementation() -> None:
 
 def test_api_never_depends_on_collector_implementation() -> None:
     _assert_no_role_imports("api", ("collector",))
+
+
+def test_reporting_never_depends_on_http_api() -> None:
+    _assert_no_role_imports("reporting", ("api",))

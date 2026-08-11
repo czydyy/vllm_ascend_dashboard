@@ -73,6 +73,7 @@ COPY backend/failure_analysis/ ./failure_analysis/
 COPY backend/test_board/ ./test_board/
 COPY backend/model_sync/ ./model_sync/
 COPY backend/support_matrix/ ./support_matrix/
+COPY backend/pr_pipeline/ ./pr_pipeline/
 COPY backend/resources/ ./resources/
 COPY backend/templates/ ./templates/
 

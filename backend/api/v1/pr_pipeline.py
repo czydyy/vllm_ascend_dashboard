@@ -16,7 +16,7 @@ from contracts.schemas.pr_pipeline import (
     PRPipelineTrendsResponse,
     PullRequestResponse,
 )
-from api.services.pr_pipeline_service import PRPipelineService
+from pr_pipeline.pr_pipeline_service import PRPipelineService
 
 logger = logging.getLogger(__name__)
 
