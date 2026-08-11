@@ -4,7 +4,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from api.services.daily_report import DailyReportService
+from reporting.daily_report import DailyReportService
 
 
 @pytest.mark.asyncio

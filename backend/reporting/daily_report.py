@@ -32,7 +32,7 @@ from infrastructure.storage.daily_data_file_store import DailyDataFileStore
 logger = logging.getLogger(__name__)
 
 SHANGHAI_TZ = ZoneInfo("Asia/Shanghai")
-TEMPLATES_DIR = Path(__file__).parents[2] / "templates"
+TEMPLATES_DIR = Path(__file__).parents[1] / "templates"
 
 REPORT_CONFIG_KEY = "daily_report_config"
 

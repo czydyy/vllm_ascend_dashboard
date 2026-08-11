@@ -64,7 +64,7 @@ class TestCaseDef:
 
 def load_model_fo_map() -> dict[str, str]:
     """加载 data/model_fo_map.json 中的模型→FO映射。
-    本地：backend/shared/services/ → 4 层 parent 到项目根
+    本地：backend/tooling/parsers/ → 4 层 parent 到项目根
     容器：/app/app/services/ → 3 层 parent 到 /app（WORKDIR）
     用环境变量 DATA_DIR 兜底，找不到则依次尝试候选路径。
     """

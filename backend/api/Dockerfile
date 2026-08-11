@@ -68,7 +68,6 @@ COPY backend/infrastructure/ ./infrastructure/
 COPY backend/contracts/ ./contracts/
 COPY backend/resources/ ./resources/
 COPY backend/templates/ ./templates/
-COPY backend/shared/ ./shared/
 
 # Copy skills/agents
 COPY backend/.agents/ ./.agents/

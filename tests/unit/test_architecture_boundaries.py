@@ -29,8 +29,8 @@ def _assert_no_role_imports(package: str, forbidden: tuple[str, ...]) -> None:
     assert not violations, f"{package} has forbidden role imports: {violations}"
 
 
-def test_shared_never_depends_on_a_deployable_role() -> None:
-    _assert_no_role_imports("shared", ("api", "scheduler", "collector"))
+def test_legacy_shared_package_is_removed() -> None:
+    assert not (BACKEND / "shared").exists(), "business code must not return to backend/shared"
 
 
 def test_scheduler_never_depends_on_the_http_api() -> None:

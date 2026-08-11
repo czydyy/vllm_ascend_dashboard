@@ -15,7 +15,7 @@ from contracts.schemas import (
     ResourceDashboardResponse,
 )
 from infrastructure.clients.kubernetes_client import encrypt_kubeconfig
-from shared.services.resource_dashboard import ResourceDashboardService
+from infrastructure.clients.resource_dashboard import ResourceDashboardService
 
 router = APIRouter()
 

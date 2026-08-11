@@ -27,7 +27,10 @@ from contracts.schemas import (
     ModelReportUpdate,
     ModelTrendData,
 )
-from shared.services import GitHubClient, ModelSyncService, ModelTrendService, StartupCommandGenerator
+from infrastructure.clients.github_client import GitHubClient
+from collector.services.model_sync_service import ModelSyncService
+from api.services.model_trend_service import ModelTrendService
+from tooling.generators.startup_command_generator import StartupCommandGenerator
 
 router = APIRouter()
 

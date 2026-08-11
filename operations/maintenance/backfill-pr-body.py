@@ -28,9 +28,9 @@ sys.path.insert(0, str(repository_root / "backend"))
 
 from sqlalchemy import select
 
-from shared.core.config import settings
-from shared.db.base import SessionLocal
-from shared.models import PullRequest
+from infrastructure.core.config import settings
+from infrastructure.db.base import SessionLocal
+from infrastructure.persistence.models import PullRequest
 from infrastructure.clients.github_client import GitHubClient
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
