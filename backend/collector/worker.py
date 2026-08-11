@@ -91,7 +91,7 @@ class CollectorWorker:
             await self._semaphore.acquire()
             task_ctx = await self._claim_task()
             if task_ctx:
-                future = asyncio.ensure_future(self._task_executor(task_ctx, self._renew_lease))
+                future = asyncio.ensure_future(self._run_task_with_lease(task_ctx))
                 self._futures[task_ctx.task_id] = future
                 self._task_contexts[task_ctx.task_id] = task_ctx
                 future.add_done_callback(
@@ -124,6 +124,34 @@ class CollectorWorker:
             await asyncio.gather(self._heartbeat_task, return_exceptions=True)
         await self._write_heartbeat(running=False)
         logger.info("Collector %s shutdown complete", self.node_id)
+
+    async def _run_task_with_lease(self, task_ctx: TaskContext) -> None:
+        """Execute one task and persist its terminal state with lease fencing."""
+        try:
+            await self._task_executor(task_ctx, self._renew_lease)
+        except asyncio.CancelledError:
+            # Cancellation is shutdown/control flow, not a task failure.
+            await self._release_task_lease(task_ctx)
+            raise
+        except Exception as exc:
+            try:
+                await self._fail_task(
+                    task_ctx.task_id,
+                    task_ctx.lease_token,
+                    str(exc)[:1000],
+                    retry=True,
+                )
+            except Exception:
+                logger.exception("Failed to persist failure for task %d", task_ctx.task_id)
+            raise
+        else:
+            completed = await self._complete_task(task_ctx.task_id, task_ctx.lease_token)
+            if not completed:
+                logger.warning(
+                    "Task %d completed but its lease was no longer owned by %s",
+                    task_ctx.task_id,
+                    self.node_id,
+                )
 
     async def _heartbeat_loop(self) -> None:
         while not self._draining:
@@ -160,7 +188,7 @@ class CollectorWorker:
         except Exception as exc:
             logger.warning("Collector heartbeat write failed: %s", exc)
 
-    async def _execute_with_lease(self, ctx: TaskContext):
+    async def _execute_with_lease(self, ctx: TaskContext, renew_fn=None):
         """
         子类重写此方法实现具体采集逻辑。
 
@@ -288,10 +316,10 @@ class CollectorWorker:
 
     # ── 完成任务 ──
 
-    async def _complete_task(self, task_id: int, lease_token: str):
+    async def _complete_task(self, task_id: int, lease_token: str) -> bool:
         """标记任务完成。"""
         async with self._session_factory() as db:
-            await db.execute(
+            result = await db.execute(
                 text("""
                     UPDATE collection_tasks
                     SET status = 'completed',
@@ -306,6 +334,7 @@ class CollectorWorker:
                 {"task_id": task_id, "owner": self.node_id, "token": lease_token},
             )
             await db.commit()
+            return result.rowcount == 1
 
     # ── 失败处理 ──
 
@@ -344,6 +373,29 @@ class CollectorWorker:
             await db.commit()
 
     # ── 生命周期 ──
+
+    async def _release_task_lease(self, task_ctx: TaskContext) -> None:
+        """Return a cancelled task to pending without counting a failure."""
+        async with self._session_factory() as db:
+            await db.execute(
+                text("""
+                    UPDATE collection_tasks
+                    SET status = 'pending',
+                        lease_owner = NULL,
+                        lease_token = NULL,
+                        lease_expiry = NULL,
+                        next_retry_at = NOW()
+                    WHERE id = :task_id
+                      AND lease_owner = :owner
+                      AND lease_token = :token
+                """),
+                {
+                    "task_id": task_ctx.task_id,
+                    "owner": self.node_id,
+                    "token": task_ctx.lease_token,
+                },
+            )
+            await db.commit()
 
     def _on_task_done(self, task_id: int, future: asyncio.Task):
         """协程完成/异常/取消时清理。"""
