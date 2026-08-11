@@ -46,7 +46,7 @@ from api.v1 import (
 from infrastructure.core.config import settings
 from infrastructure.core.logging import setup_db_logging
 from infrastructure.db.base import engine
-from shared.middleware.usage_tracking import UsageTrackingMiddleware
+from api.middleware.usage_tracking import UsageTrackingMiddleware
 from infrastructure.persistence.models import Base
 # Database DDL is allowed only for local development. Production migrations
 # must be executed by the explicit release/migration job before the API starts.
