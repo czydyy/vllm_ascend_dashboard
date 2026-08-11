@@ -13,12 +13,12 @@ from pathlib import Path
 
 from sqlalchemy import text
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from app.db.base import SessionLocal, engine
 from scripts.init_db import create_tables_with_latest_schema
-from scripts.migrate_mysql_schema import migrate as migrate_mysql_schema
-from scripts.migrate_phase_a import run as migrate_phase_a
+from scripts.migration.mysql_schema import migrate as migrate_mysql_schema
+from scripts.migration.task_queue import run as migrate_phase_a
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
 logger = logging.getLogger("database_migration")

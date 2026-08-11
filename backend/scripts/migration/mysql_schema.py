@@ -11,7 +11,7 @@ from pathlib import Path
 
 from sqlalchemy import inspect, text
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from app.db.base import SessionLocal, engine
 

@@ -10,9 +10,9 @@ from pathlib import Path
 
 from sqlalchemy import text
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
-from app.db.base import SessionLocal, engine
+from app.db.base import engine
 
 logger = logging.getLogger("phase_a_migration")
 logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")

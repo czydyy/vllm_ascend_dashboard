@@ -719,52 +719,16 @@ async def create_default_users():
 # ============ 主流程 ============
 
 async def run_upgrades():
-    """执行数据库升级（兼容已有数据库）"""
-    print("Step 2: Running database upgrades (if needed)...")
-    
+    """Mark a local bootstrap database after current-schema creation.
+
+    Historical versioned upgrades are intentionally not executed here. Existing
+    MySQL databases must use the canonical production migration entrypoint.
+    """
     await ensure_version_table()
     current_version = await get_current_version()
-    logger.info(f"Current database version: {current_version}")
-    
-    # 如果当前版本是 0.0.0，说明是新数据库，不需要执行升级脚本
-    # 因为表结构已经是最新的了
     if current_version == "0.0.0":
-        logger.info("New database, marking as latest version")
-        await mark_version_applied("0.0.1", "Initial database creation with latest schema")
-        print("  ✅ New database initialized with latest schema (v0.0.1)\n")
-        return
-    
-    # 对于已有数据库（v0.2.0 - v0.2.7），执行 v0.0.1 升级脚本
-    # 这会合并 JobVisibility 表并删除 config_json 列
-    if current_version.startswith("0.2."):
-        print(f"  Upgrading from v{current_version} to v0.0.1...")
-        
-        # 导入并执行 v0.0.1 升级脚本
-        import importlib
-        try:
-            upgrade_v001 = importlib.import_module('scripts.upgrade_v0.0.1')
-            await upgrade_v001.upgrade()
-            
-            # 标记升级完成（如果升级脚本没有标记）
-            await mark_version_applied("0.0.1", "Merged JobVisibility and removed config_json")
-            print(f"  ✅ Successfully upgraded from v{current_version} to v0.0.1\n")
-        except ImportError as e:
-            logger.error(f"Failed to import upgrade script: {e}")
-            print(f"  ❌ Failed to import upgrade script: {e}\n")
-            raise
-        return
-    
-    # 对于其他版本，使用通用的升级机制
-    print("  Existing database detected, running upgrade scripts...")
-    
-    # 导入升级模块
-    import importlib
-    try:
-        upgrade_db = importlib.import_module('scripts.upgrade_db')
-    except ImportError:
-        upgrade_db = importlib.import_module('upgrade_db')
-    
-    await upgrade_db.upgrade_database()
+        await mark_version_applied("current", "Current schema bootstrap")
+    logger.info("Local bootstrap completed without historical upgrade scripts")
 
 
 async def main():
