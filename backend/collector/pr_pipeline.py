@@ -18,6 +18,7 @@ logger = logging.getLogger(__name__)
 # to ``author_avatar_url`` so one large image cannot roll back the whole PR
 # batch.
 MAX_AVATAR_BASE64_LENGTH = 60_000
+PR_BATCH_COMMIT_SIZE = 25
 
 
 class PRPipelineCollector:
@@ -67,6 +68,14 @@ class PRPipelineCollector:
                 db_pr = await self._upsert_pr(pr, owner, repo, reviews, files)
                 if db_pr:
                     count += 1
+                    if count % PR_BATCH_COMMIT_SIZE == 0:
+                        await self.db.commit()
+                        logger.info(
+                            "Committed PR sync batch: %d PRs for %s/%s",
+                            count,
+                            owner,
+                            repo,
+                        )
             except GitHubRateLimitError as e:
                 logger.error(f"Rate limit exceeded while processing PRs: {e}")
                 break
