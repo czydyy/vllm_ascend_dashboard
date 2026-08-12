@@ -13,6 +13,12 @@ from infrastructure.clients.github_client import GitHubAPIError, GitHubClient, G
 
 logger = logging.getLogger(__name__)
 
+# MySQL TEXT stores at most 65,535 bytes.  Base64 is ASCII, but the data URI
+# prefix and future schema changes need headroom; oversized avatars fall back
+# to ``author_avatar_url`` so one large image cannot roll back the whole PR
+# batch.
+MAX_AVATAR_BASE64_LENGTH = 60_000
+
 
 class PRPipelineCollector:
 
@@ -190,7 +196,15 @@ class PRPipelineCollector:
                     if resp.status_code == 200:
                         content_type = resp.headers.get("content-type", "image/png")
                         b64 = base64.b64encode(resp.content).decode("ascii")
-                        author_avatar_base64 = f"data:{content_type};base64,{b64}"
+                        encoded_avatar = f"data:{content_type};base64,{b64}"
+                        if len(encoded_avatar) <= MAX_AVATAR_BASE64_LENGTH:
+                            author_avatar_base64 = encoded_avatar
+                        else:
+                            logger.debug(
+                                "Skipping oversized avatar cache for PR #%s (%d chars)",
+                                pr_number,
+                                len(encoded_avatar),
+                            )
             except Exception as e:
                 logger.warning(f"Failed to download avatar for PR #{pr_number} ({author}): {e}")
 
