@@ -82,7 +82,11 @@ class PRPipelineCollector:
         except Exception as e:
             logger.error(f"Failed to commit PR data: {e}")
             await self.db.rollback()
-            return 0
+            # Do not let the durable task be marked completed after a commit
+            # failure.  Raising here sends the task through CollectorWorker's
+            # retry/dead-letter path instead of silently losing the whole
+            # batch.
+            raise
 
         logger.info(f"Collected {count} PRs for {owner}/{repo}")
         return count
