@@ -255,6 +255,12 @@ class CollectorRunner:
 
         async with SessionLocal() as db:
             result = await sync_support_matrix(db, dry_run=bool(task_params.get("dry_run", False)))
+        if result.get("success") is False:
+            # A collector task that returns a business-level failure must go
+            # through the worker retry/dead-letter path.  Treating the
+            # returned error as a successful coroutine completion would mark
+            # the durable task ``completed`` and suppress all retries.
+            raise RuntimeError(result.get("error") or "support matrix sync failed")
         logger.info("support-matrix task %d completed: %s", ctx.task_id, result)
 
     async def _run_pr_sync(self, ctx: TaskContext, task_params: dict):

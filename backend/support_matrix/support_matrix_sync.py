@@ -144,7 +144,21 @@ async def sync_support_matrix(
         }
 
         if not dry_run:
-            await _record_sync_status(db, success=True, **result)
+            # ``result`` already contains the public ``success``/``dry_run``
+            # fields.  Passing ``success`` both explicitly and through
+            # ``**result`` raises ``TypeError`` before the successful sync
+            # status can be persisted.
+            status_details = {
+                key: value
+                for key, value in result.items()
+                if key not in {"success", "dry_run"}
+            }
+            await _record_sync_status(
+                db,
+                success=True,
+                dry_run=dry_run,
+                **status_details,
+            )
             await db.commit()
 
         logger.info(
