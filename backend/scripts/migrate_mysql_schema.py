@@ -5,6 +5,7 @@ verified database backup has been created.
 """
 import asyncio
 import logging
+import re
 import sys
 from pathlib import Path
 
@@ -17,7 +18,7 @@ from app.db.base import SessionLocal, engine
 logger = logging.getLogger("mysql_schema_migration")
 logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
 
-MIGRATION_VERSION = "20260720_01_mysql_schema_compatibility"
+MIGRATION_VERSION = "20260814_01_daily_failure_and_heartbeat"
 TABLE_COLUMN_MIGRATIONS = {
     "user_login_logs": {
         "ip_address_hashed": "VARCHAR(64) NULL",
@@ -49,11 +50,44 @@ TABLE_COLUMN_MIGRATIONS = {
         "suspected_test_issue_count": "INT NOT NULL DEFAULT 0",
         "is_flaky_manual": "BOOLEAN NOT NULL DEFAULT FALSE",
     },
+    # 每日失败用例跟踪：物化记录需带上来源分支与人工处理字段，
+    # 否则 _populate_daily_failure_records 写入会因 Unknown column 报 1054 被静默吞掉。
+    "daily_failure_records": {
+        "source_branch": "VARCHAR(100) NOT NULL DEFAULT 'main'",
+        "problem_category": "VARCHAR(50) NULL",
+        "related_pr": "VARCHAR(20) NULL",
+    },
 }
 INDEX_MIGRATIONS = {
     "ci_jobs": {"ix_ci_jobs_processing_status": "processing_status"},
     "test_cases": {"ix_test_cases_is_flaky_manual": "is_flaky_manual"},
 }
+
+# 唯一索引替换：drop 旧索引后 add 带新列的唯一索引（幂等——缺列先由
+# TABLE_COLUMN_MIGRATIONS 补上，drop 缺失索引时忽略，add 已存在索引时忽略）。
+INDEX_REPLACEMENTS = [
+    {
+        "table": "daily_failure_records",
+        "drop": "uq_daily_failure_date_wf_job",
+        "add": "uq_daily_failure_date_branch_wf_job",
+        "columns": "(report_date, source_branch, workflow_name, job_name)",
+    },
+]
+
+# 整表新建（CREATE TABLE IF NOT EXISTS）：仅在建表迁移缺失时补齐。
+CREATE_TABLE_MIGRATIONS = [
+    # 调度器心跳表 — 独立 scheduler 进程每 20s 写入，API 读取以判断调度器存活。
+    """
+    CREATE TABLE IF NOT EXISTS `scheduler_heartbeat` (
+      `id` INT NOT NULL,
+      `running` BOOLEAN DEFAULT FALSE,
+      `jobs` JSON,
+      `pid` INT,
+      `updated_at` TIMESTAMP NULL DEFAULT NULL,
+      PRIMARY KEY (`id`)
+    ) ENGINE=InnoDB
+    """,
+]
 
 
 async def _inspection(db, table: str) -> tuple[set[str], set[str]]:
@@ -113,6 +147,25 @@ async def migrate() -> None:
                         tc.lifetime_failures = COALESCE(totals.failure_count, 0)
                 """))
 
+            # 唯一索引替换（drop 旧 + add 新），幂等：drop 缺失索引忽略，add 已存在索引忽略
+            for repl in INDEX_REPLACEMENTS:
+                _, indexes = await _inspection(db, repl["table"])
+                if repl["drop"] in indexes:
+                    logger.info("Dropping index %s on %s", repl["drop"], repl["table"])
+                    await db.execute(text(
+                        f"ALTER TABLE `{repl['table']}` DROP INDEX `{repl['drop']}`"
+                    ))
+                if repl["add"] not in indexes:
+                    logger.info("Adding unique index %s on %s", repl["add"], repl["table"])
+                    await db.execute(text(
+                        f"ALTER TABLE `{repl['table']}` ADD UNIQUE INDEX `{repl['add']}` {repl['columns']}"
+                    ))
+                    added.append(f"{repl['table']}.{repl['add']}")
+
+            # 整表新建
+            for ddl in CREATE_TABLE_MIGRATIONS:
+                await db.execute(text(ddl))
+
             await db.execute(text("""
                 CREATE TABLE IF NOT EXISTS schema_migrations (
                     version VARCHAR(100) PRIMARY KEY,
@@ -145,6 +198,22 @@ async def migrate() -> None:
                 missing.extend(
                     f"{table}.{name}" for name in set(INDEX_MIGRATIONS.get(table, {})) - final_indexes
                 )
+            # 校验替换后的新唯一索引确实存在
+            for repl in INDEX_REPLACEMENTS:
+                _, final_indexes = await _inspection(db, repl["table"])
+                if repl["add"] not in final_indexes:
+                    missing.append(f"{repl['table']}.{repl['add']}")
+            # 校验新建表确实存在
+            for ddl in CREATE_TABLE_MIGRATIONS:
+                m = re.search(r"CREATE TABLE IF NOT EXISTS `(\w+)`", ddl)
+                if m:
+                    name = m.group(1)
+                    exists = (await db.execute(text(
+                        "SELECT COUNT(*) FROM information_schema.tables "
+                        "WHERE table_schema = DATABASE() AND table_name = :t"
+                    ), {"t": name})).scalar_one()
+                    if not exists:
+                        missing.append(name)
             if missing:
                 raise RuntimeError(f"Migration verification failed; missing: {sorted(missing)}")
             logger.info(
