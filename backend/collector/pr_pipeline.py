@@ -45,7 +45,6 @@ class PRPipelineCollector:
             state_doc = await self._load_sync_state()
             state = state_doc.get(state_key, {}) if state_doc else {}
             watermark = self._parse_datetime(state.get("source_updated_at"))
-            watermark_pr_number = state.get("source_pr_number")
             previous_batch_limited = bool(state.get("last_sync_limited"))
             if watermark:
                 if previous_batch_limited:
@@ -77,11 +76,6 @@ class PRPipelineCollector:
                 now,
                 max_items=max_items,
                 resume_before=watermark if previous_batch_limited else None,
-                resume_before_number=(
-                    int(watermark_pr_number)
-                    if previous_batch_limited and watermark_pr_number is not None
-                    else None
-                ),
             )
         else:
             if since is None:
@@ -180,24 +174,12 @@ class PRPipelineCollector:
                     next_watermark = None
 
                 if next_watermark is not None:
-                    processed_cursor = [
-                        (self._source_updated_at(pr), pr.get("number"))
-                        for pr in prs
-                        if self._source_updated_at(pr) is not None
-                        and isinstance(pr.get("number"), int)
-                    ]
-                    if failed_source_cursors:
-                        failed_numbers = [
-                            number
-                            for source_time, number in failed_source_cursors
-                            if source_time == next_watermark
-                        ]
-                        cursor = (next_watermark, max(failed_numbers) + 1) if failed_numbers else None
-                    else:
-                        cursor = min(processed_cursor, key=lambda item: (item[0], item[1])) if processed_cursor else None
+                    # GitHub does not provide a stable tie-breaker for PRs
+                    # sharing the same updated_at second.  Keep the timestamp
+                    # cursor only; re-reading same-timestamp rows is safe
+                    # because PR persistence is an idempotent upsert.
                     state_doc[state_key] = {
                         "source_updated_at": next_watermark.isoformat(),
-                        "source_pr_number": cursor[1] if cursor else None,
                         "last_sync_completed_at": now.isoformat(),
                         "last_sync_count": count,
                         "last_sync_limited": bool(

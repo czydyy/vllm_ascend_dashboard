@@ -758,7 +758,6 @@ class GitHubClient:
         end_time: datetime,
         max_items: int | None = None,
         resume_before: datetime | None = None,
-        resume_before_number: int | None = None,
     ) -> list[dict[str, Any]]:
         """Fetch PR summaries incrementally, ordered by GitHub ``updated_at``.
 
@@ -822,13 +821,7 @@ class GitHubClient:
                 # are skipped until the backlog is drained, then normal
                 # watermark+overlap processing resumes.
                 if resume is not None:
-                    pr_number = pr.get("number")
-                    if updated_at > resume or (
-                        updated_at == resume
-                        and resume_before_number is not None
-                        and isinstance(pr_number, int)
-                        and pr_number >= resume_before_number
-                    ):
+                    if updated_at > resume:
                         continue
                 if updated_at <= end:
                     results.append(pr)
