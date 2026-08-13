@@ -37,17 +37,30 @@ class CollectorRunner:
         # 从 DB 读取任务详情
         async with SessionLocal() as db:
             result = await db.execute(
-                text("SELECT task_type, task_params FROM collection_tasks WHERE id = :id"),
+                text("SELECT task_type, task_params, dedupe_key FROM collection_tasks WHERE id = :id"),
                 {"id": ctx.task_id},
             )
             row = result.fetchone()
             if not row:
                 logger.error("Task %d not found", ctx.task_id)
                 return
-            task_type, task_params = row
+            task_type, task_params, dedupe_key = row
             if isinstance(task_params, str):
                 task_params = json.loads(task_params)
             task_params = task_params or {}
+            # Tasks created by older Scheduler versions only contain
+            # ``days_back``.  Their stable dedupe key still identifies them
+            # as scheduled work, so upgrade them in memory to the incremental
+            # execution path without rewriting queued task rows.
+            if task_type == "pr_sync" and str(dedupe_key or "").startswith("pr_sync:scheduled:"):
+                task_params = {
+                    **task_params,
+                    "incremental": True,
+                    "max_items": int(getattr(settings, "PR_PIPELINE_MAX_ITEMS_PER_SYNC", 50)),
+                    "lookback_minutes": int(
+                        getattr(settings, "PR_PIPELINE_INCREMENTAL_LOOKBACK_MINUTES", 15)
+                    ),
+                }
 
         from infrastructure.tasks.scheduler_config import load_scheduler_runtime_config
 
