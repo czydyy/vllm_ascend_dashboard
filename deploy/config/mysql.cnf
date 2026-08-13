@@ -48,7 +48,11 @@ gtid_mode = ON
 enforce_gtid_consistency = ON
 
 # Binlog 保留与副本提升准备
-binlog_expire_logs_seconds = 604800   # 7 天
+# 2026-08-14 事故：7 天保留 + commit 卡死（GTID 下未提交事务阻止 purge 推进）
+# 导致 binlog 堆积到 131G 撑爆根盘，进而 fsync 失败、整个 commit pipeline 停摆。
+# 缩短到 2 天，使正常积累（约 30G/天）远低于根盘可用空间；如副本启用再酌情调大。
+# 治本建议：binlog 当前 bind-mount 在根盘 /data/mysql/binlog，应迁到独立卷。
+binlog_expire_logs_seconds = 172800   # 2 天
 log_replica_updates = ON              # 副本可能被提升为主库
 
 [mysql]

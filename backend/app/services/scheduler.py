@@ -704,6 +704,61 @@ class DataSyncScheduler:
             await db.commit()
         return new_count
 
+    async def run_ci_post_sync(self, db) -> None:
+        """CI 采集完成后的数据管线，scheduler 全量路径与 COLLECTOR_MODE collector 共用。
+
+        步骤：刷新 WorkflowConfig.last_sync_at → 更新本地仓库缓存（供 nightly_config.yaml
+        快照）→ 快照各分支用例配置 → 物化每日失败记录。
+
+        COLLECTOR_MODE 下 scheduler 仅创建采集任务后返回，采集由 collector 执行；
+        若不在 collector 侧补跑这些步骤，last_sync_at 不更新、用例快照停滞、
+        每日失败记录不再增长（这正是 2026-08 失败用例跟踪断数据的根因之一）。
+
+        每步独立、best-effort；失败时记 ERROR（而非旧版的 non-fatal WARNING），
+        避免像 source_branch 缺列那样被静默吞掉数天无人察觉。
+        """
+        from datetime import UTC
+
+        # 1. 更新所有启用 workflow 的 last_sync_at
+        try:
+            from sqlalchemy import update
+
+            from app.models import WorkflowConfig
+
+            await db.execute(
+                update(WorkflowConfig)
+                .where(WorkflowConfig.enabled == True)
+                .values(last_sync_at=datetime.now(UTC))
+            )
+            await db.commit()
+        except Exception as e:
+            logger.error("CI post-sync: update WorkflowConfig.last_sync_at failed: %s", e)
+
+        # 2. 更新本地代码仓库（nightly_config.yaml 快照依赖此缓存）
+        try:
+            from app.services.github_cache import get_github_cache
+
+            cache = get_github_cache()
+            if cache.clone():
+                cache.pull()
+            logger.info("Local repo updated after CI sync")
+        except Exception as e:
+            logger.error("CI post-sync: local repo update failed: %s", e)
+
+        # 3. 快照各分支 nightly_config.yaml
+        try:
+            await self._snapshot_nightly_configs(db)
+        except Exception as e:
+            logger.error("CI post-sync: snapshot nightly configs failed: %s", e)
+
+        # 4. 物化每日失败记录表
+        try:
+            count = await self._populate_daily_failure_records(db)
+            if count > 0:
+                logger.info("Populated %d new daily failure records", count)
+        except Exception as e:
+            logger.error("CI post-sync: populate daily failure records failed: %s", e)
+
     async def _sync_ci_data_job(self) -> None:
         """CI 数据同步任务"""
         logger.info("=" * 60)
@@ -760,47 +815,17 @@ class DataSyncScheduler:
                     force_full_refresh=force_full_refresh,
                 )
 
-                # 同步完成后，更新所有启用的 workflow 的 last_sync_at
-                from sqlalchemy import update
-
-                from app.models import WorkflowConfig
-
-                await db.execute(
-                    update(WorkflowConfig)
-                    .where(WorkflowConfig.enabled == True)
-                    .values(last_sync_at=datetime.now(UTC))
-                )
-                await db.commit()
-
-                # 同步完成后，更新本地代码仓库
-                try:
-                    from app.services.github_cache import get_github_cache
-                    cache = get_github_cache()
-                    if cache.clone():
-                        cache.pull()
-                    logger.info("Local repo updated after CI sync")
-                except Exception as e:
-                    logger.warning(f"Failed to update local repo (non-fatal): {e}")
-
-                # 同步完成后，分析新发现的失败 jobs
+                # 同步完成后，分析新发现的失败 jobs（LLM 失败分析，best-effort；
+                # 仅 scheduler 全量路径触发，COLLECTOR_MODE collector 不自动跑以控制 LLM 成本）
                 try:
                     await self._analyze_failed_jobs(db)
                 except Exception as analyze_err:
-                    logger.warning(f"Failed to analyze CI failures (non-fatal): {analyze_err}")
+                    logger.error(f"Failed to analyze CI failures: {analyze_err}")
 
-                # 快照各分支的 nightly_config.yaml
-                try:
-                    await self._snapshot_nightly_configs(db)
-                except Exception as sf_err:
-                    logger.warning(f"Failed to snapshot nightly configs (non-fatal): {sf_err}")
-
-                # 物化每日失败记录表
-                try:
-                    count = await self._populate_daily_failure_records(db)
-                    if count > 0:
-                        logger.info(f"Populated {count} new daily failure records")
-                except Exception as pf_err:
-                    logger.warning(f"Failed to populate daily failure records (non-fatal): {pf_err}")
+                # 数据管线：刷新 last_sync_at / 仓库缓存、快照用例配置、物化每日失败记录。
+                # 与 COLLECTOR_MODE collector 共用 run_ci_post_sync，确保两条路径行为一致，
+                # 且任一步失败记 ERROR 而非静默吞掉。
+                await self.run_ci_post_sync(db)
 
                 logger.info("=" * 60)
                 logger.info(f"CI DATA SYNC JOB COMPLETED - Collected {collected} runs")
