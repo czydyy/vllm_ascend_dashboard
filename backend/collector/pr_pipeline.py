@@ -100,13 +100,9 @@ class PRPipelineCollector:
 
         count = 0
         processed_source_times: list[datetime] = []
-        candidate_source_times = [
-            source_time
-            for source_time in (self._source_updated_at(pr) for pr in prs)
-            if source_time is not None
-        ]
         processing_failed = False
         rate_limited = False
+        failed_source_cursors: list[tuple[datetime, int]] = []
         for pr in prs:
             try:
                 pr_number = pr["number"]
@@ -151,22 +147,31 @@ class PRPipelineCollector:
             except GitHubAPIError as e:
                 logger.error(f"API error processing PR #{pr.get('number', '?')}: {e}")
                 processing_failed = True
+                source_time = self._source_updated_at(pr)
+                if source_time and isinstance(pr.get("number"), int):
+                    failed_source_cursors.append((source_time, pr["number"]))
                 continue
             except Exception as e:
                 logger.error(f"Unexpected error processing PR #{pr.get('number', '?')}: {e}", exc_info=True)
                 processing_failed = True
+                source_time = self._source_updated_at(pr)
+                if source_time and isinstance(pr.get("number"), int):
+                    failed_source_cursors.append((source_time, pr["number"]))
                 continue
 
         try:
             if incremental and state_doc is not None and not rate_limited:
-                # Advance only after all candidates have been attempted.  On
-                # a per-PR failure, retain the oldest candidate so the next
+                # Advance only after all candidates have been attempted.  A
+                # failed PR gets an inclusive continuation cursor so the next
                 # run retries it instead of skipping it permanently.  When a
                 # max_items cap truncated the page, the oldest successful
                 # candidate becomes the next watermark and the following run
                 # continues from there.
-                if processing_failed and candidate_source_times:
-                    next_watermark = min(candidate_source_times)
+                if failed_source_cursors:
+                    # Continue at the newest failed cursor.  The API resumes
+                    # inclusively for the same timestamp, so all failed PRs
+                    # at that timestamp are retried before older backlog data.
+                    next_watermark = max(source_time for source_time, _ in failed_source_cursors)
                 elif processed_source_times:
                     next_watermark = min(processed_source_times)
                 elif not prs:
@@ -181,10 +186,18 @@ class PRPipelineCollector:
                         if self._source_updated_at(pr) is not None
                         and isinstance(pr.get("number"), int)
                     ]
-                    oldest_cursor = min(processed_cursor, key=lambda item: (item[0], item[1])) if processed_cursor else None
+                    if failed_source_cursors:
+                        failed_numbers = [
+                            number
+                            for source_time, number in failed_source_cursors
+                            if source_time == next_watermark
+                        ]
+                        cursor = (next_watermark, max(failed_numbers) + 1) if failed_numbers else None
+                    else:
+                        cursor = min(processed_cursor, key=lambda item: (item[0], item[1])) if processed_cursor else None
                     state_doc[state_key] = {
                         "source_updated_at": next_watermark.isoformat(),
-                        "source_pr_number": oldest_cursor[1] if oldest_cursor else None,
+                        "source_pr_number": cursor[1] if cursor else None,
                         "last_sync_completed_at": now.isoformat(),
                         "last_sync_count": count,
                         "last_sync_limited": bool(
