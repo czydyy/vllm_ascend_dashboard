@@ -188,9 +188,8 @@ class PRPipelineCollector:
                         "last_sync_completed_at": now.isoformat(),
                         "last_sync_count": count,
                         "last_sync_limited": bool(
-                            not processing_failed
-                            and max_items
-                            and len(prs) >= max_items
+                            processing_failed
+                            or (max_items and len(prs) >= max_items)
                         ),
                     }
                     await self._save_sync_state(state_doc)
