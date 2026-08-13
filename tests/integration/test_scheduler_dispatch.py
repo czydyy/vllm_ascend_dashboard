@@ -1,6 +1,8 @@
 """Scheduler dispatch must create durable work instead of doing GitHub I/O."""
 from __future__ import annotations
 
+import json
+
 import pytest
 from sqlalchemy import text
 
@@ -31,10 +33,11 @@ async def test_pr_schedule_enqueues_a_collector_task() -> None:
         assert row.task_type == "pr_sync"
         assert row.status == "pending"
         assert row.required_capability == "python"
-        assert "days_back" in row.task_params
-        assert '"incremental": true' in row.task_params
-        assert '"max_items"' in row.task_params
-        assert '"lookback_minutes"' in row.task_params
+        params = json.loads(row.task_params) if isinstance(row.task_params, str) else row.task_params
+        assert "days_back" in params
+        assert params["incremental"] is True
+        assert "max_items" in params
+        assert "lookback_minutes" in params
     finally:
         if scheduler.scheduler.running:
             scheduler.scheduler.shutdown(wait=False)
