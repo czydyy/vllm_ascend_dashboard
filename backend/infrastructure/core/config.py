@@ -83,6 +83,10 @@ class Settings(BaseSettings):
 
     PR_PIPELINE_SYNC_INTERVAL_MINUTES: int = 30
     PR_PIPELINE_DAYS_BACK: int = 7
+    # Scheduled PR sync uses an updated_at watermark.  The first run falls
+    # back to PR_PIPELINE_DAYS_BACK, then each run is bounded by this cap.
+    PR_PIPELINE_MAX_ITEMS_PER_SYNC: int = 50
+    PR_PIPELINE_INCREMENTAL_LOOKBACK_MINUTES: int = 15
 
     # Project Dashboard 配置
     PROJECT_DASHBOARD_CACHE_INTERVAL_MINUTES: int = 60  # Project Dashboard Git 仓库缓存更新间隔（分钟），默认 60 分钟

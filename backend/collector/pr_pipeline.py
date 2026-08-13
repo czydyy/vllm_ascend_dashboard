@@ -8,7 +8,7 @@ import httpx
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from infrastructure.persistence.models import CIResult, PullRequest
+from infrastructure.persistence.models import CIResult, ProjectDashboardConfig, PullRequest
 from infrastructure.clients.github_client import GitHubAPIError, GitHubClient, GitHubRateLimitError
 
 logger = logging.getLogger(__name__)
@@ -19,6 +19,7 @@ logger = logging.getLogger(__name__)
 # batch.
 MAX_AVATAR_BASE64_LENGTH = 60_000
 PR_BATCH_COMMIT_SIZE = 25
+PR_SYNC_STATE_KEY = "pr_pipeline_sync_state"
 
 
 class PRPipelineCollector:
@@ -33,15 +34,79 @@ class PRPipelineCollector:
         repo: str,
         since: datetime | None = None,
         days_back: int = 7,
+        incremental: bool = False,
+        max_items: int | None = None,
+        lookback_minutes: int = 15,
     ) -> int:
-        if since is None:
-            since = datetime.now(UTC) - timedelta(days=days_back)
-
         now = datetime.now(UTC)
-        prs = await self.github.get_pull_requests_by_date_range(owner, repo, since, now)
-        logger.info(f"Fetched {len(prs)} PRs for {owner}/{repo} since {since.isoformat()}")
+        state_doc: dict[str, Any] | None = None
+        state_key = f"{owner}/{repo}"
+        if incremental:
+            state_doc = await self._load_sync_state()
+            state = state_doc.get(state_key, {}) if state_doc else {}
+            watermark = self._parse_datetime(state.get("source_updated_at"))
+            watermark_pr_number = state.get("source_pr_number")
+            previous_batch_limited = bool(state.get("last_sync_limited"))
+            if watermark:
+                if previous_batch_limited:
+                    # Continue a capped backlog from the oldest processed
+                    # item.  The API cursor is exclusive, so the same page is
+                    # not returned on every 30-minute run.
+                    since = now - timedelta(days=days_back)
+                else:
+                    since = watermark - timedelta(minutes=max(0, lookback_minutes))
+                logger.info(
+                    "Incremental PR sync for %s/%s from watermark %s (lookback=%dm)",
+                    owner,
+                    repo,
+                    watermark.isoformat(),
+                    lookback_minutes,
+                )
+            elif since is None:
+                since = now - timedelta(days=days_back)
+                logger.info(
+                    "Initial incremental PR sync for %s/%s: %d-day backfill",
+                    owner,
+                    repo,
+                    days_back,
+                )
+            prs = await self.github.get_pull_requests_by_updated_range(
+                owner,
+                repo,
+                since,
+                now,
+                max_items=max_items,
+                resume_before=watermark if previous_batch_limited else None,
+                resume_before_number=(
+                    int(watermark_pr_number)
+                    if previous_batch_limited and watermark_pr_number is not None
+                    else None
+                ),
+            )
+        else:
+            if since is None:
+                since = now - timedelta(days=days_back)
+            prs = await self.github.get_pull_requests_by_date_range(owner, repo, since, now)
+
+        logger.info(
+            "Fetched %d PRs for %s/%s since %s (incremental=%s, max_items=%s)",
+            len(prs),
+            owner,
+            repo,
+            since.isoformat(),
+            incremental,
+            max_items,
+        )
 
         count = 0
+        processed_source_times: list[datetime] = []
+        candidate_source_times = [
+            source_time
+            for source_time in (self._source_updated_at(pr) for pr in prs)
+            if source_time is not None
+        ]
+        processing_failed = False
+        rate_limited = False
         for pr in prs:
             try:
                 pr_number = pr["number"]
@@ -68,6 +133,9 @@ class PRPipelineCollector:
                 db_pr = await self._upsert_pr(pr, owner, repo, reviews, files)
                 if db_pr:
                     count += 1
+                    source_time = self._source_updated_at(pr)
+                    if source_time:
+                        processed_source_times.append(source_time)
                     if count % PR_BATCH_COMMIT_SIZE == 0:
                         await self.db.commit()
                         logger.info(
@@ -78,15 +146,50 @@ class PRPipelineCollector:
                         )
             except GitHubRateLimitError as e:
                 logger.error(f"Rate limit exceeded while processing PRs: {e}")
+                rate_limited = True
                 break
             except GitHubAPIError as e:
                 logger.error(f"API error processing PR #{pr.get('number', '?')}: {e}")
+                processing_failed = True
                 continue
             except Exception as e:
                 logger.error(f"Unexpected error processing PR #{pr.get('number', '?')}: {e}", exc_info=True)
+                processing_failed = True
                 continue
 
         try:
+            if incremental and state_doc is not None and not rate_limited:
+                # Advance only after all candidates have been attempted.  On
+                # a per-PR failure, retain the oldest candidate so the next
+                # run retries it instead of skipping it permanently.  When a
+                # max_items cap truncated the page, the oldest successful
+                # candidate becomes the next watermark and the following run
+                # continues from there.
+                if processing_failed and candidate_source_times:
+                    next_watermark = min(candidate_source_times)
+                elif processed_source_times:
+                    next_watermark = min(processed_source_times)
+                elif not prs:
+                    next_watermark = now
+                else:
+                    next_watermark = None
+
+                if next_watermark is not None:
+                    processed_cursor = [
+                        (self._source_updated_at(pr), pr.get("number"))
+                        for pr in prs
+                        if self._source_updated_at(pr) is not None
+                        and isinstance(pr.get("number"), int)
+                    ]
+                    oldest_cursor = min(processed_cursor, key=lambda item: (item[0], item[1])) if processed_cursor else None
+                    state_doc[state_key] = {
+                        "source_updated_at": next_watermark.isoformat(),
+                        "source_pr_number": oldest_cursor[1] if oldest_cursor else None,
+                        "last_sync_completed_at": now.isoformat(),
+                        "last_sync_count": count,
+                        "last_sync_limited": bool(max_items and len(prs) >= max_items),
+                    }
+                    await self._save_sync_state(state_doc)
             await self.db.commit()
         except Exception as e:
             logger.error(f"Failed to commit PR data: {e}")
@@ -99,6 +202,37 @@ class PRPipelineCollector:
 
         logger.info(f"Collected {count} PRs for {owner}/{repo}")
         return count
+
+    async def _load_sync_state(self) -> dict[str, Any]:
+        result = await self.db.execute(
+            select(ProjectDashboardConfig).where(
+                ProjectDashboardConfig.config_key == PR_SYNC_STATE_KEY
+            )
+        )
+        row = result.scalar_one_or_none()
+        value = row.config_value if row else {}
+        return dict(value) if isinstance(value, dict) else {}
+
+    async def _save_sync_state(self, state_doc: dict[str, Any]) -> None:
+        result = await self.db.execute(
+            select(ProjectDashboardConfig).where(
+                ProjectDashboardConfig.config_key == PR_SYNC_STATE_KEY
+            )
+        )
+        row = result.scalar_one_or_none()
+        if row is None:
+            self.db.add(
+                ProjectDashboardConfig(
+                    config_key=PR_SYNC_STATE_KEY,
+                    config_value=state_doc,
+                    description="PR pipeline GitHub updated_at watermarks",
+                )
+            )
+        else:
+            row.config_value = state_doc
+
+    def _source_updated_at(self, pr: dict[str, Any]) -> datetime | None:
+        return self._parse_datetime(pr.get("updated_at") or pr.get("created_at"))
 
     async def collect_single_pr(
         self,

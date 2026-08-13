@@ -86,6 +86,12 @@ async def get_system_config(
                 "days_back": settings.MODEL_SYNC_DAYS_BACK,
                 "runs_limit": settings.MODEL_SYNC_RUNS_LIMIT,
             },
+            "pr_pipeline_sync_config": {
+                "sync_interval_minutes": settings.PR_PIPELINE_SYNC_INTERVAL_MINUTES,
+                "days_back": settings.PR_PIPELINE_DAYS_BACK,
+                "max_items_per_sync": settings.PR_PIPELINE_MAX_ITEMS_PER_SYNC,
+                "incremental_lookback_minutes": settings.PR_PIPELINE_INCREMENTAL_LOOKBACK_MINUTES,
+            },
             "data_retention_days": settings.DATA_RETENTION_DAYS,
             "project_dashboard_cache_interval_minutes": settings.PROJECT_DASHBOARD_CACHE_INTERVAL_MINUTES,
             "github_cache_dir": settings.GITHUB_CACHE_DIR,
@@ -210,6 +216,10 @@ async def update_sync_config(
     model_sync_interval_minutes: int | None = Query(None),
     model_sync_days_back: int | None = Query(None),
     model_sync_runs_limit: int | None = Query(None),
+    pr_pipeline_sync_interval_minutes: int | None = Query(None),
+    pr_pipeline_days_back: int | None = Query(None),
+    pr_pipeline_max_items_per_sync: int | None = Query(None),
+    pr_pipeline_incremental_lookback_minutes: int | None = Query(None),
     data_retention_days: int | None = Query(None),
     project_dashboard_cache_interval_minutes: int | None = Query(None),
     github_cache_dir: str | None = Query(None),
@@ -268,6 +278,15 @@ async def update_sync_config(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="每个 Workflow 最多获取 Runs 数量必须在 1-1000 之间",
             )
+
+    if pr_pipeline_sync_interval_minutes is not None and not 1 <= pr_pipeline_sync_interval_minutes <= 10080:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="PR 同步间隔必须在 1-10080 分钟之间")
+    if pr_pipeline_days_back is not None and not 1 <= pr_pipeline_days_back <= 90:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="PR 首次回溯天数必须在 1-90 天之间")
+    if pr_pipeline_max_items_per_sync is not None and not 1 <= pr_pipeline_max_items_per_sync <= 1000:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="PR 单次最多同步数量必须在 1-1000 之间")
+    if pr_pipeline_incremental_lookback_minutes is not None and not 0 <= pr_pipeline_incremental_lookback_minutes <= 1440:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="PR 增量重叠窗口必须在 0-1440 分钟之间")
 
     if data_retention_days is not None:
         if data_retention_days < 1 or data_retention_days > 3650:
@@ -334,6 +353,26 @@ async def update_sync_config(
         settings.MODEL_SYNC_RUNS_LIMIT = model_sync_runs_limit
         runtime_updates['model_sync_runs_limit'] = model_sync_runs_limit
         updates.append(f"每个 Workflow 最多获取 Runs: {model_sync_runs_limit}条")
+
+    if pr_pipeline_sync_interval_minutes is not None:
+        settings.PR_PIPELINE_SYNC_INTERVAL_MINUTES = pr_pipeline_sync_interval_minutes
+        runtime_updates['pr_pipeline_sync_interval_minutes'] = pr_pipeline_sync_interval_minutes
+        updates.append(f"PR 同步间隔：{pr_pipeline_sync_interval_minutes}分钟")
+
+    if pr_pipeline_days_back is not None:
+        settings.PR_PIPELINE_DAYS_BACK = pr_pipeline_days_back
+        runtime_updates['pr_pipeline_days_back'] = pr_pipeline_days_back
+        updates.append(f"PR 首次回溯：{pr_pipeline_days_back}天")
+
+    if pr_pipeline_max_items_per_sync is not None:
+        settings.PR_PIPELINE_MAX_ITEMS_PER_SYNC = pr_pipeline_max_items_per_sync
+        runtime_updates['pr_pipeline_max_items_per_sync'] = pr_pipeline_max_items_per_sync
+        updates.append(f"PR 单次最多同步：{pr_pipeline_max_items_per_sync}条")
+
+    if pr_pipeline_incremental_lookback_minutes is not None:
+        settings.PR_PIPELINE_INCREMENTAL_LOOKBACK_MINUTES = pr_pipeline_incremental_lookback_minutes
+        runtime_updates['pr_pipeline_incremental_lookback_minutes'] = pr_pipeline_incremental_lookback_minutes
+        updates.append(f"PR 增量重叠窗口：{pr_pipeline_incremental_lookback_minutes}分钟")
 
     # Persist to the MySQL control plane and notify Scheduler.
     await persist_scheduler_runtime_config(runtime_updates)

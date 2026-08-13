@@ -273,6 +273,13 @@ class CollectorRunner:
                     settings.GITHUB_OWNER,
                     settings.GITHUB_REPO,
                     days_back=int(task_params.get("days_back", 7)),
+                    incremental=bool(task_params.get("incremental", False)),
+                    max_items=(
+                        int(task_params["max_items"])
+                        if task_params.get("max_items") is not None
+                        else None
+                    ),
+                    lookback_minutes=int(task_params.get("lookback_minutes", 15)),
                 )
         finally:
             await github.close()

@@ -750,6 +750,106 @@ class GitHubClient:
         logger.info(f"Found {len(prs)} pull requests in date range")
         return prs
 
+    async def get_pull_requests_by_updated_range(
+        self,
+        owner: str,
+        repo: str,
+        start_time: datetime,
+        end_time: datetime,
+        max_items: int | None = None,
+        resume_before: datetime | None = None,
+        resume_before_number: int | None = None,
+    ) -> list[dict[str, Any]]:
+        """Fetch PR summaries incrementally, ordered by GitHub ``updated_at``.
+
+        The regular date-range endpoint is ordered by ``created`` and therefore
+        has to walk every page created in the lookback window.  Scheduled PR
+        syncs use this endpoint instead: once an item is older than the
+        watermark, pagination can stop.  Details (reviews/files/commits) are
+        deliberately not fetched here; the collector fetches them only for
+        the bounded set of summaries it will upsert.
+        """
+        url = f"/repos/{owner}/{repo}/pulls"
+        page_size = 100
+        limit = max_items if max_items and max_items > 0 else None
+        start = start_time.astimezone(UTC) if start_time.tzinfo else start_time.replace(tzinfo=UTC)
+        end = end_time.astimezone(UTC) if end_time.tzinfo else end_time.replace(tzinfo=UTC)
+        resume = (
+            resume_before.astimezone(UTC)
+            if resume_before and resume_before.tzinfo
+            else resume_before.replace(tzinfo=UTC)
+            if resume_before
+            else None
+        )
+        results: list[dict[str, Any]] = []
+        page = 1
+
+        while True:
+            result = await self._request(
+                "GET",
+                url,
+                params={
+                    "state": "all",
+                    "sort": "updated",
+                    "direction": "desc",
+                    "per_page": page_size,
+                    "page": page,
+                },
+            )
+            if not result:
+                break
+
+            reached_watermark = False
+            for pr in result:
+                updated_raw = pr.get("updated_at") or pr.get("created_at")
+                try:
+                    updated_at = datetime.fromisoformat(
+                        str(updated_raw).replace("Z", "+00:00")
+                    ).astimezone(UTC)
+                except (TypeError, ValueError):
+                    logger.warning(
+                        "Skipping PR #%s with invalid updated_at=%r",
+                        pr.get("number"),
+                        updated_raw,
+                    )
+                    continue
+
+                if updated_at < start:
+                    reached_watermark = True
+                    break
+                # A capped backlog uses the previous batch's oldest
+                # timestamp as an exclusive continuation cursor.  Newer PRs
+                # are skipped until the backlog is drained, then normal
+                # watermark+overlap processing resumes.
+                if resume is not None:
+                    pr_number = pr.get("number")
+                    if updated_at > resume or (
+                        updated_at == resume
+                        and resume_before_number is not None
+                        and isinstance(pr_number, int)
+                        and pr_number >= resume_before_number
+                    ):
+                        continue
+                if updated_at <= end:
+                    results.append(pr)
+                    if limit is not None and len(results) >= limit:
+                        break
+
+            if reached_watermark or (limit is not None and len(results) >= limit):
+                break
+            if len(result) < page_size:
+                break
+            page += 1
+
+        logger.info(
+            "Found %d pull requests updated between %s and %s (max_items=%s)",
+            len(results),
+            start.isoformat(),
+            end.isoformat(),
+            limit,
+        )
+        return results[:limit] if limit is not None else results
+
     async def get_pr_commits(
         self,
         owner: str,

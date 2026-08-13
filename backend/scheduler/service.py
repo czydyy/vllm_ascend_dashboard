@@ -864,6 +864,8 @@ class DataSyncScheduler:
         from infrastructure.tasks.task_manager import TaskManager
 
         days_back = getattr(settings, "PR_PIPELINE_DAYS_BACK", 7)
+        max_items = getattr(settings, "PR_PIPELINE_MAX_ITEMS_PER_SYNC", 50)
+        lookback_minutes = getattr(settings, "PR_PIPELINE_INCREMENTAL_LOOKBACK_MINUTES", 15)
         # A stable one-minute window suppresses duplicate enqueues after a
         # Scheduler restart without preventing the next scheduled run.
         dedupe_key = f"pr_sync:scheduled:{datetime.now(UTC).strftime('%Y-%m-%dT%H:%M')}"
@@ -871,7 +873,12 @@ class DataSyncScheduler:
             task_id = await TaskManager.create_task(
                 db,
                 "pr_sync",
-                {"days_back": days_back},
+                {
+                    "days_back": days_back,
+                    "incremental": True,
+                    "max_items": max_items,
+                    "lookback_minutes": lookback_minutes,
+                },
                 dedupe_key,
                 required_capability="python",
             )
