@@ -53,6 +53,26 @@ class CollectorRunner:
             # as scheduled work, so upgrade them in memory to the incremental
             # execution path without rewriting queued task rows.
             if task_type == "pr_sync" and str(dedupe_key or "").startswith("pr_sync:scheduled:"):
+                newer_result = await db.execute(
+                    text(
+                        """
+                        SELECT 1
+                        FROM collection_tasks
+                        WHERE task_type = 'pr_sync'
+                          AND dedupe_key LIKE 'pr_sync:scheduled:%'
+                          AND id > :task_id
+                          AND status IN ('pending', 'running')
+                        LIMIT 1
+                        """
+                    ),
+                    {"task_id": ctx.task_id},
+                )
+                if newer_result.scalar_one_or_none() is not None:
+                    logger.info(
+                        "Skipping stale scheduled PR task %d because a newer scheduled task exists",
+                        ctx.task_id,
+                    )
+                    return
                 task_params = {
                     **task_params,
                     "incremental": True,

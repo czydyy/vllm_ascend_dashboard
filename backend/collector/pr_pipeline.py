@@ -137,6 +137,10 @@ class PRPipelineCollector:
             except GitHubRateLimitError as e:
                 logger.error(f"Rate limit exceeded while processing PRs: {e}")
                 rate_limited = True
+                processing_failed = True
+                source_time = self._source_updated_at(pr)
+                if source_time and isinstance(pr.get("number"), int):
+                    failed_source_cursors.append((source_time, pr["number"]))
                 break
             except GitHubAPIError as e:
                 logger.error(f"API error processing PR #{pr.get('number', '?')}: {e}")
@@ -154,7 +158,7 @@ class PRPipelineCollector:
                 continue
 
         try:
-            if incremental and state_doc is not None and not rate_limited:
+            if incremental and state_doc is not None:
                 # Advance only after all candidates have been attempted.  A
                 # failed PR gets an inclusive continuation cursor so the next
                 # run retries it instead of skipping it permanently.  When a
