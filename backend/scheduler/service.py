@@ -451,6 +451,13 @@ class DataSyncScheduler:
                     name="Model Report Sync",
                     replace_existing=True,
                 )
+                self.scheduler.add_job(
+                    self._sync_pr_pipeline_job,
+                    trigger=IntervalTrigger(minutes=settings.PR_PIPELINE_SYNC_INTERVAL_MINUTES),
+                    id="pr_pipeline_sync",
+                    name="PR Pipeline Sync",
+                    replace_existing=True,
+                )
         except Exception as e:
             logger.warning("Failed to apply scheduler runtime config: %s", e)
 
