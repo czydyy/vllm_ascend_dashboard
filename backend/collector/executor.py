@@ -88,6 +88,7 @@ class CollectorRunner:
 
         if task_type in {
             "ci_sync",
+            "nightly_data_sync",
             "pr_sync",
             "pr_historical_sync",
             "model_sync",
@@ -106,6 +107,8 @@ class CollectorRunner:
         try:
             if task_type == "ci_sync":
                 await self._run_ci_sync(ctx, task_params)
+            elif task_type == "nightly_data_sync":
+                await self._run_nightly_data_sync(ctx, task_params)
             elif task_type == "pr_sync":
                 await self._run_pr_sync(ctx, task_params)
             elif task_type == "pr_historical_sync":
@@ -163,13 +166,41 @@ class CollectorRunner:
                     db,
                     progress_callback=persist_progress,
                 )
-                await collector.collect_workflow_runs(
+                collected = await collector.collect_workflow_runs(
                     days_back=int(task_params.get("days_back", settings.CI_SYNC_DAYS_BACK)),
                     max_runs_per_workflow=int(task_params.get("max_runs", settings.CI_SYNC_MAX_RUNS_PER_WORKFLOW)),
                     force_full_refresh=bool(task_params.get("force_full_refresh", False)),
                 )
+                # CI collection must remain successful even when the optional
+                # repository cache is temporarily unavailable.  The durable
+                # nightly_data_sync task retries the materialization later.
+                try:
+                    from collector.nightly_data import NightlyDataCollector
+
+                    materialized = await NightlyDataCollector(db).sync()
+                    logger.info(
+                        "CI task %d completed: collected=%d nightly=%s",
+                        ctx.task_id,
+                        collected,
+                        materialized,
+                    )
+                except Exception:
+                    logger.exception(
+                        "CI task %d collected %d rows but Nightly materialization failed; "
+                        "nightly_data_sync will retry",
+                        ctx.task_id,
+                        collected,
+                    )
         finally:
             await github.close()
+
+    async def _run_nightly_data_sync(self, ctx: TaskContext, task_params: dict):
+        """Snapshot Nightly YAML and materialize daily failure records."""
+        from collector.nightly_data import NightlyDataCollector
+
+        async with SessionLocal() as db:
+            result = await NightlyDataCollector(db).sync()
+        logger.info("Nightly data task %d completed: %s", ctx.task_id, result)
 
     async def _run_model_sync(self, ctx: TaskContext, task_params: dict):
         """模型报告同步。"""

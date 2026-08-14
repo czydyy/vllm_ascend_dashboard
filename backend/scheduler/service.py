@@ -277,6 +277,24 @@ class DataSyncScheduler:
             logger.error(f"Failed to add log cleanup job: {e}", exc_info=True)
 
         test_board_interval = getattr(settings, 'TEST_BOARD_SYNC_INTERVAL_MINUTES', 120)
+        nightly_data_interval = getattr(settings, 'NIGHTLY_DATA_SYNC_INTERVAL_MINUTES', test_board_interval)
+        try:
+            self.scheduler.add_job(
+                self._sync_nightly_data_job,
+                trigger=IntervalTrigger(minutes=nightly_data_interval),
+                id="nightly_data_sync",
+                name="Nightly Config and Failure Materialization",
+                next_run_time=datetime.now(UTC),
+                replace_existing=True,
+            )
+            logger.info(
+                "Nightly config snapshot and daily failure materialization scheduled "
+                "every %s minutes",
+                nightly_data_interval,
+            )
+        except Exception as e:
+            logger.error("Failed to add Nightly data sync job: %s", e, exc_info=True)
+
         try:
             self.scheduler.add_job(
                 self._parse_test_results_job,
@@ -630,166 +648,22 @@ class DataSyncScheduler:
         )
         self._initialized = True
 
-    async def _snapshot_nightly_configs(self, db) -> int:
-        """从 vllm-ascend 各活跃分支拉取 nightly_config.yaml 快照到 nightly_test_cases"""
-        from datetime import date as date_type
+    async def _sync_nightly_data_job(self) -> None:
+        """Queue Nightly YAML snapshot and failure materialization."""
+        from infrastructure.tasks.task_manager import TaskManager
 
-        from sqlalchemy import select
-
-        from infrastructure.persistence.models import NightlyTestCase
-        from tooling.parsers.nightly_config_parser import NightlyConfigParser, load_model_fo_map
-
-        fo_map = load_model_fo_map()
-        parser = NightlyConfigParser()
-        if not parser.is_available:
-            logger.warning("nightly_config.yaml not available, skip snapshot")
-            return 0
-
-        today = date_type.today()
-        branches = parser.get_active_branches()
-        # 只保留 main + release 分支
-        target_branches = ["main"] + [b for b in branches if b.startswith("releases/")]
-
-        total = 0
-        for branch in target_branches:
-            if not parser.checkout_branch(branch):
-                continue
-            cases = parser.parse(report_date=str(today), source_branch=branch)
-            if not cases:
-                continue
-
-            for c in cases:
-                # 检查是否已存在
-                stmt = select(NightlyTestCase).where(
-                    NightlyTestCase.report_date == today,
-                    NightlyTestCase.source_branch == branch,
-                    NightlyTestCase.workflow_name == c.workflow,
-                    NightlyTestCase.job_name == c.name,
-                )
-                result = await db.execute(stmt)
-                existing = result.scalar_one_or_none()
-                fo_value = fo_map.get(c.model_path) or fo_map.get(c.model_path.split("/")[-1]) or fo_map.get(c.model_path.rsplit(".", 1)[0] if "." in c.model_path else c.model_path, "")
-                if existing:
-                    if not existing.model_fo and fo_value:
-                        existing.model_fo = fo_value
-                else:
-                    db.add(NightlyTestCase(
-                        report_date=today,
-                        source_branch=branch,
-                        workflow_name=c.workflow,
-                        job_name=c.name,
-                        display_name=c.name,
-                        test_model=c.model_path,
-                        model_fo=fo_value,
-                        deployment_type=c.deployment,
-                    ))
-                total += 1
-
-        if total > 0:
-            await db.commit()
-        logger.info(f"Snapshot nightly config: {total} new entries across {len(target_branches)} branches")
-        return total
-
-    async def _populate_daily_failure_records(self, db) -> int:
-        """物化每日失败记录：从 CIJob 提取分支，匹配对应分支的 NightlyTestCase 快照"""
-        import re
-        from datetime import timedelta, timezone
-
-        from sqlalchemy import select
-
-        from infrastructure.persistence.models import CIJob, DailyFailureRecord, NightlyTestCase
-
-        beijing_tz = timezone(timedelta(hours=8))
-        now_utc = datetime.now(UTC)
-        cutoff = now_utc - timedelta(days=14)
-
-        stmt = select(CIJob).where(
-            CIJob.started_at >= cutoff,
-            CIJob.conclusion.in_(["failure", "cancelled"]),
-        )
-        result = await db.execute(stmt)
-        failed_jobs = result.scalars().all()
-
-        # 加载 NightlyTestCase 快照，按 (report_date, source_branch, workflow_name, job_name) 索引
-        tc_stmt = select(NightlyTestCase)
-        tc_result = await db.execute(tc_stmt)
-        tc_map: dict[tuple[str, str, str, str], NightlyTestCase] = {}
-        for tc in tc_result.scalars().all():
-            key = (str(tc.report_date), tc.source_branch, tc.workflow_name, tc.job_name)
-            tc_map[key] = tc
-
-        existing_stmt = select(DailyFailureRecord)
-        existing_result = await db.execute(existing_stmt)
-        existing_keys: set[tuple[str, str, str, str]] = set()
-        for rec in existing_result.scalars().all():
-            existing_keys.add((str(rec.report_date), rec.source_branch, rec.workflow_name, rec.job_name))
-
-        # 分支名提取正则：job_name 格式如 "single-node (main, ...)" 或 "double-node (releases/v0.23.0, ...)"
-        branch_re = re.compile(r'^\S+\s+\(([^,]+),')
-
-        new_count = 0
-        for job in failed_jobs:
-            started = job.started_at
-            if not started:
-                continue
-            if started.tzinfo is None:
-                started = started.replace(tzinfo=UTC)
-            beijing_date = started.astimezone(beijing_tz).strftime("%Y-%m-%d")
-
-            # 提取分支名
-            branch = "main"
-            m = branch_re.match(job.job_name) if job.job_name else None
-            if m:
-                branch = m.group(1)
-
-            key = (beijing_date, branch, job.workflow_name, job.job_name)
-            if key in existing_keys:
-                continue
-
-            # 匹配：CI job_name 末尾是 config 文件名（如 xx.yaml），
-            # nightly_test_cases.test_model 存的就是 config_file_path
-            tc = None
-            for tc_key, tc_val in tc_map.items():
-                tc_date, tc_branch, tc_wf, tc_job = tc_key
-                if tc_date == beijing_date and tc_wf == job.workflow_name:
-                    if (tc_val.test_model and tc_val.test_model in job.job_name) or tc_job in job.job_name:
-                        tc = tc_val
-                        break
-
-            # 只保留 nightly_config.yaml 中定义的测试用例，
-            # 跳过 Build image / Export env / clear-logs 等基础设施 job
-            if not tc:
-                continue
-
-            github_url = f"https://github.com/{settings.GITHUB_OWNER}/{settings.GITHUB_REPO}/actions/runs/{job.run_id}/job/{job.job_id}" if job.job_id else None
-
-            record = DailyFailureRecord(
-                report_date=beijing_date,
-                source_branch=branch,
-                workflow_name=job.workflow_name,
-                job_name=job.job_name,
-                run_id=job.run_id,
-                job_id=job.job_id,
-                conclusion=job.conclusion,
-                started_at=job.started_at,
-                completed_at=job.completed_at,
-                duration_seconds=job.duration_seconds,
-                hardware=job.hardware,
-                display_name=tc.display_name if tc else None,
-                test_model=tc.test_model if tc else None,
-                model_fo=tc.model_fo if tc else None,
-                owner=tc.owner if tc else None,
-                deployment_type=tc.deployment_type if tc else None,
-                processing_status="未处理",
-                github_job_url=github_url,
+        dedupe_key = f"nightly_data_sync:scheduled:{datetime.now(UTC).strftime('%Y-%m-%dT%H:%M')}"
+        async with SessionLocal() as db:
+            task_id = await TaskManager.create_task(
+                db,
+                "nightly_data_sync",
+                {},
+                dedupe_key,
+                required_capability="python",
             )
-            db.add(record)
-            existing_keys.add(key)
-            new_count += 1
-
-        if new_count > 0:
             await db.commit()
-        return new_count
+        if task_id:
+            logger.info("Queued Nightly data synchronization task %d", task_id)
 
     async def run_ci_post_sync(self, db) -> None:
         """CI 采集完成后的数据管线，scheduler 全量路径与 COLLECTOR_MODE collector 共用。

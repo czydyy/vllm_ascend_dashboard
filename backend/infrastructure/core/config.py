@@ -70,6 +70,7 @@ class Settings(BaseSettings):
     CI_SYNC_DAYS_BACK: int = 7  # 自动同步时采集最近 N 天的数据
     CI_SYNC_MAX_RUNS_PER_WORKFLOW: int = 100  # 每个 workflow 最多采集多少条记录
     CI_SYNC_FORCE_FULL_REFRESH: bool = False  # 是否强制全量覆盖刷新
+    NIGHTLY_DATA_SYNC_INTERVAL_MINUTES: int = 120
     DATA_RETENTION_DAYS: int = 365
 
     # 测试用例退出阈值：超过此天数未运行的用例标记为「已退出」，从监控看板隐藏

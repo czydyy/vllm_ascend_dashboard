@@ -1700,6 +1700,7 @@ async def sync_test_cases_from_yaml(
     info = parser.get_repo_info()
 
     if not info["available"]:
+        info["nightly_dir"] = info.get("config_file", "")
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"vllm-ascend 仓库未找到，nightly_dir={info['nightly_dir']}。请设置 VLLM_ASCEND_REPO_PATH 环境变量"
@@ -1754,9 +1755,6 @@ async def sync_test_cases_from_yaml(
                 total_created += 1
 
     if total_created > 0 or total_updated > 0:
-        await db.commit()
-
-    if created > 0 or updated > 0:
         await db.commit()
 
     return {
