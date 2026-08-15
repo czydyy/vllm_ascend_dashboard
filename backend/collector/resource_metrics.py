@@ -14,7 +14,9 @@ from infrastructure.persistence.models import (
     ResourceNodeMetrics,
     ResourceNpuMetrics,
 )
+from infrastructure.core.config import settings
 from contracts.schemas.resource_metrics import RESOURCE_METRICS_CONFIG_KEY
+from infrastructure.clients.resource_sync import get_remote_resource_dashboard_client
 from infrastructure.clients.resource_dashboard import ResourceDashboardService
 
 logger = logging.getLogger(__name__)
@@ -40,10 +42,16 @@ class ResourceMetricsCollector:
             logger.info("No enabled clusters; skipping resource metric collection")
             return 0
 
-        dashboard = await asyncio.wait_for(
-            ResourceDashboardService().build_dashboard(clusters, include_pods=True),
-            timeout=30,
-        )
+        remote_client = get_remote_resource_dashboard_client()
+        if remote_client.enabled:
+            logger.info("Using remote resource metrics source: %s", settings.RESOURCE_METRICS_REMOTE_URL)
+            dashboard = await remote_client.fetch_dashboard()
+            self._localize_cluster_ids(dashboard, clusters)
+        else:
+            dashboard = await asyncio.wait_for(
+                ResourceDashboardService().build_dashboard(clusters, include_pods=True),
+                timeout=30,
+            )
         now = datetime.now(UTC)
         collected = 0
         for summary in dashboard.clusters:
@@ -103,6 +111,22 @@ class ResourceMetricsCollector:
                 )
         await self.db.commit()
         return collected
+
+    @staticmethod
+    def _localize_cluster_ids(dashboard, clusters: list[KubernetesClusterConfig]) -> None:
+        """Map production cluster IDs to the local imported configuration IDs."""
+        ids_by_name = {cluster.name: cluster.id for cluster in clusters}
+        for summary in dashboard.clusters:
+            local_id = ids_by_name.get(summary.cluster_name)
+            if local_id is None:
+                continue
+            summary.cluster_id = local_id
+            for pod in summary.executing_pods:
+                pod.cluster_id = local_id
+        for pod in [*dashboard.executing_pods, *dashboard.executed_pods]:
+            local_id = ids_by_name.get(pod.cluster_name)
+            if local_id is not None:
+                pod.cluster_id = local_id
 
     async def cleanup_old_metrics(self) -> int:
         config = await self._get_config()

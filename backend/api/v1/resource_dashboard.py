@@ -16,6 +16,8 @@ from contracts.schemas import (
 )
 from infrastructure.clients.kubernetes_client import encrypt_kubeconfig
 from infrastructure.clients.resource_dashboard import ResourceDashboardService
+from infrastructure.clients.resource_metrics_query import PersistedResourceMetricsService
+from infrastructure.core.config import settings
 
 router = APIRouter()
 
@@ -61,6 +63,14 @@ async def get_resource_dashboard(
     result = await db.execute(stmt)
     clusters = list(result.scalars().all())
 
+    if settings.RESOURCE_METRICS_REMOTE_URL:
+        return await PersistedResourceMetricsService().build_dashboard(
+            db,
+            clusters,
+            cluster_ids=cluster_ids,
+            include_pods=include_pods,
+        )
+
     service = ResourceDashboardService()
     return await service.build_dashboard(
         clusters,
@@ -85,6 +95,13 @@ async def get_cluster_summary(
     cluster = result.scalar_one_or_none()
     if not cluster:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="集群不存在或未启用")
+
+    if settings.RESOURCE_METRICS_REMOTE_URL:
+        return await PersistedResourceMetricsService().build_cluster_summary(
+            db,
+            cluster,
+            include_pods=include_pods,
+        )
 
     service = ResourceDashboardService()
     summary, _, _ = await service.build_cluster_summary(cluster, label_selector, include_pods)

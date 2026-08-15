@@ -40,6 +40,13 @@ class Settings(BaseSettings):
     REFRESH_TOKEN_EXPIRE_DAYS: int = 7
     KUBECONFIG_ENCRYPTION_KEY: str | None = None
 
+    # Resource metrics can be collected through the production API when the
+    # local Docker host cannot reach the Kubernetes API networks directly.
+    RESOURCE_METRICS_REMOTE_URL: str = ""
+    RESOURCE_METRICS_REMOTE_USERNAME: str = ""
+    RESOURCE_METRICS_REMOTE_PASSWORD: str = ""
+    RESOURCE_METRICS_REMOTE_TIMEOUT_SECONDS: int = 60
+
     # CORS 配置
     # 生产环境应明确指定允许的域名，不要使用 "*"
     CORS_ORIGINS: list[str] = [
