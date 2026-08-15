@@ -196,6 +196,32 @@ async def update_github_config(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="GitHub Token 格式不正确，应以 ghp_ 或 github_pat_ 开头",
             )
+
+        # Verify the credential before changing the process or control-plane
+        # state.  A syntactically valid token can still be revoked or expired;
+        # persisting it first would make every worker create a failing task.
+        from infrastructure.clients.github_client import (
+            GitHubAPIError,
+            GitHubAuthenticationError,
+            GitHubClient,
+        )
+
+        github_client = GitHubClient(token)
+        try:
+            await github_client.get_rate_limit_status()
+        except GitHubAuthenticationError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="GitHub Token 已被拒绝或已失效，请更换有效 Token",
+            ) from exc
+        except GitHubAPIError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_502_BAD_GATEWAY,
+                detail=f"GitHub Token 验证失败：{exc}",
+            ) from exc
+        finally:
+            await github_client.close()
+
         settings.GITHUB_TOKEN = token
         await persist_github_runtime_config(token=token)
         updates.append("GitHub Token 已更新")
