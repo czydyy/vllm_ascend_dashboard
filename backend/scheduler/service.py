@@ -87,8 +87,8 @@ class DataSyncScheduler:
         if not self._initialized:
             self._initialize_github_client()
 
-        # CI 数据同步任务 - 可配置间隔（默认 720 分钟 = 12 小时）
-        sync_interval_minutes = getattr(settings, 'CI_SYNC_INTERVAL_MINUTES', 720)
+        # CI 数据同步任务 - 可配置间隔（默认 30 分钟，与生产保持一致）
+        sync_interval_minutes = getattr(settings, 'CI_SYNC_INTERVAL_MINUTES', 30)
 
         try:
             self.scheduler.add_job(

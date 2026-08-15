@@ -135,11 +135,17 @@ class CollectorWorker:
             raise
         except Exception as exc:
             try:
+                from infrastructure.clients.github_client import GitHubAuthenticationError
+
                 await self._fail_task(
                     task_ctx.task_id,
                     task_ctx.lease_token,
                     str(exc)[:1000],
-                    retry=True,
+                    # A rejected credential cannot succeed on a retry.  Move
+                    # it through the dead-letter path so the UI reports the
+                    # real configuration failure instead of staying in
+                    # "syncing" forever.
+                    retry=not isinstance(exc, GitHubAuthenticationError),
                 )
             except Exception:
                 logger.exception("Failed to persist failure for task %d", task_ctx.task_id)
@@ -210,6 +216,18 @@ class CollectorWorker:
                         lease_expiry = NULL, last_error = 'lease expired after max failures'
                     WHERE status = 'running' AND lease_expiry < NOW()
                       AND failure_count >= max_failures
+                """))
+
+                # Older workers could leave exhausted tasks as ``pending``.
+                # They are intentionally excluded by the claim predicate, so
+                # normalize them here instead of allowing an invisible queue
+                # of permanently stuck tasks to accumulate.
+                await db.execute(text("""
+                    UPDATE collection_tasks
+                    SET status = 'dead', lease_owner = NULL, lease_token = NULL,
+                        lease_expiry = NULL, next_retry_at = NULL,
+                        last_error = COALESCE(last_error, 'task exhausted max failures')
+                    WHERE status = 'pending' AND failure_count >= max_failures
                 """))
 
                 # 领取任务

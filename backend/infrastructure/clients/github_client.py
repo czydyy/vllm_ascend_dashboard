@@ -19,6 +19,12 @@ class GitHubAPIError(Exception):
     pass
 
 
+class GitHubAuthenticationError(GitHubAPIError):
+    """GitHub credential rejected (HTTP 401)."""
+
+    pass
+
+
 class GitHubRateLimitError(GitHubAPIError):
     """GitHub API 速率限制异常"""
     pass
@@ -151,6 +157,11 @@ class GitHubClient:
                                 raise GitHubRateLimitError("GitHub API rate limit exceeded")
                         raise GitHubRateLimitError("GitHub API rate limit exceeded")
 
+                if response.status_code == httpx.codes.UNAUTHORIZED:
+                    raise GitHubAuthenticationError(
+                        "GitHub API authentication failed (HTTP 401)"
+                    )
+
                 response.raise_for_status()
 
                 # 返回 JSON 数据
@@ -158,7 +169,7 @@ class GitHubClient:
                     return {}
                 return response.json()
 
-            except GitHubRateLimitError:
+            except (GitHubAuthenticationError, GitHubRateLimitError):
                 # 速率限制不重试
                 raise
 

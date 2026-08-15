@@ -434,6 +434,43 @@ async def trigger_sync(
     )
 
 
+@router.get("/sync/status")
+async def get_sync_status():
+    """Return the scheduler heartbeat in the shape expected by the CI UI."""
+    from datetime import timedelta
+
+    from infrastructure.db.base import SessionLocal
+    from infrastructure.persistence.models import SchedulerHeartbeat
+
+    async with SessionLocal() as db:
+        heartbeat = await db.get(SchedulerHeartbeat, 1)
+
+    now = datetime.now(UTC)
+    running = False
+    jobs: list[dict[str, Any]] = []
+    if heartbeat is not None:
+        updated_at = heartbeat.updated_at
+        if updated_at is not None and updated_at.tzinfo is None:
+            updated_at = updated_at.replace(tzinfo=UTC)
+        running = bool(heartbeat.running) and updated_at is not None and now - updated_at < timedelta(seconds=90)
+        for job_id, payload in (heartbeat.jobs or {}).items():
+            if not isinstance(payload, dict):
+                payload = {}
+            jobs.append(
+                {
+                    "id": str(job_id),
+                    "name": payload.get("name") or str(job_id),
+                    "next_run_time": payload.get("next_run"),
+                }
+            )
+
+    return {
+        "scheduler_running": running,
+        "jobs": sorted(jobs, key=lambda job: job["id"]),
+        "error": None if running else "scheduler heartbeat unavailable",
+    }
+
+
 @router.get("/sync/progress")
 async def get_sync_progress_info():
     """Return the latest durable CI sync task status."""

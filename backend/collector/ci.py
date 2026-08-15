@@ -12,7 +12,12 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from infrastructure.persistence.models import CIJob, CIResult, WorkflowConfig
-from infrastructure.clients.github_client import GitHubAPIError, GitHubClient, GitHubRateLimitError
+from infrastructure.clients.github_client import (
+    GitHubAPIError,
+    GitHubAuthenticationError,
+    GitHubClient,
+    GitHubRateLimitError,
+)
 from infrastructure.tasks.sync_progress import get_sync_progress, reset_sync_progress
 
 logger = logging.getLogger(__name__)
@@ -144,7 +149,13 @@ class CICollector:
                     await self.db.rollback()
                 except Exception as rollback_error:
                     logger.error(f"Failed to rollback database transaction: {rollback_error}")
-                break  # 速率限制，停止采集
+                raise
+            except GitHubAuthenticationError as e:
+                logger.error(f"GitHub authentication failed while fetching {workflow_file}: {e}")
+                progress.update_workflow_progress(workflow_file, 0, "failed")
+                await self._persist_progress(progress)
+                await self.db.rollback()
+                raise
             except GitHubAPIError as e:
                 logger.error(f"Failed to fetch workflow {workflow_file}: {e}")
                 progress.update_workflow_progress(workflow_file, 0, "failed")

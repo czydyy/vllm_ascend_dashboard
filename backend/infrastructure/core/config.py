@@ -73,7 +73,7 @@ class Settings(BaseSettings):
     AGENT_PROXY_ALLOWED_HOSTS: str = "litellm,vllm-dashboard-litellm,vllm-litellm-dev"
 
     # 数据同步配置
-    CI_SYNC_INTERVAL_MINUTES: int = 720  # CI 数据同步间隔（分钟），默认 12 小时
+    CI_SYNC_INTERVAL_MINUTES: int = 30  # CI 数据同步间隔（分钟），与生产默认调度保持一致
     CI_SYNC_DAYS_BACK: int = 7  # 自动同步时采集最近 N 天的数据
     CI_SYNC_MAX_RUNS_PER_WORKFLOW: int = 100  # 每个 workflow 最多采集多少条记录
     CI_SYNC_FORCE_FULL_REFRESH: bool = False  # 是否强制全量覆盖刷新
