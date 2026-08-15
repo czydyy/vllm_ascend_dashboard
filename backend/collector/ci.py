@@ -234,6 +234,10 @@ class CICollector:
                     page=page,
                     created=created_filter,  # 使用 created 参数过滤
                 )
+            except (GitHubAuthenticationError, GitHubRateLimitError):
+                # Credential and quota failures must reach the durable task
+                # worker; swallowing them would mark a zero-row sync done.
+                raise
             except Exception as e:
                 logger.error(f"Failed to fetch workflow runs for {workflow_file} (page {page}): {e}")
                 break
@@ -284,6 +288,8 @@ class CICollector:
                 try:
                     # 在强制刷新模式下，也强制更新 runner 信息
                     await self._collect_jobs(run_id, run, workflow_file, hardware, force_update_runner=force_full_refresh)
+                except (GitHubAuthenticationError, GitHubRateLimitError):
+                    raise
                 except Exception as e:
                     logger.error(f"Failed to collect jobs for run {run_id}: {e}")
 
