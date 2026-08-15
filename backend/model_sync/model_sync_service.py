@@ -13,7 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from infrastructure.core.config import settings
 from infrastructure.persistence.models import ModelConfig, ModelReport, ModelSyncConfig
-from infrastructure.clients.github_client import GitHubClient
+from infrastructure.clients.github_client import GitHubAuthenticationError, GitHubClient
 from tooling.parsers.model_report_parser import ModelReportParser
 
 logger = logging.getLogger(__name__)
@@ -58,6 +58,11 @@ class ModelSyncService:
                     runs_limit=runs_limit,
                 )
                 total_collected += collected
+            except GitHubAuthenticationError:
+                # An invalid credential is a task-level failure.  Do not turn
+                # it into a successful zero-result sync, otherwise the UI
+                # reports completed while silently dropping all model data.
+                raise
             except Exception as e:
                 logger.error(f"Failed to sync from workflow {config.workflow_name}: {e}")
 
@@ -90,6 +95,8 @@ class ModelSyncService:
                 per_page=runs_limit,  # 使用全局配置
                 days_back=days_back,  # 从多少天前开始采集
             )
+        except GitHubAuthenticationError:
+            raise
         except Exception as e:
             logger.error(f"Failed to fetch workflow runs: {e}")
             return 0
@@ -108,6 +115,8 @@ class ModelSyncService:
             # 获取 artifacts
             try:
                 artifacts = await self.github.list_artifacts(run_id)
+            except GitHubAuthenticationError:
+                raise
             except Exception as e:
                 logger.warning(f"Failed to list artifacts for run {run_id}: {e}")
                 continue
@@ -134,6 +143,8 @@ class ModelSyncService:
                     if saved:
                         collected += 1
 
+                except GitHubAuthenticationError:
+                    raise
                 except Exception as e:
                     logger.warning(f"Failed to process artifact {artifact['name']}: {e}")
 
