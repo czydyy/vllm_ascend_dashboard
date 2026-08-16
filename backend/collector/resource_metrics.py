@@ -17,7 +17,7 @@ from infrastructure.persistence.models import (
 from infrastructure.core.config import settings
 from contracts.schemas.resource_metrics import RESOURCE_METRICS_CONFIG_KEY
 from infrastructure.clients.resource_sync import get_remote_resource_dashboard_client
-from infrastructure.clients.resource_dashboard import ResourceDashboardService
+from resource_dashboard.service import ResourceDashboardService
 
 logger = logging.getLogger(__name__)
 

@@ -69,10 +69,11 @@ vllm-ascend-dashboard/
 ├── backend/                    # 后端代码根目录
 │   ├── api/                   # HTTP 查询与控制面，入口为 api.main
 │   │   ├── v1/                # HTTP 路由
-│   │   ├── services/          # 仅 API 编排服务
 │   │   └── middleware/        # HTTP 中间件
 │   ├── collector/             # 独立数据采集进程，入口为 collector.__main__
 │   ├── scheduler/             # 独立调度进程，入口为 scheduler.__main__
+│   ├── resource_dashboard/    # 资源看板领域服务与持久化查询
+│   ├── log_center/            # 日志领域服务
 │   ├── reporting/             # 报告领域服务
 │   ├── failure_analysis/      # 失败分析领域服务
 │   ├── model_sync/            # 模型同步领域服务

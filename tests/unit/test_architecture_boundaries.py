@@ -39,6 +39,18 @@ def test_api_has_no_mixed_business_services_bucket() -> None:
     )
 
 
+def test_resource_dashboard_services_are_not_in_infrastructure_clients() -> None:
+    clients = BACKEND / "infrastructure" / "clients"
+    assert not (clients / "resource_dashboard.py").exists(), (
+        "resource dashboard business logic must live in backend/resource_dashboard"
+    )
+    assert not (clients / "resource_metrics_query.py").exists(), (
+        "resource dashboard read models must not live in infrastructure/clients"
+    )
+    assert (BACKEND / "resource_dashboard" / "service.py").exists()
+    assert (BACKEND / "resource_dashboard" / "metrics_query.py").exists()
+
+
 def test_scheduler_never_depends_on_the_http_api() -> None:
     _assert_no_role_imports("scheduler", ("api",))
 

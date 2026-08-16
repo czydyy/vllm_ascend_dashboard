@@ -69,6 +69,7 @@ packages = [
     "model_sync",
     "pr_pipeline",
     "project_dashboard",
+    "resource_dashboard",
     "reporting",
     "scheduler",
     "support_matrix",
@@ -121,4 +122,4 @@ ignore_missing_imports = true
 asyncio_mode = "auto"
 testpaths = ["../tests"]
 pythonpath = [".."]
-addopts = "-v --cov=api --cov=shared --cov=scheduler --cov=collector --cov-report=term-missing"
+addopts = "-v --cov=api --cov=collector --cov=resource_dashboard --cov=scheduler --cov-report=term-missing"

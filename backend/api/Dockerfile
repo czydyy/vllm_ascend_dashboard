@@ -69,6 +69,7 @@ COPY backend/contracts/ ./contracts/
 COPY backend/agent/ ./agent/
 COPY backend/reporting/ ./reporting/
 COPY backend/project_dashboard/ ./project_dashboard/
+COPY backend/resource_dashboard/ ./resource_dashboard/
 COPY backend/log_center/ ./log_center/
 COPY backend/tooling/ ./tooling/
 COPY backend/failure_analysis/ ./failure_analysis/

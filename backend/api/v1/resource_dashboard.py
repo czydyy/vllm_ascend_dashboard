@@ -15,8 +15,8 @@ from contracts.schemas import (
     ResourceDashboardResponse,
 )
 from infrastructure.clients.kubernetes_client import encrypt_kubeconfig
-from infrastructure.clients.resource_dashboard import ResourceDashboardService
-from infrastructure.clients.resource_metrics_query import PersistedResourceMetricsService
+from resource_dashboard.service import ResourceDashboardService
+from resource_dashboard.metrics_query import PersistedResourceMetricsService
 from infrastructure.core.config import settings
 
 router = APIRouter()
