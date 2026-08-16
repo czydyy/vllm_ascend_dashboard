@@ -11,7 +11,7 @@ from typing import Any
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from infrastructure.persistence.models import CIJob, CIResult, WorkflowConfig
+from infrastructure.persistence.models import CIJob, CIResult, NightlyTestCase, WorkflowConfig
 from infrastructure.clients.github_client import (
     GitHubAPIError,
     GitHubAuthenticationError,
@@ -50,6 +50,41 @@ class CICollector:
         self.db = db_session
         self.progress_callback = progress_callback
 
+    @staticmethod
+    def _is_pr_nightly_dispatch(
+        run: dict[str, Any],
+        jobs: list[dict[str, Any]] | None = None,
+    ) -> bool:
+        """Identify a Nightly run dispatched by ``/nightly pr``."""
+        if run.get("event") != "workflow_dispatch":
+            return False
+
+        input_sources: list[dict[str, Any]] = []
+        for key in ("inputs", "workflow_dispatch_inputs", "dispatch_inputs"):
+            value = run.get(key)
+            if isinstance(value, dict):
+                input_sources.append(value)
+        workflow_dispatch = run.get("workflow_dispatch")
+        if isinstance(workflow_dispatch, dict) and isinstance(workflow_dispatch.get("inputs"), dict):
+            input_sources.append(workflow_dispatch["inputs"])
+
+        for inputs in input_sources:
+            if str(inputs.get("vllm_ascend_ref") or "").strip():
+                return True
+            if str(inputs.get("request_id") or "").strip():
+                return True
+
+        # The shared Nightly workflow exposes this conditional step only when
+        # ``vllm_ascend_ref`` is set by ``/nightly pr``.  Jobs API data includes
+        # the step conclusion, unlike the workflow-run list response.
+        for job in jobs or []:
+            for step in job.get("steps") or []:
+                name = str(step.get("name") or "").strip().casefold()
+                if name == "checkout pr code" and step.get("conclusion") != "skipped":
+                    return True
+
+        return False
+
     async def _persist_progress(self, progress: Any) -> None:
         """Persist progress for callers running in a separate process."""
         if self.progress_callback is None:
@@ -79,19 +114,55 @@ class CICollector:
         Returns:
             新增或更新的记录数
         """
-        # 如果没有指定 workflow 列表，从数据库获取启用的配置
+        # 如果没有指定 workflow 列表，从数据库获取启用且包含测试用例的配置。
+        # CI 看板只关心真正执行测试的 workflow；纯构建、清理、发布等
+        # workflow 不进入同步，避免无效 run/job 膨胀数据量。
         if workflow_files is None:
-            stmt = select(WorkflowConfig).where(WorkflowConfig.enabled == True)
+            test_workflow_names = select(NightlyTestCase.workflow_name).where(
+                NightlyTestCase.enabled == True,
+            ).distinct()
+            stmt = select(WorkflowConfig).where(
+                WorkflowConfig.enabled == True,
+                WorkflowConfig.workflow_name.in_(test_workflow_names),
+            )
             result = await self.db.execute(stmt)
             workflow_configs = result.scalars().all()
             workflow_files = [
                 (config.workflow_file, config.hardware, getattr(config, 'event', 'schedule') or None, getattr(config, 'actor', None))
                 for config in workflow_configs
             ]
-            logger.info(f"Loaded {len(workflow_files)} enabled workflows from database")
+            logger.info(
+                "Loaded %d enabled workflows with test cases from database",
+                len(workflow_files),
+            )
         else:
             # 兼容旧格式：转换为 (workflow_file, hardware, event, actor) 元组列表
             workflow_files = [(wf, "A2", "schedule", None) for wf in workflow_files]
+
+            # 即使调用方显式传入 workflow，也要应用相同的测试用例规则。
+            # 这样手动同步、定时同步和历史调用路径不会产生不同的数据集。
+            test_workflow_files = select(WorkflowConfig.workflow_file).where(
+                WorkflowConfig.enabled == True,
+                WorkflowConfig.workflow_name.in_(
+                    select(NightlyTestCase.workflow_name).where(
+                        NightlyTestCase.enabled == True,
+                    ).distinct()
+                ),
+            )
+            result = await self.db.execute(test_workflow_files)
+            allowed_workflow_files = set(result.scalars().all())
+            skipped_workflows = [
+                item[0] for item in workflow_files if item[0] not in allowed_workflow_files
+            ]
+            workflow_files = [
+                item for item in workflow_files if item[0] in allowed_workflow_files
+            ]
+            if skipped_workflows:
+                logger.info(
+                    "Skipped %d workflows without enabled test cases: %s",
+                    len(skipped_workflows),
+                    ", ".join(skipped_workflows),
+                )
 
         # 初始化进度跟踪器
         reset_sync_progress()
@@ -263,12 +334,31 @@ class CICollector:
                 created_at = self._parse_datetime(run.get("created_at"))
                 run_id = run.get("id")
 
-                # 检查时间范围
                 if created_at and created_at < since:
                     logger.info(f"Run {run_id} is older than {since}, stopping collection for {workflow_file}")
-                    # 提交已收集的数据
                     await self.db.commit()
-                    return collected  # 超出时间范围，停止
+                    return collected
+
+                prefetched_jobs: list[dict[str, Any]] | None = None
+                if run.get("event") == "workflow_dispatch":
+                    try:
+                        prefetched_jobs = await self.github.get_job_list(run_id)
+                    except (GitHubAuthenticationError, GitHubRateLimitError):
+                        raise
+                    except Exception as exc:
+                        logger.warning(
+                            "Unable to inspect jobs for workflow dispatch run %s: %s",
+                            run_id,
+                            exc,
+                        )
+
+                if self._is_pr_nightly_dispatch(run, prefetched_jobs):
+                    logger.info(
+                        "Skipped /nightly pr workflow dispatch run %s for %s",
+                        run_id,
+                        workflow_file,
+                    )
+                    continue
 
                 # 保存或更新记录
                 updated = await self._save_ci_result(run, workflow_file, hardware)
@@ -287,7 +377,14 @@ class CICollector:
                 # 获取并保存 job 详细信息（无论 run 是否已存在，都尝试获取 jobs）
                 try:
                     # 在强制刷新模式下，也强制更新 runner 信息
-                    await self._collect_jobs(run_id, run, workflow_file, hardware, force_update_runner=force_full_refresh)
+                    await self._collect_jobs(
+                        run_id,
+                        run,
+                        workflow_file,
+                        hardware,
+                        force_update_runner=force_full_refresh,
+                        jobs=prefetched_jobs,
+                    )
                 except (GitHubAuthenticationError, GitHubRateLimitError):
                     raise
                 except Exception as e:
@@ -515,6 +612,7 @@ class CICollector:
         workflow_file: str,
         hardware: str,
         force_update_runner: bool = False,
+        jobs: list[dict[str, Any]] | None = None,
     ) -> int:
         """
         获取并保存 workflow run 的 job 详细信息
@@ -532,8 +630,9 @@ class CICollector:
         try:
             logger.info(f"Fetching jobs for run {run_id}...")
 
-            # 获取 job 列表
-            jobs = await self.github.get_job_list(run_id)
+            # 获取 job 列表；调用方已预取时不重复请求 GitHub。
+            if jobs is None:
+                jobs = await self.github.get_job_list(run_id)
             logger.info(f"GitHub API returned {len(jobs)} jobs for run {run_id}")
 
             if not jobs:

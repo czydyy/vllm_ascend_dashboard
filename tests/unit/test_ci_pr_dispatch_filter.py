@@ -1,0 +1,36 @@
+from collector.ci import CICollector
+
+
+def test_regular_nightly_dispatch_is_kept() -> None:
+    run = {"event": "workflow_dispatch", "display_title": "Nightly-A2"}
+
+    assert CICollector._is_pr_nightly_dispatch(run) is False
+
+
+def test_pr_nightly_dispatch_marker_is_filtered() -> None:
+    run = {"event": "workflow_dispatch"}
+    jobs = [{"steps": [{"name": "Checkout PR code", "conclusion": "success"}]}]
+
+    assert CICollector._is_pr_nightly_dispatch(run, jobs) is True
+
+
+def test_pr_nightly_dispatch_inputs_are_filtered() -> None:
+    run = {
+        "event": "workflow_dispatch",
+        "inputs": {"vllm_ascend_ref": "abc123", "request_id": "nightly-pr-42"},
+    }
+
+    assert CICollector._is_pr_nightly_dispatch(run) is True
+
+
+def test_non_dispatch_run_is_never_filtered() -> None:
+    run = {"event": "schedule"}
+
+    assert CICollector._is_pr_nightly_dispatch(run) is False
+
+
+def test_skipped_pr_checkout_step_is_normal_nightly() -> None:
+    run = {"event": "workflow_dispatch"}
+    jobs = [{"steps": [{"name": "Checkout PR code", "conclusion": "skipped"}]}]
+
+    assert CICollector._is_pr_nightly_dispatch(run, jobs) is False
