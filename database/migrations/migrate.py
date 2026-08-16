@@ -27,6 +27,7 @@ from database.bootstrap import create_tables_with_latest_schema
 from database.migrations.mysql_schema import migrate as migrate_mysql_schema
 from database.migrations.task_queue import run as migrate_phase_a
 from database.migrations.process_runtime import run as migrate_process_runtime
+from database.migrations.test_board_data import run as migrate_test_board_data
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
 logger = logging.getLogger("database_migration")
@@ -46,12 +47,13 @@ async def migrate() -> None:
     await migrate_mysql_schema()
     await migrate_phase_a()
     await migrate_process_runtime()
+    test_board_result = await migrate_test_board_data()
     users_after = await _user_count()
     if users_after != users_before:
         raise RuntimeError(
             f"User count changed during migration: {users_before} -> {users_after}"
         )
-    logger.info("Migration completed; users=%d", users_after)
+    logger.info("Migration completed; users=%d test_board=%s", users_after, test_board_result)
 
 
 async def main() -> None:

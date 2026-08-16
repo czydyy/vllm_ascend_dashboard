@@ -114,6 +114,7 @@ class TestHealthCalculator:
                 and_(
                     TestSuiteSnapshot.suite_name == suite_name,
                     TestSuiteSnapshot.hardware == hardware,
+                    TestSuiteSnapshot.card_count == card_count,
                     TestSuiteSnapshot.snapshot_date == today,
                 )
             )

@@ -498,6 +498,32 @@ class TestParseJobResultsIncrement:
         assert case.lifetime_runs == 1
         assert case.lifetime_failures == 0, "通过结果不应递增 lifetime_failures"
 
+    @pytest.mark.asyncio
+    async def test_skipped_job_does_not_create_test_run(self, rich_db):
+        """Skipped workflow branches must not be synthesized as failed tests."""
+        from infrastructure.persistence.models import CIJob
+        from test_board.test_board_service import TestBoardService
+
+        now = datetime.now(UTC)
+        ci_job = CIJob(
+            job_id=202, run_id=102, workflow_name="Nightly-A2",
+            job_name="single-node (main, Qwen3-8B)", status="completed",
+            conclusion="skipped", started_at=now, completed_at=now,
+            duration_seconds=None, hardware="A2",
+        )
+
+        mock_gh = MagicMock()
+        mock_gh.list_artifacts = AsyncMock(return_value=[])
+        classifier = MagicMock()
+        classifier.classify = AsyncMock(return_value=("product_bug", 0.7))
+
+        svc = TestBoardService(rich_db, mock_gh)
+        count = await svc._parse_job_results(ci_job, classifier)
+
+        assert count == 0
+        assert (await rich_db.execute(select(_TC))).scalars().all() == []
+        mock_gh.list_artifacts.assert_not_awaited()
+
 
 # ============================================================================
 # 检视意见 #4：回填 SQL 正确性测试

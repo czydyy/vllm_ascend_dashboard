@@ -132,7 +132,12 @@ class NightlyDataCollector:
         return total
 
     async def populate_daily_failure_records(self) -> int:
-        """Materialize failed/cancelled CI jobs matched to YAML snapshots."""
+        """Materialize actually failed Nightly jobs matched to YAML snapshots.
+
+        A cancelled Job did not execute its test and must not appear in the
+        daily failure queue. Keep this table aligned with the test-board
+        parser: only execution failures are actionable test failures.
+        """
 
         beijing_tz = timezone(timedelta(hours=8))
         cutoff = datetime.now(UTC) - timedelta(days=14)
@@ -140,7 +145,7 @@ class NightlyDataCollector:
         result = await self.db.execute(
             select(CIJob).where(
                 CIJob.started_at >= cutoff,
-                CIJob.conclusion.in_(["failure", "cancelled"]),
+                CIJob.conclusion.in_(["failure", "timed_out", "startup_failure"]),
             )
         )
         failed_jobs = result.scalars().all()

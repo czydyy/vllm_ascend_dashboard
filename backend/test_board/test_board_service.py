@@ -17,6 +17,17 @@ from infrastructure.clients.github_client import GitHubClient
 
 logger = logging.getLogger(__name__)
 
+# Only these GitHub conclusions represent a job that actually attempted to
+# execute.  ``skipped`` and ``cancelled`` jobs are workflow branches that did
+# not run a test and must never be synthesized into a failed test case when no
+# report artifact is available.
+EXECUTED_JOB_CONCLUSIONS = frozenset({
+    "success",
+    "failure",
+    "timed_out",
+    "startup_failure",
+})
+
 
 def _stale_cutoff() -> datetime:
     """计算退出截止时间：超过 TEST_CASE_STALE_DAYS 天未运行的用例视为已退出。"""
@@ -304,7 +315,10 @@ class TestBoardService:
 
     async def parse_ci_results(self, days_back: int = 7, force: bool = False) -> int:
         cutoff = datetime.now(UTC) - timedelta(days=days_back)
-        stmt = select(CIJob).where(CIJob.completed_at >= cutoff, CIJob.conclusion.isnot(None))
+        stmt = select(CIJob).where(
+            CIJob.completed_at >= cutoff,
+            CIJob.conclusion.in_(EXECUTED_JOB_CONCLUSIONS),
+        )
         if not force:
             parsed_stmt = select(func.count(TestRun.id))
             if (await self.db.execute(parsed_stmt)).scalar() > 0:
@@ -328,6 +342,12 @@ class TestBoardService:
         return count
 
     async def _parse_job_results(self, ci_job: CIJob, classifier: FailureClassifier) -> int:
+        # A skipped/cancelled workflow job has no test execution to record.
+        # Keep this guard here as well as in ``parse_ci_results`` because this
+        # method is also called directly by maintenance/backfill code.
+        if ci_job.conclusion not in EXECUTED_JOB_CONCLUSIONS:
+            return 0
+
         if not self.github:
             return 0
         try:
@@ -360,7 +380,7 @@ class TestBoardService:
                 parsed_results.append({
                     "test_name": name,
                     "test_file": ci_job.job_name,
-                    "result": "passed" if ci_job.conclusion == "success" else "failed" if ci_job.conclusion else "unknown",
+                    "result": "passed" if ci_job.conclusion == "success" else "failed",
                     "duration_seconds": ci_job.duration_seconds,
                     "data_granularity": "job_level",
                 })
