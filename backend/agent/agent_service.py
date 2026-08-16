@@ -38,7 +38,7 @@ logger = logging.getLogger(__name__)
 LiteLLMModel = CompatibleLiteLLMModel
 ToolCallingAgent = BoundedToolCallingAgent
 
-# LiteLLM model prefix mapping（与 litellm_sync.py 保持一致）
+# LiteLLM model prefix mapping（与 model_sync/litellm_sync.py 保持一致）
 _PROVIDER_PREFIX = {
     "openai": "openai",
     "qwen": "openai",

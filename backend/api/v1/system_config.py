@@ -944,7 +944,7 @@ async def update_llm_provider(
         )
         if should_sync:
             try:
-                from infrastructure.clients.litellm_sync import get_litellm_sync
+                from model_sync.litellm_sync import get_litellm_sync
                 sync = get_litellm_sync()
                 if sync.available:
                     await sync.sync_from_db(db)
@@ -1015,7 +1015,7 @@ async def create_llm_provider(
 
     if new_config.is_active:
         try:
-            from infrastructure.clients.litellm_sync import get_litellm_sync
+            from model_sync.litellm_sync import get_litellm_sync
             sync = get_litellm_sync()
             if sync.available:
                 await sync.sync_from_db(db)

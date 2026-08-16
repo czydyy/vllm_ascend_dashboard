@@ -340,7 +340,7 @@ async def _migrate_daily_failure_records_columns():
 async def _sync_litellm_providers():
     """同步启用的 LLM provider 到 LiteLLM 网关"""
     try:
-        from infrastructure.clients.litellm_sync import get_litellm_sync
+        from model_sync.litellm_sync import get_litellm_sync
         from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
         sync = get_litellm_sync()

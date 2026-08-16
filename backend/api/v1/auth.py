@@ -15,7 +15,7 @@ from infrastructure.core.security import (
 )
 from infrastructure.persistence.models import User, UserLoginLog, TokenBlacklist
 from contracts.schemas import LoginRequest, Message, PasswordChange, RegisterRequest, Token, UserResponse
-from infrastructure.clients.rate_limiter import check_rate_limit
+from infrastructure.core.rate_limiter import check_rate_limit
 
 router = APIRouter()
 logger = logging.getLogger(__name__)

@@ -51,6 +51,18 @@ def test_resource_dashboard_services_are_not_in_infrastructure_clients() -> None
     assert (BACKEND / "resource_dashboard" / "metrics_query.py").exists()
 
 
+def test_clients_directory_contains_only_external_adapters() -> None:
+    clients = BACKEND / "infrastructure" / "clients"
+    assert not (clients / "litellm_sync.py").exists(), (
+        "LiteLLM synchronization belongs to the model_sync domain"
+    )
+    assert not (clients / "rate_limiter.py").exists(), (
+        "rate limiting belongs to infrastructure security, not external clients"
+    )
+    assert (BACKEND / "model_sync" / "litellm_sync.py").exists()
+    assert (BACKEND / "infrastructure" / "core" / "rate_limiter.py").exists()
+
+
 def test_scheduler_never_depends_on_the_http_api() -> None:
     _assert_no_role_imports("scheduler", ("api",))
 
