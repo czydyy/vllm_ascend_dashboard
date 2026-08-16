@@ -1,24 +1,18 @@
-import { useState, useEffect } from 'react'
-import { useNavigate, useSearchParams } from 'react-router-dom'
-import { Card, Table, Space, Statistic, Row, Col, Typography, Tabs, Button, message, Modal, DatePicker } from 'antd'
+import { useState } from 'react'
+import { useSearchParams } from 'react-router-dom'
+import { Card, Space, Statistic, Row, Col, Typography, Tabs, Button, message, Modal } from 'antd'
 import {
   GithubOutlined,
   BarChartOutlined,
   RobotOutlined,
   ExclamationCircleOutlined,
   SettingOutlined,
-  CalendarOutlined,
-  ReloadOutlined,
 } from '@ant-design/icons'
-import { useCIStats, useRuns, useCITrends } from '../hooks/useCI'
+import { useCIStats, useCITrends } from '../hooks/useCI'
 import { useAnalyzeBatch } from '../hooks/useFailureAnalysis'
-import dayjs, { Dayjs } from 'dayjs'
+import dayjs from 'dayjs'
 import relativeTime from 'dayjs/plugin/relativeTime'
 import 'dayjs/locale/zh-cn'
-import { formatTimezone, fromTimezoneNow } from '../utils/timezone'
-import api from '../services/api'
-import { renderStatusTag, renderConclusionTag, formatDuration, renderHardwareTag } from '../utils/ciRenderers'
-import { CIResult } from '../services/ci'
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, ResponsiveContainer } from 'recharts'
 import JobBoard from './JobBoard'
 import DailyFailureTracking from './DailyFailureTracking'
@@ -30,28 +24,9 @@ dayjs.extend(relativeTime)
 dayjs.locale('zh-cn')
 
 const { Text, Title } = Typography
-const { RangePicker } = DatePicker
-
-interface WorkflowConfig {
-  id: number
-  workflow_name: string
-  workflow_file: string
-  hardware: string
-  enabled: boolean
-  last_sync_at: string | null
-}
 
 function CIBoard() {
-  const navigate = useNavigate()
   const [searchParams] = useSearchParams()
-
-  // 表格筛选状态
-  const [workflowFilter, setWorkflowFilter] = useState<string[]>([])
-  const [hardwareFilter, setHardwareFilter] = useState<string[]>([])
-  const [statusFilter, setStatusFilter] = useState<string[]>([])
-  const [conclusionFilter, setConclusionFilter] = useState<string[]>([])
-  const [enabledWorkflows, setEnabledWorkflows] = useState<WorkflowConfig[]>([])
-  const [runDateRange, setRunDateRange] = useState<[Dayjs | null, Dayjs | null] | null>(null)
 
   // 根据 URL 参数设置默认 Tab
   const [activeTab, setActiveTab] = useState(() => {
@@ -62,55 +37,11 @@ function CIBoard() {
     return 'workflow'
   })
 
-  // 获取启用的 workflow 列表
-  useEffect(() => {
-    const fetchEnabledWorkflows = async () => {
-      try {
-        const response = await api.get<WorkflowConfig[]>('/workflows?enabled=true')
-        setEnabledWorkflows(response.data)
-      } catch (error) {
-        console.error('Failed to fetch workflows:', error)
-      }
-    }
-    fetchEnabledWorkflows()
-  }, [])
+  const { data: stats, isLoading: statsLoading } = useCIStats()
 
-  const { data: stats, isLoading: statsLoading } = useCIStats({
-    workflow_name: workflowFilter.length > 0 ? workflowFilter[0] : undefined,
-    hardware: hardwareFilter.length > 0 ? hardwareFilter[0] : undefined,
-  })
-
-  const { data: runs, isLoading: runsLoading } = useRuns({
-    limit: 500,
-  })
-
-  const { data: trends } = useCITrends({
-    days: 30,
-    workflow_name: workflowFilter.length > 0 ? workflowFilter[0] : undefined,
-    hardware: hardwareFilter.length > 0 ? hardwareFilter[0] : undefined,
-  })
+  const { data: trends } = useCITrends({ days: 30 })
 
   const analyzeBatchMutation = useAnalyzeBatch()
-
-  const workflowFilterOptions = Array.from(new Set([
-    ...enabledWorkflows.map((wf) => wf.workflow_name),
-    ...(runs || []).map((run) => run.workflow_name),
-  ])).filter(Boolean)
-  const hardwareFilterOptions = Array.from(new Set([
-    ...enabledWorkflows.map((wf) => wf.hardware),
-    ...(runs || []).map((run) => run.hardware),
-  ])).filter((hardware): hardware is string => Boolean(hardware))
-
-  // 与每日失败追踪保持同一时间维度，支持按日期查看 Workflow 运行记录。
-  const visibleRuns = (runs || []).filter((run) => {
-    if (!runDateRange) return true
-    if (!run.started_at) return false
-    // DailyFailureTracking 按北京时间分组；Workflow 运行表也必须使用同一日期口径。
-    const startedAt = dayjs(formatTimezone(run.started_at, 'YYYY-MM-DD'))
-    const [start, end] = runDateRange
-    return (!start || !startedAt.isBefore(start.startOf('day'))) &&
-      (!end || !startedAt.isAfter(end.endOf('day')))
-  })
 
   const handleBatchAnalyze = () => {
     Modal.confirm({
@@ -129,152 +60,6 @@ function CIBoard() {
         })
       },
     })
-  }
-
-  // 表格列定义
-  const columns = [
-    {
-      title: '日期',
-      key: 'run_date',
-      width: 110,
-      filterDropdown: () => (
-        <div style={{ padding: 8 }} onClick={(event) => event.stopPropagation()}>
-          <RangePicker
-            value={runDateRange as any}
-            onChange={(dates) => setRunDateRange(dates as [Dayjs | null, Dayjs | null] | null)}
-            allowClear
-            format="YYYY-MM-DD"
-            style={{ width: 260 }}
-            placeholder={['开始日期', '结束日期']}
-          />
-        </div>
-      ),
-      filterIcon: () => (
-        <CalendarOutlined style={runDateRange ? { color: '#1677ff' } : undefined} />
-      ),
-      filtered: Boolean(runDateRange),
-      render: (_: unknown, record: CIResult) => record.started_at ? formatTimezone(record.started_at, 'YYYY-MM-DD') : '-',
-    },
-    {
-      title: 'Workflow',
-      dataIndex: 'workflow_name',
-      key: 'workflow_name',
-      width: 200,
-      ellipsis: true,
-      filters: workflowFilterOptions.map((workflowName) => ({
-        text: workflowName,
-        value: workflowName,
-      })),
-      filteredValue: workflowFilter,
-      onFilter: (value: any, record: any) => record.workflow_name === value,
-      render: (text: string, record: CIResult) => (
-        <Space size={4}>
-          <span style={{ fontWeight: 500 }}>{text}</span>
-          {record.github_html_url && (
-            <a
-              href={record.github_html_url}
-              target="_blank"
-              rel="noopener noreferrer"
-              title="在 GitHub 上查看"
-            >
-              <GithubOutlined />
-            </a>
-          )}
-        </Space>
-      ),
-    },
-    {
-      title: '开始时间',
-      dataIndex: 'started_at',
-      key: 'started_at',
-      width: 180,
-      sorter: (a: any, b: any) => {
-        if (!a.started_at) return -1
-        if (!b.started_at) return 1
-        return new Date(b.started_at).getTime() - new Date(a.started_at).getTime()
-      },
-      render: (startedAt: string | null) => {
-        if (!startedAt) return '-'
-        return (
-          <Space direction="vertical" size={0}>
-            <Text strong>{formatTimezone(startedAt, 'YYYY-MM-DD HH:mm:ss')}</Text>
-            <Text type="secondary" style={{ fontSize: 12 }}>
-              {fromTimezoneNow(startedAt)}
-            </Text>
-          </Space>
-        )
-      },
-    },
-    {
-      title: '硬件',
-      dataIndex: 'hardware',
-      key: 'hardware',
-      width: 100,
-      filters: hardwareFilterOptions.map((hardware) => ({
-        text: hardware,
-        value: hardware,
-      })),
-      filteredValue: hardwareFilter,
-      onFilter: (value: any, record: any) => record.hardware === value,
-      render: renderHardwareTag,
-    },
-    {
-      title: '状态',
-      dataIndex: 'status',
-      key: 'status',
-      width: 100,
-      filters: [
-        { text: '已完成', value: 'completed' },
-        { text: '进行中', value: 'in_progress' },
-        { text: '等待中', value: 'queued' },
-      ],
-      filteredValue: statusFilter,
-      onFilter: (value: any, record: CIResult) => record.status === value,
-      render: renderStatusTag,
-    },
-    {
-      title: '结果',
-      dataIndex: 'conclusion',
-      key: 'conclusion',
-      width: 100,
-      filters: [
-        { text: '成功', value: 'success' },
-        { text: '失败', value: 'failure' },
-        { text: '取消', value: 'cancelled' },
-        { text: '已跳过', value: 'skipped' },
-        { text: '超时', value: 'timed_out' },
-        { text: '进行中', value: 'in_progress' },
-        { text: '等待中', value: 'queued' },
-        { text: '其他', value: 'other' },
-      ],
-      filteredValue: conclusionFilter,
-      onFilter: (value: any, record: any) => {
-        if (value === 'other') {
-          return !['success', 'failure', 'cancelled', 'skipped', 'timed_out', 'in_progress', 'queued'].includes(record.conclusion || '')
-        }
-        return record.conclusion === value
-      },
-      render: renderConclusionTag,
-    },
-    {
-      title: '时长',
-      dataIndex: 'duration_seconds',
-      key: 'duration_seconds',
-      width: 90,
-      render: formatDuration,
-    },
-  ]
-
-  const hasTableFilters = Boolean(
-    runDateRange || workflowFilter.length || hardwareFilter.length || statusFilter.length || conclusionFilter.length,
-  )
-
-  const resetTableFilters = () => {
-    setRunDateRange(null)
-    setWorkflowFilter([])
-    setHardwareFilter([])
-    setStatusFilter([])
-    setConclusionFilter([])
   }
 
   return (
@@ -314,27 +99,13 @@ function CIBoard() {
                     </Text>
                   </div>
                   <Space>
-                    <RangePicker
-                      value={runDateRange as any}
-                      onChange={(dates) => setRunDateRange(dates as [Dayjs | null, Dayjs | null] | null)}
-                      allowClear
-                      format="YYYY-MM-DD"
-                      placeholder={['开始日期', '结束日期']}
-                    />
                     <Button
-                      icon={<ReloadOutlined />}
-                      onClick={resetTableFilters}
-                      disabled={!hasTableFilters}
+                      icon={<RobotOutlined />}
+                      loading={analyzeBatchMutation.isPending}
+                      onClick={handleBatchAnalyze}
                     >
-                      重置筛选
+                      批量失败分析
                     </Button>
-                  <Button
-                    icon={<RobotOutlined />}
-                    loading={analyzeBatchMutation.isPending}
-                    onClick={handleBatchAnalyze}
-                  >
-                    批量失败分析
-                  </Button>
                   </Space>
                 </div>
 
@@ -426,47 +197,8 @@ function CIBoard() {
                   </Row>
                 )}
 
-                {/* 运行记录表格 */}
-                <Card title="运行记录">
-                  <Table
-                    columns={columns}
-                    dataSource={visibleRuns}
-                    loading={runsLoading}
-                    rowKey="id"
-                    pagination={{
-                      pageSize: 20,
-                      showSizeChanger: false,
-                    }}
-                    scroll={{ x: 800 }}
-                    onRow={(record: CIResult) => ({
-                      onClick: () => navigate(`/ci/runs/${record.run_id}`),
-                      style: { cursor: 'pointer' },
-                    })}
-                    onChange={(_, filters) => {
-                      if (filters.workflow_name) {
-                        setWorkflowFilter(filters.workflow_name as string[])
-                      } else {
-                        setWorkflowFilter([])
-                      }
-                      if (filters.hardware) {
-                        setHardwareFilter(filters.hardware as string[])
-                      } else {
-                        setHardwareFilter([])
-                      }
-                      if (filters.status) {
-                        setStatusFilter(filters.status as string[])
-                      } else {
-                        setStatusFilter([])
-                      }
-                      if (filters.conclusion) {
-                        setConclusionFilter(filters.conclusion as string[])
-                      } else {
-                        setConclusionFilter([])
-                      }
-                    }}
-                  />
-                </Card>
                 <WorkflowTestExecutionTable enabled={activeTab === 'workflow'} />
+
               </div>
             ),
           },

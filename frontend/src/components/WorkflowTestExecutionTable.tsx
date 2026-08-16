@@ -141,7 +141,7 @@ function WorkflowTestExecutionTable({ enabled }: WorkflowTestExecutionTableProps
 
   return (
     <Card
-      title="用例执行情况"
+      title="运行记录"
       extra={(
         <Space>
           <Input.Search
