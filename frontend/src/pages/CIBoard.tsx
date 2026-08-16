@@ -94,7 +94,8 @@ function CIBoard() {
   const visibleRuns = (runs || []).filter((run) => {
     if (!runDateRange) return true
     if (!run.started_at) return false
-    const startedAt = dayjs(run.started_at)
+    // DailyFailureTracking 按北京时间分组；Workflow 运行表也必须使用同一日期口径。
+    const startedAt = dayjs(formatTimezone(run.started_at, 'YYYY-MM-DD'))
     const [start, end] = runDateRange
     return (!start || !startedAt.isBefore(start.startOf('day'))) &&
       (!end || !startedAt.isAfter(end.endOf('day')))
@@ -125,7 +126,7 @@ function CIBoard() {
       title: '日期',
       key: 'run_date',
       width: 110,
-      render: (_: unknown, record: CIResult) => record.started_at ? dayjs(record.started_at).format('YYYY-MM-DD') : '-',
+      render: (_: unknown, record: CIResult) => record.started_at ? formatTimezone(record.started_at, 'YYYY-MM-DD') : '-',
     },
     {
       title: 'Workflow',
