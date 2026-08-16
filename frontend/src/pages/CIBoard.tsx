@@ -7,6 +7,8 @@ import {
   RobotOutlined,
   ExclamationCircleOutlined,
   SettingOutlined,
+  CalendarOutlined,
+  ReloadOutlined,
 } from '@ant-design/icons'
 import { useCIStats, useRuns, useCITrends } from '../hooks/useCI'
 import { useAnalyzeBatch } from '../hooks/useFailureAnalysis'
@@ -45,6 +47,7 @@ function CIBoard() {
   // 表格筛选状态
   const [workflowFilter, setWorkflowFilter] = useState<string[]>([])
   const [hardwareFilter, setHardwareFilter] = useState<string[]>([])
+  const [statusFilter, setStatusFilter] = useState<string[]>([])
   const [conclusionFilter, setConclusionFilter] = useState<string[]>([])
   const [enabledWorkflows, setEnabledWorkflows] = useState<WorkflowConfig[]>([])
   const [runDateRange, setRunDateRange] = useState<[Dayjs | null, Dayjs | null] | null>(null)
@@ -77,8 +80,6 @@ function CIBoard() {
   })
 
   const { data: runs, isLoading: runsLoading } = useRuns({
-    workflow_name: workflowFilter.length > 0 ? workflowFilter[0] : undefined,
-    hardware: hardwareFilter.length > 0 ? hardwareFilter[0] : undefined,
     limit: 500,
   })
 
@@ -89,6 +90,15 @@ function CIBoard() {
   })
 
   const analyzeBatchMutation = useAnalyzeBatch()
+
+  const workflowFilterOptions = Array.from(new Set([
+    ...enabledWorkflows.map((wf) => wf.workflow_name),
+    ...(runs || []).map((run) => run.workflow_name),
+  ])).filter(Boolean)
+  const hardwareFilterOptions = Array.from(new Set([
+    ...enabledWorkflows.map((wf) => wf.hardware),
+    ...(runs || []).map((run) => run.hardware),
+  ])).filter((hardware): hardware is string => Boolean(hardware))
 
   // 与每日失败追踪保持同一时间维度，支持按日期查看 Workflow 运行记录。
   const visibleRuns = (runs || []).filter((run) => {
@@ -126,6 +136,22 @@ function CIBoard() {
       title: '日期',
       key: 'run_date',
       width: 110,
+      filterDropdown: () => (
+        <div style={{ padding: 8 }} onClick={(event) => event.stopPropagation()}>
+          <RangePicker
+            value={runDateRange as any}
+            onChange={(dates) => setRunDateRange(dates as [Dayjs | null, Dayjs | null] | null)}
+            allowClear
+            format="YYYY-MM-DD"
+            style={{ width: 260 }}
+            placeholder={['开始日期', '结束日期']}
+          />
+        </div>
+      ),
+      filterIcon: () => (
+        <CalendarOutlined style={runDateRange ? { color: '#1677ff' } : undefined} />
+      ),
+      filtered: Boolean(runDateRange),
       render: (_: unknown, record: CIResult) => record.started_at ? formatTimezone(record.started_at, 'YYYY-MM-DD') : '-',
     },
     {
@@ -134,9 +160,9 @@ function CIBoard() {
       key: 'workflow_name',
       width: 200,
       ellipsis: true,
-      filters: enabledWorkflows.map((wf) => ({
-        text: wf.workflow_name,
-        value: wf.workflow_name,
+      filters: workflowFilterOptions.map((workflowName) => ({
+        text: workflowName,
+        value: workflowName,
       })),
       filteredValue: workflowFilter,
       onFilter: (value: any, record: any) => record.workflow_name === value,
@@ -183,12 +209,10 @@ function CIBoard() {
       dataIndex: 'hardware',
       key: 'hardware',
       width: 100,
-      filters: Array.from(new Set(enabledWorkflows.map((wf) => wf.hardware)))
-        .filter(Boolean)
-        .map((hw) => ({
-          text: hw,
-          value: hw,
-        })),
+      filters: hardwareFilterOptions.map((hardware) => ({
+        text: hardware,
+        value: hardware,
+      })),
       filteredValue: hardwareFilter,
       onFilter: (value: any, record: any) => record.hardware === value,
       render: renderHardwareTag,
@@ -198,6 +222,13 @@ function CIBoard() {
       dataIndex: 'status',
       key: 'status',
       width: 100,
+      filters: [
+        { text: '已完成', value: 'completed' },
+        { text: '进行中', value: 'in_progress' },
+        { text: '等待中', value: 'queued' },
+      ],
+      filteredValue: statusFilter,
+      onFilter: (value: any, record: CIResult) => record.status === value,
       render: renderStatusTag,
     },
     {
@@ -209,6 +240,8 @@ function CIBoard() {
         { text: '成功', value: 'success' },
         { text: '失败', value: 'failure' },
         { text: '取消', value: 'cancelled' },
+        { text: '已跳过', value: 'skipped' },
+        { text: '超时', value: 'timed_out' },
         { text: '进行中', value: 'in_progress' },
         { text: '等待中', value: 'queued' },
         { text: '其他', value: 'other' },
@@ -216,7 +249,7 @@ function CIBoard() {
       filteredValue: conclusionFilter,
       onFilter: (value: any, record: any) => {
         if (value === 'other') {
-          return record.conclusion !== 'success' && record.conclusion !== 'failure' && record.conclusion !== 'cancelled'
+          return !['success', 'failure', 'cancelled', 'skipped', 'timed_out', 'in_progress', 'queued'].includes(record.conclusion || '')
         }
         return record.conclusion === value
       },
@@ -230,6 +263,18 @@ function CIBoard() {
       render: formatDuration,
     },
   ]
+
+  const hasTableFilters = Boolean(
+    runDateRange || workflowFilter.length || hardwareFilter.length || statusFilter.length || conclusionFilter.length,
+  )
+
+  const resetTableFilters = () => {
+    setRunDateRange(null)
+    setWorkflowFilter([])
+    setHardwareFilter([])
+    setStatusFilter([])
+    setConclusionFilter([])
+  }
 
   return (
     <div className="stripe-ci-page">
@@ -275,6 +320,13 @@ function CIBoard() {
                       format="YYYY-MM-DD"
                       placeholder={['开始日期', '结束日期']}
                     />
+                    <Button
+                      icon={<ReloadOutlined />}
+                      onClick={resetTableFilters}
+                      disabled={!hasTableFilters}
+                    >
+                      重置筛选
+                    </Button>
                   <Button
                     icon={<RobotOutlined />}
                     loading={analyzeBatchMutation.isPending}
@@ -399,6 +451,11 @@ function CIBoard() {
                         setHardwareFilter(filters.hardware as string[])
                       } else {
                         setHardwareFilter([])
+                      }
+                      if (filters.status) {
+                        setStatusFilter(filters.status as string[])
+                      } else {
+                        setStatusFilter([])
                       }
                       if (filters.conclusion) {
                         setConclusionFilter(filters.conclusion as string[])
