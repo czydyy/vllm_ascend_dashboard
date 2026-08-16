@@ -1538,6 +1538,7 @@ async def list_daily_failures(
             stats=DailyFailureStats(
                 date=date_str,
                 total_failed_jobs=len(jobs),
+                cancelled=sum(1 for j in jobs if j.conclusion == "cancelled"),
                 unprocessed=sum(1 for j in jobs if j.processing_status == "未处理"),
                 processing=sum(1 for j in jobs if j.processing_status == "处理中"),
                 fixed=sum(1 for j in jobs if j.processing_status == "已修复"),

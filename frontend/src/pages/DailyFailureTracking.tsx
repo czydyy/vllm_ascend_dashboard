@@ -28,7 +28,7 @@ import {
   CheckSquareOutlined,
 } from '@ant-design/icons'
 import { useDailyFailures, useUpdateFailureStatus, useBatchUpdateFailureStatus } from '../hooks/useCI'
-import { formatDuration, renderHardwareTag } from '../utils/ciRenderers'
+import { formatDuration, renderConclusionTag, renderHardwareTag } from '../utils/ciRenderers'
 import { formatTimezone, fromTimezoneNow } from '../utils/timezone'
 import type { DailyFailureJob } from '../services/ci'
 import dayjs, { Dayjs } from 'dayjs'
@@ -62,6 +62,13 @@ const jobColumns = [
     width: 130,
     ellipsis: true,
     render: (text: string) => <Tag color="blue">{text}</Tag>,
+  },
+  {
+    title: '运行结果',
+    dataIndex: 'conclusion',
+    key: 'conclusion',
+    width: 90,
+    render: renderConclusionTag,
   },
   {
     title: 'Job',
@@ -232,17 +239,18 @@ function DailyFailureTracking() {
 
   // Aggregate stats across all days
   const totalStats = useMemo(() => {
-    if (!data || data.length === 0) return { total: 0, unprocessed: 0, processing: 0, fixed: 0, closed: 0 }
+    if (!data || data.length === 0) return { total: 0, cancelled: 0, unprocessed: 0, processing: 0, fixed: 0, closed: 0 }
     return data.reduce(
       (acc, day) => {
         acc.total += day.stats.total_failed_jobs
+        acc.cancelled += day.stats.cancelled || 0
         acc.unprocessed += day.stats.unprocessed
         acc.processing += day.stats.processing
         acc.fixed += day.stats.fixed
         acc.closed += day.stats.closed
         return acc
       },
-      { total: 0, unprocessed: 0, processing: 0, fixed: 0, closed: 0 }
+      { total: 0, cancelled: 0, unprocessed: 0, processing: 0, fixed: 0, closed: 0 }
     )
   }, [data])
 
@@ -307,6 +315,11 @@ function DailyFailureTracking() {
         <Col span={4}>
           <Card size="small">
             <Statistic title="失败总数" value={totalStats.total} suffix="个" valueStyle={{ color: '#ff4d4f' }} />
+          </Card>
+        </Col>
+        <Col span={4}>
+          <Card size="small">
+            <Statistic title="取消" value={totalStats.cancelled} suffix="条" valueStyle={{ color: '#faad14' }} />
           </Card>
         </Col>
         <Col span={4}>

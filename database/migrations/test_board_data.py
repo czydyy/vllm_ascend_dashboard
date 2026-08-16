@@ -83,16 +83,6 @@ async def run() -> dict[str, int]:
             case.last_result = latest.result if latest else None
             case.last_run_at = latest.started_at if latest else None
 
-        cancelled_job_ids = {
-            row[0]
-            for row in (await db.execute(
-                select(CIJob.job_id).where(CIJob.conclusion == "cancelled")
-            )).all()
-        }
-        daily_result = await db.execute(
-            delete(DailyFailureRecord).where(DailyFailureRecord.job_id.in_(cancelled_job_ids))
-        ) if cancelled_job_ids else None
-
         await db.commit()
 
         calculator = TestHealthCalculator(db)
@@ -103,7 +93,7 @@ async def run() -> dict[str, int]:
             "test_runs_removed": runs_removed,
             "annotations_removed": annotations_removed,
             "orphan_test_cases_removed": (orphan_result.rowcount or 0) if orphan_result else 0,
-            "cancelled_daily_failures_removed": (daily_result.rowcount or 0) if daily_result else 0,
+            "cancelled_daily_failures_removed": 0,
             "health_cases_recalculated": health_cases,
         }
 

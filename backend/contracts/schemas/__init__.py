@@ -342,6 +342,7 @@ class DailyFailureStats(BaseModel):
     """每日失败统计"""
     date: str
     total_failed_jobs: int
+    cancelled: int = 0
     unprocessed: int
     processing: int
     fixed: int

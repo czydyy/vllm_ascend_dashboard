@@ -221,6 +221,7 @@ export interface DailyFailureJob {
 export interface DailyFailureStats {
   date: string
   total_failed_jobs: number
+  cancelled: number
   unprocessed: number
   processing: number
   fixed: number

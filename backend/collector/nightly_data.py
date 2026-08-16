@@ -132,11 +132,11 @@ class NightlyDataCollector:
         return total
 
     async def populate_daily_failure_records(self) -> int:
-        """Materialize actually failed Nightly jobs matched to YAML snapshots.
+        """Materialize failed or cancelled Nightly jobs matched to YAML snapshots.
 
-        A cancelled Job did not execute its test and must not appear in the
-        daily failure queue. Keep this table aligned with the test-board
-        parser: only execution failures are actionable test failures.
+        Cancellation is not a test failure and is excluded from test-board
+        execution results, but it is still an operational state that must be
+        retained in DailyFailureTracking for follow-up.
         """
 
         beijing_tz = timezone(timedelta(hours=8))
@@ -145,10 +145,12 @@ class NightlyDataCollector:
         result = await self.db.execute(
             select(CIJob).where(
                 CIJob.started_at >= cutoff,
-                CIJob.conclusion.in_(["failure", "timed_out", "startup_failure"]),
+                CIJob.conclusion.in_(
+                    ["failure", "timed_out", "startup_failure", "cancelled"]
+                ),
             )
         )
-        failed_jobs = result.scalars().all()
+        tracked_jobs = result.scalars().all()
 
         snapshot_result = await self.db.execute(select(NightlyTestCase))
         snapshots = snapshot_result.scalars().all()
@@ -186,7 +188,7 @@ class NightlyDataCollector:
 
         branch_re = re.compile(r"^\S+\s+\(([^,]+),")
         new_count = 0
-        for job in failed_jobs:
+        for job in tracked_jobs:
             if not job.started_at:
                 continue
             started = job.started_at
@@ -246,9 +248,9 @@ class NightlyDataCollector:
         if new_count:
             await self.db.commit()
         logger.info(
-            "Daily failure materialization completed: %d records from %d failed jobs",
+            "Daily failure materialization completed: %d records from %d tracked jobs",
             new_count,
-            len(failed_jobs),
+            len(tracked_jobs),
         )
         return new_count
 
