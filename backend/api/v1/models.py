@@ -29,7 +29,7 @@ from contracts.schemas import (
 )
 from infrastructure.clients.github_client import GitHubClient
 from model_sync.model_sync_service import ModelSyncService
-from api.services.model_trend_service import ModelTrendService
+from model_sync.model_trend_service import ModelTrendService
 from tooling.generators.startup_command_generator import StartupCommandGenerator
 
 router = APIRouter()

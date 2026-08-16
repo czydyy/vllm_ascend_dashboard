@@ -14,18 +14,24 @@ vLLM Ascend 社区看板是一个面向 vLLM Ascend 项目的信息汇聚和处�
 
 ```
 vllm-ascend-dashboard/
-├── backend/              # 后端服务 (FastAPI + SQLAlchemy)
-│   ├── app/
-│   │   ├── api/         # API 路由
-│   │   ├── core/        # 核心配置
-│   │   ├── db/          # 数据库相关
-│   │   ├── models/      # 数据模型
-│   │   ├── schemas/     # Pydantic 模式
-│   │   └── services/    # 业务逻辑
-│   ├── tests/           # 测试
-│   ├── pyproject.toml
-│   └── Dockerfile
-├── frontend/            # 前端服务 (React + TypeScript)
+├── backend/              # 后端代码根目录；按可独立运行的角色拆分
+│   ├── api/              # HTTP 查询与控制面（FastAPI）
+│   ├── collector/        # 数据采集进程（python -m collector）
+│   ├── scheduler/        # 定时调度进程（python -m scheduler）
+│   ├── reporting/        # 报告领域服务
+│   ├── failure_analysis/ # 失败分析领域服务
+│   ├── model_sync/       # 模型同步领域服务
+│   ├── pr_pipeline/      # PR 流水线领域服务
+│   ├── test_board/       # 测试看板领域服务
+│   ├── support_matrix/   # 支持矩阵领域服务
+│   ├── contracts/        # API/事件契约
+│   ├── infrastructure/  # 数据库、客户端、存储等基础设施适配器
+│   ├── tooling/          # 无业务归属的解析、分析、渲染工具
+│   └── pyproject.toml
+├── database/              # MySQL 迁移与数据库工具
+├── deploy/                # Compose、Nginx、配置模板
+├── operations/            # development / production / cluster 运维入口
+├── frontend/              # 前端服务 (React + TypeScript)
 │   ├── src/
 │   │   ├── components/  # 组件
 │   │   ├── pages/       # 页面
@@ -34,11 +40,14 @@ vllm-ascend-dashboard/
 │   │   └── types/       # 类型定义
 │   ├── package.json
 │   └── Dockerfile
-├── docs/                # 文档
-├── scripts/             # 脚本工具
-├── docker-compose.yml   # Docker Compose 配置
+├── docs/                 # current 有效文档，archive 历史记录
+├── tests/                # 跨服务单元、集成和迁移测试
 └── README.md
 ```
+
+`backend` 下不再使用旧的 `app/`、`shared/` 或通用 `runner/` 目录；服务之间通过
+`contracts`、数据库控制面和明确的客户端接口协作。运维脚本统一放在
+`operations/`，数据库变更统一从 `database/migrations/` 进入。
 
 ## 🚀 快速开始
 

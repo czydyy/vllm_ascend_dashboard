@@ -9,7 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from api.deps import CurrentAdminUser, CurrentUser, DbSession
 from contracts.schemas.issue_diagnosis import IssueDiagnosisRequest
-from api.services.issue_diagnosis import IssueDiagnosisService
+from failure_analysis.issue_diagnosis_service import IssueDiagnosisService
 
 logger = logging.getLogger(__name__)
 

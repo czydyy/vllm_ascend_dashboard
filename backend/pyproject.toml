@@ -58,7 +58,23 @@ build-backend = "hatchling.build"
 litellm = ["maturin"]
 
 [tool.hatch.build.targets.wheel]
-packages = ["api", "shared", "scheduler", "collector"]
+packages = [
+    "agent",
+    "api",
+    "collector",
+    "contracts",
+    "failure_analysis",
+    "infrastructure",
+    "log_center",
+    "model_sync",
+    "pr_pipeline",
+    "project_dashboard",
+    "reporting",
+    "scheduler",
+    "support_matrix",
+    "test_board",
+    "tooling",
+]
 
 [tool.ruff]
 target-version = "py311"

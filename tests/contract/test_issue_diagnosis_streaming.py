@@ -3,7 +3,7 @@ from pydantic import ValidationError
 from types import SimpleNamespace
 
 from contracts.schemas.issue_diagnosis import IssueDiagnosisRequest
-from api.services.issue_diagnosis import IssueDiagnosisService
+from failure_analysis.issue_diagnosis_service import IssueDiagnosisService
 from infrastructure.clients import llm_client as llm_client_module
 
 

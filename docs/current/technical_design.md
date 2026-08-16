@@ -66,42 +66,26 @@
 
 ```
 vllm-ascend-dashboard/
-├── backend/                    # 后端服务
-│   ├── app/
-│   │   ├── api/               # API 路由
-│   │   │   ├── v1/
-│   │   │   │   ├── ci.py
-│   │   │   │   ├── models.py
-│   │   │   │   ├── performance.py
-│   │   │   │   ├── auth.py
-│   │   │   │   └── users.py
-│   │   │   └── deps.py       # 依赖注入
-│   │   ├── core/             # 核心配置
-│   │   │   ├── config.py
-│   │   │   ├── security.py
-│   │   │   └── exceptions.py
-│   │   ├── db/               # 数据库相关
-│   │   │   ├── session.py    # 数据库会话
-│   │   │   └── base.py       # 基类
-│   │   ├── models/           # 数据模型
-│   │   │   ├── user.py
-│   │   │   ├── ci_result.py
-│   │   │   ├── model_report.py
-│   │   │   └── performance_data.py
-│   │   ├── schemas/          # Pydantic 模式
-│   │   │   ├── user.py
-│   │   │   ├── ci.py
-│   │   │   ├── model.py
-│   │   │   └── performance.py
-│   │   ├── services/         # 业务逻辑
-│   │   │   ├── github_client.py
-│   │   │   ├── ci_collector.py
-│   │   │   ├── model_manager.py
-│   │   │   └── performance_parser.py
-│   │   └── main.py           # 应用入口
-│   ├── tests/                # 测试
-│   ├── requirements.txt
-│   └── Dockerfile
+├── backend/                    # 后端代码根目录
+│   ├── api/                   # HTTP 查询与控制面，入口为 api.main
+│   │   ├── v1/                # HTTP 路由
+│   │   ├── services/          # 仅 API 编排服务
+│   │   └── middleware/        # HTTP 中间件
+│   ├── collector/             # 独立数据采集进程，入口为 collector.__main__
+│   ├── scheduler/             # 独立调度进程，入口为 scheduler.__main__
+│   ├── reporting/             # 报告领域服务
+│   ├── failure_analysis/      # 失败分析领域服务
+│   ├── model_sync/            # 模型同步领域服务
+│   ├── pr_pipeline/           # PR 流水线领域服务
+│   ├── test_board/            # 测试看板领域服务
+│   ├── support_matrix/        # 支持矩阵领域服务
+│   ├── contracts/             # API 与事件契约
+│   ├── infrastructure/       # DB、客户端、存储和任务适配器
+│   ├── tooling/               # 无业务归属的解析、分析、渲染工具
+│   └── pyproject.toml
+├── database/                  # MySQL 迁移
+├── deploy/                    # Compose、Nginx 和配置模板
+├── operations/                # development / production / cluster 运维入口
 ├── frontend/                  # 前端服务
 │   ├── src/
 │   │   ├── components/       # 通用组件
@@ -113,9 +97,13 @@ vllm-ascend-dashboard/
 │   │   └── App.tsx
 │   ├── package.json
 │   └── Dockerfile
-├── docker-compose.yml
+├── tests/                     # 跨服务测试
 └── README.md
 ```
+
+目录边界说明：当前代码不再使用旧的 `backend/app`、`backend/shared` 或通用
+`backend/runner` 目录。Collector 和 Scheduler 是独立进程；它们只依赖基础设施适配器、
+契约和数据库控制面，不直接导入 HTTP API 或对方的实现。
 
 ---
 

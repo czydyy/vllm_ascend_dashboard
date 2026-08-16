@@ -143,7 +143,7 @@ class IssueDiagnosisService:
             if data_source_type == "pr_pipeline":
                 if not pr_number:
                     raise ValueError("pr_pipeline requires pr_number")
-                from api.services.pr_diagnosis import PRDiagnosisService
+                from pr_pipeline.pr_diagnosis import PRDiagnosisService
 
                 context, system_prompt, _ = await PRDiagnosisService(db).prepare_context(pr_number)
             elif data_source_type == "ci_job" and job_id:

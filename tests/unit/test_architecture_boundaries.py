@@ -33,6 +33,12 @@ def test_legacy_shared_package_is_removed() -> None:
     assert not (BACKEND / "shared").exists(), "business code must not return to backend/shared"
 
 
+def test_api_has_no_mixed_business_services_bucket() -> None:
+    assert not (BACKEND / "api" / "services").exists(), (
+        "domain services must live in their owning package, not backend/api/services"
+    )
+
+
 def test_scheduler_never_depends_on_the_http_api() -> None:
     _assert_no_role_imports("scheduler", ("api",))
 

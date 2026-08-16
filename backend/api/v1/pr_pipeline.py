@@ -222,7 +222,7 @@ async def diagnose_pr(
 ):
     """AI 诊断指定 PR"""
     try:
-        from api.services.pr_diagnosis import PRDiagnosisService
+        from pr_pipeline.pr_diagnosis import PRDiagnosisService
         diag_service = PRDiagnosisService(db)
         result = await diag_service.diagnose(pr_number)
         # Save to history

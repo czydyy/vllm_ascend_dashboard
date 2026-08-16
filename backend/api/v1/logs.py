@@ -13,7 +13,7 @@ from contracts.schemas.logs import (
     LogQueryResponse,
     LogSourcesResponse,
 )
-from api.services.log_service import LogService
+from log_center.service import LogService
 
 logger = logging.getLogger(__name__)
 
