@@ -70,6 +70,7 @@ export interface TestRunItem {
   head_sha: string | null
   event: string | null
   started_at: string | null
+  completed_at: string | null
 }
 
 export interface TestSuiteItem {
