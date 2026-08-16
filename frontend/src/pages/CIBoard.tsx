@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
-import { Card, Table, Space, Statistic, Row, Col, Typography, Tabs, Button, message, Modal } from 'antd'
+import { Card, Table, Space, Statistic, Row, Col, Typography, Tabs, Button, message, Modal, DatePicker } from 'antd'
 import {
   GithubOutlined,
   BarChartOutlined,
@@ -10,7 +10,7 @@ import {
 } from '@ant-design/icons'
 import { useCIStats, useRuns, useCITrends } from '../hooks/useCI'
 import { useAnalyzeBatch } from '../hooks/useFailureAnalysis'
-import dayjs from 'dayjs'
+import dayjs, { Dayjs } from 'dayjs'
 import relativeTime from 'dayjs/plugin/relativeTime'
 import 'dayjs/locale/zh-cn'
 import { formatTimezone, fromTimezoneNow } from '../utils/timezone'
@@ -27,6 +27,7 @@ dayjs.extend(relativeTime)
 dayjs.locale('zh-cn')
 
 const { Text, Title } = Typography
+const { RangePicker } = DatePicker
 
 interface WorkflowConfig {
   id: number
@@ -46,6 +47,7 @@ function CIBoard() {
   const [hardwareFilter, setHardwareFilter] = useState<string[]>([])
   const [conclusionFilter, setConclusionFilter] = useState<string[]>([])
   const [enabledWorkflows, setEnabledWorkflows] = useState<WorkflowConfig[]>([])
+  const [runDateRange, setRunDateRange] = useState<[Dayjs | null, Dayjs | null] | null>(null)
 
   // 根据 URL 参数设置默认 Tab
   const [activeTab, setActiveTab] = useState(() => {
@@ -88,6 +90,16 @@ function CIBoard() {
 
   const analyzeBatchMutation = useAnalyzeBatch()
 
+  // 与每日失败追踪保持同一时间维度，支持按日期查看 Workflow 运行记录。
+  const visibleRuns = (runs || []).filter((run) => {
+    if (!runDateRange) return true
+    if (!run.started_at) return false
+    const startedAt = dayjs(run.started_at)
+    const [start, end] = runDateRange
+    return (!start || !startedAt.isBefore(start.startOf('day'))) &&
+      (!end || !startedAt.isAfter(end.endOf('day')))
+  })
+
   const handleBatchAnalyze = () => {
     Modal.confirm({
       title: '批量失败分析',
@@ -109,6 +121,12 @@ function CIBoard() {
 
   // 表格列定义
   const columns = [
+    {
+      title: '日期',
+      key: 'run_date',
+      width: 110,
+      render: (_: unknown, record: CIResult) => record.started_at ? dayjs(record.started_at).format('YYYY-MM-DD') : '-',
+    },
     {
       title: 'Workflow',
       dataIndex: 'workflow_name',
@@ -248,6 +266,14 @@ function CIBoard() {
                       展示各 Workflow 的运行状态和趋势
                     </Text>
                   </div>
+                  <Space>
+                    <RangePicker
+                      value={runDateRange as any}
+                      onChange={(dates) => setRunDateRange(dates as [Dayjs | null, Dayjs | null] | null)}
+                      allowClear
+                      format="YYYY-MM-DD"
+                      placeholder={['开始日期', '结束日期']}
+                    />
                   <Button
                     icon={<RobotOutlined />}
                     loading={analyzeBatchMutation.isPending}
@@ -255,6 +281,7 @@ function CIBoard() {
                   >
                     批量失败分析
                   </Button>
+                  </Space>
                 </div>
 
                 {/* 统计卡片 */}
@@ -349,7 +376,7 @@ function CIBoard() {
                 <Card title="运行记录">
                   <Table
                     columns={columns}
-                    dataSource={runs}
+                    dataSource={visibleRuns}
                     loading={runsLoading}
                     rowKey="id"
                     pagination={{

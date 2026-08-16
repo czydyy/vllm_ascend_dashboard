@@ -41,6 +41,42 @@ export interface CIJob {
   github_job_url?: string
 }
 
+/** Run 中实际执行的测试结果；字段与每日失败追踪保持一致。 */
+export interface CIRunTestResult {
+  id: number
+  test_case_id: number
+  job_id: number | null
+  run_id: number
+  workflow_name: string
+  job_name: string
+  test_name: string
+  test_suite: string
+  test_type: string
+  data_granularity: string | null
+  result: 'passed' | 'failed' | string
+  conclusion: 'success' | 'failure' | string
+  started_at: string | null
+  completed_at: string | null
+  duration_seconds: number | null
+  hardware: string | null
+  owner: string | null
+  owner_email: string | null
+  display_name: string | null
+  test_model: string | null
+  model_fo: string | null
+  deployment_type: string | null
+  processing_status: string | null
+  problem_category: string | null
+  related_pr: string | null
+  notes: string | null
+  head_sha: string | null
+  event: string | null
+  branch: string | null
+  failure_category: string | null
+  failure_message: string | null
+  github_job_url: string | null
+}
+
 export interface StepSummary {
   name: string
   status: string
@@ -155,6 +191,12 @@ export const getTrends = async (params: {
  */
 export const getJobsByRun = async (runId: number): Promise<CIJob[]> => {
   const response = await api.get<CIJob[]>(`/ci/runs/${runId}/jobs`)
+  return response.data
+}
+
+/** 获取 Run 中实际执行的测试结果（每日失败追踪口径） */
+export const getTestResultsByRun = async (runId: number): Promise<CIRunTestResult[]> => {
+  const response = await api.get<CIRunTestResult[]>(`/ci/runs/${runId}/test-results`)
   return response.data
 }
 

@@ -64,6 +64,15 @@ export const useJobsByRun = (runId: number | null) => {
   })
 }
 
+/** 获取 Run 中实际执行的测试结果（每日失败追踪口径） */
+export const useTestResultsByRun = (runId: number | null) => {
+  return useQuery({
+    queryKey: ['ci-test-results', runId],
+    queryFn: () => runId ? ciApi.getTestResultsByRun(runId) : Promise.resolve([]),
+    enabled: !!runId,
+  })
+}
+
 /**
  * 获取 job 详情
  */
@@ -89,6 +98,7 @@ export const useSyncCI = () => {
       queryClient.invalidateQueries({ queryKey: ['ci-stats'] })
       queryClient.invalidateQueries({ queryKey: ['ci-trends'] })
       queryClient.invalidateQueries({ queryKey: ['ci-jobs'] })
+      queryClient.invalidateQueries({ queryKey: ['ci-test-results'] })
       queryClient.invalidateQueries({ queryKey: ['ci-job-detail'] })
     },
   })
