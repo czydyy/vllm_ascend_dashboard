@@ -52,6 +52,11 @@ const RESULT_FILTERS = [
   { text: '跳过', value: 'skipped' },
 ]
 
+const getDefaultDateRange = (): [Dayjs, Dayjs] => {
+  const today = dayjs()
+  return [today.startOf('day'), today.endOf('day')]
+}
+
 const toJobStatus = (job: CIJob) => job.status || (job.completed_at ? 'completed' : 'in_progress')
 
 const renderSteps = (steps: StepSummary[] | null | undefined) => {
@@ -76,7 +81,7 @@ function WorkflowTestExecutionTable({ enabled }: WorkflowTestExecutionTableProps
   const [statusFilter, setStatusFilter] = useState<string[]>([])
   const [resultFilter, setResultFilter] = useState<string[]>([])
   const [logSearch, setLogSearch] = useState('')
-  const [dateRange, setDateRange] = useState<[Dayjs | null, Dayjs | null] | null>(null)
+  const [dateRange, setDateRange] = useState<[Dayjs | null, Dayjs | null] | null>(() => getDefaultDateRange())
 
   const jobsQuery = useJobs({ days: 30, limit: 500 }, enabled)
   const analysisQuery = useFailureAnalysisList({ days_back: 30 }, enabled)
@@ -260,11 +265,14 @@ function WorkflowTestExecutionTable({ enabled }: WorkflowTestExecutionTableProps
     setStatusFilter([])
     setResultFilter([])
     setLogSearch('')
-    setDateRange(null)
+    setDateRange(getDefaultDateRange())
   }
 
+  const isDefaultDateRange = Boolean(
+    dateRange?.[0]?.isSame(dayjs(), 'day') && dateRange?.[1]?.isSame(dayjs(), 'day'),
+  )
   const hasFilters = Boolean(
-    workflowFilter.length || hardwareFilter.length || statusFilter.length || resultFilter.length || logSearch || dateRange,
+    workflowFilter.length || hardwareFilter.length || statusFilter.length || resultFilter.length || logSearch || !isDefaultDateRange,
   )
 
   const handleRefresh = async () => {
