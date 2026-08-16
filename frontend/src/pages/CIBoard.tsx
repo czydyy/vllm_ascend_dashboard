@@ -23,6 +23,7 @@ import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip as RechartsToolti
 import JobBoard from './JobBoard'
 import DailyFailureTracking from './DailyFailureTracking'
 import NightlyTestCaseConfig from './NightlyTestCaseConfig'
+import WorkflowTestExecutionTable from '../components/WorkflowTestExecutionTable'
 import './CIBoard.css'
 
 dayjs.extend(relativeTime)
@@ -465,6 +466,7 @@ function CIBoard() {
                     }}
                   />
                 </Card>
+                <WorkflowTestExecutionTable enabled={activeTab === 'workflow'} />
               </div>
             ),
           },

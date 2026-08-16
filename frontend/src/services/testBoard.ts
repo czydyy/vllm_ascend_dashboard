@@ -52,6 +52,10 @@ export interface TestCaseItem {
 export interface TestRunItem {
   id: number
   test_case_id: number
+  test_name?: string | null
+  test_suite?: string | null
+  test_hardware?: string | null
+  test_owner?: string | null
   result: string
   duration_seconds: number | null
   model_load_seconds: number | null
@@ -226,7 +230,10 @@ export const getCaseDetail = async (caseId: number): Promise<{ case: TestCaseIte
 
 export const getRuns = async (params?: {
   test_case_id?: number
+  ci_run_id?: number
+  workflow_name?: string
   result?: string
+  search?: string
   days?: number
   page?: number
   per_page?: number

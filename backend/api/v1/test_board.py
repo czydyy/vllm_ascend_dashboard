@@ -155,7 +155,10 @@ async def get_case_detail(
 @router.get("/runs")
 async def get_runs(
     test_case_id: int | None = None,
+    ci_run_id: int | None = None,
+    workflow_name: str | None = None,
     result: str | None = None,
+    search: str | None = Query(None, min_length=1, max_length=200),
     days: int = 30,
     page: int = 1,
     per_page: int = 20,
@@ -165,20 +168,51 @@ async def get_runs(
 ):
     from datetime import timedelta
 
-    from sqlalchemy import desc, func, select
+    from sqlalchemy import desc, func, or_, select
 
-    from infrastructure.persistence.models.test_board import TestRun
+    from infrastructure.persistence.models.test_board import TestCase, TestRun
 
     cutoff = datetime.now(UTC) - timedelta(days=days)
-    stmt = select(TestRun).where(TestRun.started_at >= cutoff)
+    stmt = select(TestRun, TestCase).join(TestCase, TestRun.test_case_id == TestCase.id).where(
+        TestRun.started_at >= cutoff
+    )
     if test_case_id:
         stmt = stmt.where(TestRun.test_case_id == test_case_id)
+    if ci_run_id is not None:
+        stmt = stmt.where(TestRun.ci_run_id == ci_run_id)
+    if workflow_name:
+        stmt = stmt.where(TestRun.workflow_name == workflow_name)
     if result:
         stmt = stmt.where(TestRun.result == result)
+    if search:
+        pattern = f"%{search.strip()}%"
+        stmt = stmt.where(
+            or_(
+                TestRun.workflow_name.ilike(pattern),
+                TestRun.job_name.ilike(pattern),
+                TestRun.failure_message.ilike(pattern),
+                TestRun.failure_category.ilike(pattern),
+                TestCase.test_name.ilike(pattern),
+                TestCase.test_suite.ilike(pattern),
+            )
+        )
     stmt = stmt.order_by(desc(TestRun.started_at))
     total = (await db.execute(select(func.count()).select_from(stmt.subquery()))).scalar() or 0
     stmt = stmt.offset((page - 1) * per_page).limit(per_page)
-    items = list((await db.execute(stmt)).scalars().all())
+    rows = list((await db.execute(stmt)).all())
+    items = []
+    for test_run, test_case in rows:
+        item = {
+            column.name: getattr(test_run, column.name)
+            for column in TestRun.__table__.columns
+        }
+        item.update({
+            "test_name": test_case.test_name,
+            "test_suite": test_case.test_suite,
+            "test_hardware": test_case.hardware,
+            "test_owner": test_case.owner,
+        })
+        items.append(item)
     if format == "csv":
         output = io.StringIO()
         writer = csv.writer(output)
@@ -196,13 +230,13 @@ async def get_runs(
         for item in items:
             writer.writerow(
                 [
-                    item.id,
-                    item.test_case_id,
-                    item.result,
-                    item.duration_seconds,
-                    item.failure_category,
-                    item.head_sha,
-                    item.started_at,
+                    item["id"],
+                    item["test_case_id"],
+                    item["result"],
+                    item["duration_seconds"],
+                    item["failure_category"],
+                    item["head_sha"],
+                    item["started_at"],
                 ]
             )
         return Response(

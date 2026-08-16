@@ -53,14 +53,18 @@ export const useFilterOptions = () => {
 
 export const useTestRuns = (params?: {
   test_case_id?: number
+  ci_run_id?: number
+  workflow_name?: string
   result?: string
+  search?: string
   days?: number
   page?: number
   per_page?: number
-}) => {
+}, enabled = true) => {
   return useQuery({
     queryKey: ['test-board-runs', params],
     queryFn: () => testBoardApi.getRuns(params),
+    enabled,
   })
 }
 
