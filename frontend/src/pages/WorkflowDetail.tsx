@@ -1,5 +1,5 @@
 import { useParams, useNavigate } from 'react-router-dom'
-import { Card, Table, Tag, Button, Space, Typography, Descriptions, Divider, Alert, Tooltip, message } from 'antd'
+import { Card, Table, Tag, Button, Space, Typography, Descriptions, Divider, Alert, Tooltip, Switch, message } from 'antd'
 import { useState } from 'react'
 import {
   CheckCircleOutlined,
@@ -36,6 +36,7 @@ function WorkflowDetail() {
   const runIdNum = runId ? parseInt(runId) : null
 
   const [conclusionFilter, setConclusionFilter] = useState<string[]>([])
+  const [showSkipped, setShowSkipped] = useState(false)
   const [modalOpen, setModalOpen] = useState(false)
   const [selectedJobId, setSelectedJobId] = useState<number | null>(null)
   const [selectedAnalysis, setSelectedAnalysis] = useState<any>(null)
@@ -154,6 +155,7 @@ function WorkflowDetail() {
         { text: '成功', value: 'success' },
         { text: '失败', value: 'failure' },
         { text: '取消', value: 'cancelled' },
+        { text: '已跳过', value: 'skipped' },
         { text: '进行中', value: 'in_progress' },
         { text: '等待中', value: 'queued' },
         { text: '其他', value: 'other' },
@@ -161,7 +163,7 @@ function WorkflowDetail() {
       filteredValue: conclusionFilter,
       onFilter: (value: any, record: any) => {
         if (value === 'other') {
-          return record.conclusion !== 'success' && record.conclusion !== 'failure' && record.conclusion !== 'cancelled'
+          return !['success', 'failure', 'cancelled', 'skipped', 'in_progress', 'queued'].includes(record.conclusion)
         }
         return record.conclusion === value
       },
@@ -322,11 +324,17 @@ function WorkflowDetail() {
 
   const stats = {
     total: jobs?.length || 0,
+    executed: jobs?.filter(j => j.conclusion && j.conclusion !== 'skipped').length || 0,
+    skipped: jobs?.filter(j => j.conclusion === 'skipped').length || 0,
     success: jobs?.filter(j => j.conclusion === 'success').length || 0,
     failure: jobs?.filter(j => j.conclusion === 'failure').length || 0,
     inProgress: jobs?.filter(j => j.status === 'in_progress').length || 0,
     cancelled: jobs?.filter(j => j.conclusion === 'cancelled').length || 0,
   }
+
+  const visibleJobs = showSkipped
+    ? jobs || []
+    : (jobs || []).filter(job => job.conclusion !== 'skipped')
 
   return (
     <div style={{ padding: 24 }}>
@@ -369,6 +377,16 @@ function WorkflowDetail() {
         <Alert
           message="暂无 Jobs 数据"
           description="该 Workflow 运行记录没有关联的 Jobs，可能是 GitHub API 未返回数据或该运行已被取消。"
+          type="info"
+          showIcon
+          style={{ marginBottom: 24 }}
+        />
+      )}
+
+      {jobs && stats.skipped > 0 && (
+        <Alert
+          message={`此 Run 共 ${stats.total} 个 Jobs，实际执行 ${stats.executed} 个，已跳过 ${stats.skipped} 个`}
+          description="这里展示的是 GitHub Actions 的 Job，不等同于测试用例数量；测试用例数需要从测试报告或构建产物中解析。列表默认隐藏已跳过的 Job。"
           type="info"
           showIcon
           style={{ marginBottom: 24 }}
@@ -420,7 +438,17 @@ function WorkflowDetail() {
         <Space size="large" style={{ justifyContent: 'space-around', width: '100%' }}>
           <div style={{ textAlign: 'center' }}>
             <div style={{ fontSize: 24, fontWeight: 'bold' }}>{stats.total}</div>
-            <div style={{ color: '#999' }}>总 Jobs</div>
+            <div style={{ color: '#999' }}>总 Jobs（含跳过）</div>
+          </div>
+          <Divider type="vertical" style={{ height: 40 }} />
+          <div style={{ textAlign: 'center' }}>
+            <div style={{ fontSize: 24, fontWeight: 'bold', color: '#1890ff' }}>{stats.executed}</div>
+            <div style={{ color: '#999' }}>实际执行</div>
+          </div>
+          <Divider type="vertical" style={{ height: 40 }} />
+          <div style={{ textAlign: 'center' }}>
+            <div style={{ fontSize: 24, fontWeight: 'bold', color: '#8c8c8c' }}>{stats.skipped}</div>
+            <div style={{ color: '#999' }}>已跳过</div>
           </div>
           <Divider type="vertical" style={{ height: 40 }} />
           <div style={{ textAlign: 'center' }}>
@@ -445,10 +473,18 @@ function WorkflowDetail() {
         </Space>
       </Card>
 
-      <Card title="Jobs 列表">
+      <Card
+        title="Jobs 列表"
+        extra={
+          <Space>
+            <Text type="secondary">显示已跳过 Jobs</Text>
+            <Switch checked={showSkipped} onChange={setShowSkipped} />
+          </Space>
+        }
+      >
         <Table
           columns={columns}
-          dataSource={jobs || []}
+          dataSource={visibleJobs}
           loading={jobsLoading}
           rowKey="job_id"
           pagination={{
@@ -458,7 +494,11 @@ function WorkflowDetail() {
           scroll={{ x: 'max-content' }}
           onChange={(_, filters) => {
             if (filters.conclusion) {
-              setConclusionFilter(filters.conclusion as string[])
+              const selected = filters.conclusion as string[]
+              setConclusionFilter(selected)
+              if (selected.includes('skipped')) {
+                setShowSkipped(true)
+              }
             } else {
               setConclusionFilter([])
             }
