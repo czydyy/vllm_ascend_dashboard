@@ -90,6 +90,13 @@ class CICollector:
             "install vllm-project/vllm-ascend",
         )
         for job in jobs or []:
+            job_name = str(job.get("name") or "").strip().casefold()
+            # The current /nightly PR dispatcher sends skip_build_image=true.
+            # GitHub exposes the reusable build job as skipped in that case,
+            # while the regular scheduled dispatch runs it successfully.
+            if job_name.startswith("build nightly-") and job.get("conclusion") == "skipped":
+                return True
+
             for step in job.get("steps") or []:
                 name = str(step.get("name") or "").strip().casefold()
                 if (

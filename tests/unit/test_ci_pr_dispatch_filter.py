@@ -50,3 +50,17 @@ def test_reusable_pr_only_step_is_filtered() -> None:
     ]
 
     assert CICollector._is_pr_nightly_dispatch(run, jobs) is True
+
+
+def test_skipped_nightly_build_job_is_filtered() -> None:
+    run = {"event": "workflow_dispatch"}
+    jobs = [{"name": "Build nightly-a3 image", "conclusion": "skipped", "steps": []}]
+
+    assert CICollector._is_pr_nightly_dispatch(run, jobs) is True
+
+
+def test_successful_nightly_build_job_is_not_pr_marker() -> None:
+    run = {"event": "workflow_dispatch"}
+    jobs = [{"name": "Build nightly-a3 image", "conclusion": "success", "steps": []}]
+
+    assert CICollector._is_pr_nightly_dispatch(run, jobs) is False
