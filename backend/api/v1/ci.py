@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import Any
 
 from fastapi import APIRouter, HTTPException, Query, status
-from sqlalchemy import Date, case, cast, func, select
+from sqlalchemy import Date, case, cast, func, or_, select
 from sqlalchemy.exc import SQLAlchemyError
 
 from api.deps import CurrentAdminUser, CurrentSuperAdminUser, CurrentUser, DbSession
@@ -610,6 +610,80 @@ async def list_jobs_by_run(
     response = []
     for job in jobs:
         # 解析 steps_summary 和 runner_labels
+        steps_summary = []
+        if job.steps_data:
+            try:
+                steps_summary = json.loads(job.steps_data)
+            except Exception:
+                pass
+
+        runner_labels = []
+        if job.runner_labels:
+            try:
+                runner_labels = json.loads(job.runner_labels)
+            except Exception:
+                pass
+
+        response.append(CIJobResponse(
+            id=job.id,
+            job_id=job.job_id,
+            run_id=job.run_id,
+            workflow_name=job.workflow_name,
+            job_name=job.job_name,
+            status=job.status,
+            conclusion=job.conclusion,
+            hardware=job.hardware,
+            runner_name=job.runner_name,
+            started_at=job.started_at,
+            completed_at=job.completed_at,
+            duration_seconds=job.duration_seconds,
+            runner_labels=runner_labels,
+            steps_summary=steps_summary,
+            created_at=job.created_at,
+        ))
+
+    return response
+
+
+@router.get("/jobs", response_model=list[CIJobResponse])
+async def list_jobs(
+    db: DbSession,
+    days: int = Query(30, ge=1, le=90),
+    workflow_name: str | None = None,
+    search: str | None = Query(None, min_length=1, max_length=200),
+    job_status: str | None = None,
+    conclusion: str | None = None,
+    hardware: str | None = None,
+    limit: int = Query(500, ge=1, le=1000),
+):
+    """获取最近的 Job 运行记录，供 Workflow 运行看板直接平铺展示。"""
+    cutoff = datetime.now(UTC) - timedelta(days=days)
+    stmt = select(CIJob).where(func.coalesce(CIJob.started_at, CIJob.created_at) >= cutoff)
+
+    if workflow_name:
+        stmt = stmt.where(CIJob.workflow_name == workflow_name)
+    if search:
+        pattern = f"%{search.strip()}%"
+        stmt = stmt.where(
+            or_(
+                CIJob.workflow_name.ilike(pattern),
+                CIJob.job_name.ilike(pattern),
+                CIJob.runner_name.ilike(pattern),
+            )
+        )
+    if job_status:
+        stmt = stmt.where(CIJob.status == job_status)
+    if conclusion:
+        stmt = stmt.where(CIJob.conclusion == conclusion)
+    if hardware:
+        stmt = stmt.where(CIJob.hardware == hardware)
+
+    jobs = (await db.execute(
+        stmt.order_by(CIJob.started_at.desc(), CIJob.id.desc()).limit(limit)
+    )).scalars().all()
+
+    response = []
+    for job in jobs:
         steps_summary = []
         if job.steps_data:
             try:

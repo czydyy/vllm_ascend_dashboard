@@ -64,6 +64,22 @@ export const useJobsByRun = (runId: number | null) => {
   })
 }
 
+export const useJobs = (params?: {
+  days?: number
+  workflow_name?: string
+  search?: string
+  status?: string
+  conclusion?: string
+  hardware?: string
+  limit?: number
+}, enabled = true) => {
+  return useQuery({
+    queryKey: ['ci-jobs-list', params],
+    queryFn: () => ciApi.getJobs(params),
+    enabled,
+  })
+}
+
 /**
  * 获取 job 详情
  */

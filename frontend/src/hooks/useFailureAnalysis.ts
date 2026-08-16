@@ -6,10 +6,11 @@ export const useFailureAnalysisList = (params?: {
   analysis_status?: string
   workflow_name?: string
   days_back?: number
-}) => {
+}, enabled = true) => {
   return useQuery({
     queryKey: ['failure-analysis-list', params],
     queryFn: () => faApi.listFailureAnalyses(params),
+    enabled,
     refetchInterval: (query) => {
       const data = query.state.data as { items?: Array<{ analysis_status?: string }> } | undefined
       // The analysis POST returns immediately while work continues in the

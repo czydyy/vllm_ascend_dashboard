@@ -158,6 +158,19 @@ export const getJobsByRun = async (runId: number): Promise<CIJob[]> => {
   return response.data
 }
 
+export const getJobs = async (params?: {
+  days?: number
+  workflow_name?: string
+  search?: string
+  status?: string
+  conclusion?: string
+  hardware?: string
+  limit?: number
+}): Promise<CIJob[]> => {
+  const response = await api.get<CIJob[]>('/ci/jobs', { params })
+  return response.data
+}
+
 /**
  * 获取 job 详情
  */
