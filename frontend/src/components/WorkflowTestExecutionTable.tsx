@@ -6,6 +6,7 @@ import {
   DatePicker,
   Empty,
   Input,
+  Select,
   Space,
   Table,
   Tag,
@@ -20,7 +21,7 @@ import {
   ReloadOutlined,
 } from '@ant-design/icons'
 import dayjs, { Dayjs } from 'dayjs'
-import { useJobs } from '../hooks/useCI'
+import { useJobs, useWorkflows } from '../hooks/useCI'
 import { useFailureAnalysisList } from '../hooks/useFailureAnalysis'
 import type { CIJob, StepSummary } from '../services/ci'
 import { PROBLEM_CATEGORY_MAP } from '../services/failureAnalysis'
@@ -77,13 +78,19 @@ const renderSteps = (steps: StepSummary[] | null | undefined) => {
 function WorkflowTestExecutionTable({ enabled }: WorkflowTestExecutionTableProps) {
   const navigate = useNavigate()
   const [workflowFilter, setWorkflowFilter] = useState<string[]>([])
+  const [selectedWorkflow, setSelectedWorkflow] = useState<string | undefined>()
   const [hardwareFilter, setHardwareFilter] = useState<string[]>([])
   const [statusFilter, setStatusFilter] = useState<string[]>([])
   const [resultFilter, setResultFilter] = useState<string[]>([])
   const [logSearch, setLogSearch] = useState('')
   const [dateRange, setDateRange] = useState<[Dayjs | null, Dayjs | null] | null>(() => getDefaultDateRange())
 
-  const jobsQuery = useJobs({ days: 30, limit: 500 }, enabled)
+  const workflowsQuery = useWorkflows()
+  const jobsQuery = useJobs({
+    days: 30,
+    limit: 500,
+    workflow_name: selectedWorkflow,
+  }, enabled)
   const analysisQuery = useFailureAnalysisList({ days_back: 30 }, enabled)
   const jobs = jobsQuery.data || []
   const analysisMap = useMemo(() => (
@@ -91,9 +98,12 @@ function WorkflowTestExecutionTable({ enabled }: WorkflowTestExecutionTableProps
   ), [analysisQuery.data?.items])
 
   const workflowOptions = useMemo(() => (
-    Array.from(new Set(jobs.map((job) => job.workflow_name).filter(Boolean)))
+    Array.from(new Set([
+      ...(workflowsQuery.data || []),
+      ...jobs.map((job) => job.workflow_name),
+    ].filter(Boolean)))
       .map((workflowName) => ({ text: workflowName, value: workflowName }))
-  ), [jobs])
+  ), [jobs, workflowsQuery.data])
 
   const hardwareOptions = useMemo(() => (
     Array.from(new Set(jobs.map((job) => job.hardware).filter(Boolean)))
@@ -104,6 +114,7 @@ function WorkflowTestExecutionTable({ enabled }: WorkflowTestExecutionTableProps
     const keyword = logSearch.trim().toLowerCase()
     return jobs.filter((job) => {
       const analysis = analysisMap.get(job.job_id)
+      if (selectedWorkflow && job.workflow_name !== selectedWorkflow) return false
       if (workflowFilter.length > 0 && !workflowFilter.includes(job.workflow_name)) return false
       if (hardwareFilter.length > 0 && !hardwareFilter.includes(job.hardware || '')) return false
       if (statusFilter.length > 0 && !statusFilter.includes(toJobStatus(job))) return false
@@ -125,7 +136,7 @@ function WorkflowTestExecutionTable({ enabled }: WorkflowTestExecutionTableProps
         analysis?.improvement_measures_summary,
       ].some((value) => value?.toLowerCase().includes(keyword))
     })
-  }, [analysisMap, dateRange, hardwareFilter, jobs, logSearch, resultFilter, statusFilter, workflowFilter])
+  }, [analysisMap, dateRange, hardwareFilter, jobs, logSearch, resultFilter, selectedWorkflow, statusFilter, workflowFilter])
 
   const columns = [
     {
@@ -261,6 +272,7 @@ function WorkflowTestExecutionTable({ enabled }: WorkflowTestExecutionTableProps
 
   const resetFilters = () => {
     setWorkflowFilter([])
+    setSelectedWorkflow(undefined)
     setHardwareFilter([])
     setStatusFilter([])
     setResultFilter([])
@@ -284,6 +296,19 @@ function WorkflowTestExecutionTable({ enabled }: WorkflowTestExecutionTableProps
       title="运行记录"
       extra={(
         <Space>
+          <Select
+            allowClear
+            showSearch
+            optionFilterProp="label"
+            value={selectedWorkflow}
+            options={workflowOptions.map(({ text, value }) => ({ label: text, value }))}
+            onChange={(value) => {
+              setSelectedWorkflow(value)
+              setWorkflowFilter(value ? [value] : [])
+            }}
+            placeholder="按 Workflow 筛选"
+            style={{ width: 190 }}
+          />
           <RangePicker
             value={dateRange as any}
             onChange={(dates) => setDateRange(dates as [Dayjs | null, Dayjs | null] | null)}
@@ -312,7 +337,9 @@ function WorkflowTestExecutionTable({ enabled }: WorkflowTestExecutionTableProps
         scroll={{ x: 2000 }}
         locale={{ emptyText: <Empty description="暂无运行记录" /> }}
         onChange={(_, filters) => {
-          setWorkflowFilter((filters.workflow_name as string[] | null) || [])
+          const nextWorkflowFilter = (filters.workflow_name as string[] | null) || []
+          setWorkflowFilter(nextWorkflowFilter)
+          setSelectedWorkflow(nextWorkflowFilter.length === 1 ? nextWorkflowFilter[0] : undefined)
           setHardwareFilter((filters.hardware as string[] | null) || [])
           setStatusFilter((filters.status as string[] | null) || [])
           setResultFilter((filters.conclusion as string[] | null) || [])
