@@ -7,7 +7,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 BACKUP_DIR="${DASHBOARD_BACKUP_DIR:-$PROJECT_ROOT/backups}"
 COMPOSE_FILE="${DASHBOARD_COMPOSE_FILE:-$PROJECT_ROOT/deploy/compose/production/compose.yml}"
-ENV_FILE="${DASHBOARD_ENV_FILE:-$PROJECT_ROOT/.env.production}"
+ENV_FILE="${DASHBOARD_ENV_FILE:-/etc/vllm-ascend-dashboard/production.env}"
 
 # 自动加载 .env.production 中的 MYSQL_ROOT_PASSWORD 等
 if [[ -f "$ENV_FILE" ]]; then
@@ -19,8 +19,11 @@ RETENTION_DAYS=30
 SILENT=false
 VERIFY_RESTORE=false
 
-# 默认备份全部三个逻辑库；拆分前只有一个 vllm_dashboard 时自动回退。
-DATABASES="${DASHBOARD_BACKUP_DATABASES:-control_db collection_db telemetry_db}"
+# By default back up the database selected by MYSQL_DATABASE. Additional
+# databases can be supplied explicitly through DASHBOARD_BACKUP_DATABASES.
+# This keeps a single-database production installation from silently backing
+# up unrelated or empty names.
+DATABASES="${DASHBOARD_BACKUP_DATABASES:-${MYSQL_DATABASE:-vllm_dashboard}}"
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -38,7 +41,10 @@ die() { echo "[ERROR] $1" >&2; exit 1; }
 mysql_root_exec() {
     compose exec -T mysql mysql -uroot -p"$MYSQL_ROOT_PASSWORD" -N -e "$1"
 }
-compose() { docker compose --env-file "$ENV_FILE" -f "$COMPOSE_FILE" --profile full "$@"; }
+compose() {
+    DASHBOARD_RUNTIME_ENV_FILE="$ENV_FILE" \
+    docker compose --env-file "$ENV_FILE" -f "$COMPOSE_FILE" --profile full "$@"
+}
 
 command -v docker >/dev/null 2>&1 || die "docker is not installed"
 [[ -f "$COMPOSE_FILE" ]] || die "compose file is missing: $COMPOSE_FILE"

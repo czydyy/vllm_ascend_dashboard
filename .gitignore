@@ -201,5 +201,3 @@ backend/tests/test_failure_analysis_regression_window.py
 backend/tests/test_failure_analysis_uncertainty.py
 backend/tests/test_report_validation_gate.py
 docs/failure-analysis-agent-design.md
-
-deploy/config-templates/litellm_runtime.yaml

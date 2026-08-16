@@ -6,7 +6,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 MIGRATE_SCRIPT="$SCRIPT_DIR/migrate.sh"
 COMPOSE_FILE="${DASHBOARD_COMPOSE_FILE:-$PROJECT_ROOT/deploy/compose/production/compose.yml}"
-ENV_FILE="${DASHBOARD_ENV_FILE:-$PROJECT_ROOT/.env.production}"
+ENV_FILE="${DASHBOARD_ENV_FILE:-/etc/vllm-ascend-dashboard/production.env}"
 BACKUP_DIR="${DASHBOARD_BACKUP_DIR:-$PROJECT_ROOT/backups}"
 FRONTEND_PORT="${FRONTEND_PORT:-3000}"
 MAX_WAIT=120
@@ -27,7 +27,41 @@ step() { echo; echo "=== $1 ==="; }
 ok() { echo "[OK] $1"; }
 warn() { echo "[WARN] $1"; }
 die() { echo "[ERROR] $1" >&2; exit 1; }
-compose() { docker compose --env-file "$ENV_FILE" -f "$COMPOSE_FILE" --profile full "$@"; }
+compose() {
+    DASHBOARD_RUNTIME_ENV_FILE="$ENV_FILE" \
+    docker compose --env-file "$ENV_FILE" -f "$COMPOSE_FILE" --profile full "$@"
+}
+
+runtime_file_path() {
+    local path="$1"
+    if [[ "$path" = /* ]]; then
+        printf '%s\n' "$path"
+    else
+        printf '%s/%s\n' "$PROJECT_ROOT" "$path"
+    fi
+}
+
+validate_runtime_files() {
+    [[ "${DASHBOARD_REQUIRE_EXTERNAL_CONFIG:-true}" == "true" ]] || return 0
+    local litellm_file mysql_file
+    litellm_file="$(runtime_file_path "${DASHBOARD_LITELLM_CONFIG_FILE:-}")"
+    mysql_file="$(runtime_file_path "${DASHBOARD_MYSQL_CONFIG_FILE:-}")"
+    [[ "$litellm_file" = /* && -f "$litellm_file" ]] \
+        || die "external LiteLLM config is missing: $litellm_file"
+    [[ "$mysql_file" = /* && -f "$mysql_file" ]] \
+        || die "external MySQL config is missing: $mysql_file"
+}
+
+validate_external_volumes() {
+    local volume
+    for volume in \
+        "${DASHBOARD_BACKEND_VOLUME:-vllm_ascend_dashboard_backend_data}" \
+        "${DASHBOARD_BACKEND_LOG_VOLUME:-vllm_ascend_dashboard_backend_logs}" \
+        "${DASHBOARD_MYSQL_VOLUME:-vllm_ascend_dashboard_mysql_data}"; do
+        docker volume inspect "$volume" >/dev/null 2>&1 \
+            || die "required external volume is missing: $volume"
+    done
+}
 service_container() { compose ps -q "$1"; }
 service_image() {
     local container
@@ -84,6 +118,14 @@ rollback() {
 command -v docker >/dev/null 2>&1 || die "docker is not installed"
 [[ -f "$COMPOSE_FILE" ]] || die "compose file is missing: $COMPOSE_FILE"
 [[ -f "$ENV_FILE" ]] || die "production environment file is missing: $ENV_FILE"
+
+# Runtime configuration is intentionally external to the Git checkout.
+set -a
+source "$ENV_FILE"
+set +a
+validate_runtime_files
+validate_external_volumes
+
 mysql_container="$(service_container mysql)"
 [[ -n "$mysql_container" ]] || die "MySQL service is not running"
 DATABASE_NAME="$(compose exec -T mysql sh -c 'printf %s "$MYSQL_DATABASE"')"
@@ -122,6 +164,10 @@ get_user_list | sed 's/^/  /'
 if $DRY_RUN; then
     ok "dry run complete; no code, schema, or service changes were made"
     exit 0
+fi
+
+if $DO_PULL && [[ -n "$(git -C "$PROJECT_ROOT" status --porcelain)" ]]; then
+    die "production checkout has local changes; archive and clear them before pulling upstream/main"
 fi
 
 step "3/9 Update source"

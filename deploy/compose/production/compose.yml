@@ -7,6 +7,11 @@
 # - Network isolation
 # - Resource limits
 
+# Keep the transition compatible with the existing production containers. The
+# project name and volume names are explicit so a checkout path change cannot
+# silently create a second, empty MySQL volume.
+name: ${DASHBOARD_COMPOSE_PROJECT:-vllm-dashboard}
+
 services:
   # ── LiteLLM API Gateway（Anthropic ↔ OpenAI 格式翻译）──
   litellm:
@@ -18,7 +23,7 @@ services:
     command: ["litellm", "--config", "/app/litellm_config.yaml", "--port", "4000"]
     volumes:
       # Backend writes the same runtime file after provider changes.
-      - ../../config-templates/litellm_config.yaml:/app/litellm_config.yaml
+      - ${DASHBOARD_LITELLM_CONFIG_FILE:-../../config-templates/litellm_config.yaml}:/app/litellm_config.yaml
     expose:
       - "4000"
     networks:
@@ -40,7 +45,7 @@ services:
   backend:
     image: ${DASHBOARD_BACKEND_IMAGE:?set DASHBOARD_BACKEND_IMAGE to a CI-published immutable image}
     env_file:
-      - ../../../.env.production
+      - ${DASHBOARD_RUNTIME_ENV_FILE:-../../../.env.production}
     environment:
       # Database connection (MySQL)
       - DATABASE_URL=mysql+aiomysql://${CONTROL_DB_USER:-control_svc}:${CONTROL_DB_PASSWORD}@mysql:3306/${MYSQL_DATABASE:-vllm_dashboard}
@@ -66,7 +71,7 @@ services:
       # This includes /app/data/repos for git cache
       - backend_data:/app/data
       # LiteLLM runtime config shared with the gateway container
-      - ../../config-templates/litellm_config.yaml:/app/litellm_config.yaml
+      - ${DASHBOARD_LITELLM_CONFIG_FILE:-../../config-templates/litellm_config.yaml}:/app/litellm_config.yaml
       # Log files
       - backend_logs:/app/logs
     # Do NOT expose backend port to public - only accessible via nginx proxy
@@ -112,9 +117,8 @@ services:
       # Binlog bind mount（Phase 0：宿主机可直接访问，用于归档和 PITR）
       - /data/mysql/binlog:/var/log/mysql
       # Optional: custom MySQL configuration
-      - ../../config-templates/mysql.cnf:/etc/mysql/conf.d/custom.cnf:ro
-      # Optional: initialization scripts
-      - ../../mysql/init:/docker-entrypoint-initdb.d:ro
+      - ${DASHBOARD_MYSQL_CONFIG_FILE:-../../config-templates/mysql.cnf}:/etc/mysql/conf.d/custom.cnf:ro
+      # Schema creation is explicit and runs through operations/production/migrate.sh.
     # MySQL should NOT be exposed to public - only accessible by backend service
     # If you need external access for maintenance, use SSH tunneling instead
     # ports:
@@ -175,7 +179,7 @@ services:
   scheduler:
     image: ${DASHBOARD_BACKEND_IMAGE:?set DASHBOARD_BACKEND_IMAGE to a CI-published immutable image}
     env_file:
-      - ../../../.env.production
+      - ${DASHBOARD_RUNTIME_ENV_FILE:-../../../.env.production}
     environment:
       - DATABASE_URL=mysql+aiomysql://${SCHEDULER_DB_USER:-scheduler_svc}:${SCHEDULER_DB_PASSWORD}@mysql:3306/${MYSQL_DATABASE:-vllm_dashboard}
       - TZ=Asia/Shanghai
@@ -205,7 +209,7 @@ services:
   collector:
     image: ${DASHBOARD_BACKEND_IMAGE:?set DASHBOARD_BACKEND_IMAGE to a CI-published immutable image}
     env_file:
-      - ../../../.env.production
+      - ${DASHBOARD_RUNTIME_ENV_FILE:-../../../.env.production}
     environment:
       - DATABASE_URL=mysql+aiomysql://${COLLECTOR_DB_USER:-collector_svc}:${COLLECTOR_DB_PASSWORD}@mysql:3306/${MYSQL_DATABASE:-vllm_dashboard}
       - TZ=Asia/Shanghai
@@ -240,34 +244,23 @@ volumes:
   # Backend cache and generated data (the database is stored in mysql_data)
   # Git repository cache is stored in /app/data/repos (subdirectory of backend_data)
   backend_data:
-    driver: local
-    # Optional: specify external mount point
-    # driver_opts:
-    #   type: none
-    #   o: bind
-    #   device: /mnt/data/vllm_dashboard/backend_data
+    name: ${DASHBOARD_BACKEND_VOLUME:-vllm_ascend_dashboard_backend_data}
+    external: true
 
   # Backend application logs
   backend_logs:
-    driver: local
-    # Optional: specify external mount point
-    # driver_opts:
-    #   type: none
-    #   o: bind
-    #   device: /var/log/vllm_dashboard
+    name: ${DASHBOARD_BACKEND_LOG_VOLUME:-vllm_ascend_dashboard_backend_logs}
+    external: true
 
   # MySQL database data
   mysql_data:
-    driver: local
-    # Optional: specify external mount point
-    # driver_opts:
-    #   type: none
-    #   o: bind
-    #   device: /mnt/data/vllm_dashboard/mysql_data
+    name: ${DASHBOARD_MYSQL_VOLUME:-vllm_ascend_dashboard_mysql_data}
+    external: true
 
 # Network Configuration
 networks:
   dashboard-network:
+    name: ${DASHBOARD_NETWORK_NAME:-vllm-dashboard_dashboard-network}
     driver: bridge
     # Optional: specify subnet
     # ipam:
