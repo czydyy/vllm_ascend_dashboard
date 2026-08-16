@@ -74,13 +74,28 @@ class CICollector:
             if str(inputs.get("request_id") or "").strip():
                 return True
 
-        # The shared Nightly workflow exposes this conditional step only when
-        # ``vllm_ascend_ref`` is set by ``/nightly pr``.  Jobs API data includes
-        # the step conclusion, unlike the workflow-run list response.
+        # The shared Nightly workflow exposes these conditional steps only when
+        # ``vllm_ascend_ref``/``request_id`` is set by ``/nightly pr``.  The
+        # workflow-run response does not include dispatch inputs, so inspect
+        # the jobs response as a second source of truth.  Keep this list in
+        # sync with the PR-only steps in the reusable Nightly workflows; a
+        # successful or cancelled PR-only step is evidence that the run is a
+        # PR run, while a skipped step is present in normal Nightly runs too.
+        pr_only_step_markers = (
+            "checkout pr code",
+            "uninstall vlm vllm-ascend and remove code (if pr test)",
+            "uninstall vllm and remove code (if pr test)",
+            "checkout vllm-project/vllm-ascend repo",
+            "move code to /vllm-workspace",
+            "install vllm-project/vllm-ascend",
+        )
         for job in jobs or []:
             for step in job.get("steps") or []:
                 name = str(step.get("name") or "").strip().casefold()
-                if name == "checkout pr code" and step.get("conclusion") != "skipped":
+                if (
+                    any(name == marker or name.startswith(f"{marker} ") for marker in pr_only_step_markers)
+                    and step.get("conclusion") != "skipped"
+                ):
                     return True
 
         return False

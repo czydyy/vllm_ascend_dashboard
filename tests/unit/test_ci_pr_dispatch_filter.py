@@ -34,3 +34,19 @@ def test_skipped_pr_checkout_step_is_normal_nightly() -> None:
     jobs = [{"steps": [{"name": "Checkout PR code", "conclusion": "skipped"}]}]
 
     assert CICollector._is_pr_nightly_dispatch(run, jobs) is False
+
+
+def test_reusable_pr_only_step_is_filtered() -> None:
+    run = {"event": "workflow_dispatch"}
+    jobs = [
+        {
+            "steps": [
+                {
+                    "name": "uninstall vlm vllm-ascend and remove code (if pr test)",
+                    "conclusion": "success",
+                }
+            ]
+        }
+    ]
+
+    assert CICollector._is_pr_nightly_dispatch(run, jobs) is True
