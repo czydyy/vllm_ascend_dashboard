@@ -18,7 +18,7 @@ __all__ = [
     # Auth
     "Token", "LoginRequest", "RegisterRequest",
     # CI
-    "CIResultBase", "CIResultResponse", "CIJobResponse", "CIJobDetailResponse", "CIRunTestResult", "CIStats",
+    "CIResultBase", "CIResultResponse", "CIJobResponse", "CIJobDetailResponse", "CIStats",
     # Model
     "ModelConfigBase", "ModelConfigCreate", "ModelConfigUpdate", "ModelConfigResponse",
     "ModelReportResponse", "ModelReportCreate", "ModelReportUpdate",
@@ -262,43 +262,6 @@ class CIJobDetailResponse(CIJobResponse):
     """CI Job 详细响应 Schema"""
     steps_data: list[dict] | None = None
     logs_url: str | None = None
-
-
-class CIRunTestResult(BaseModel):
-    """Run 级测试结果；口径与每日失败追踪一致，只包含实际测试执行记录。"""
-
-    id: int
-    test_case_id: int
-    job_id: int | None = None
-    run_id: int
-    workflow_name: str
-    job_name: str
-    test_name: str
-    test_suite: str
-    test_type: str
-    data_granularity: str | None = None
-    result: str
-    conclusion: str
-    started_at: datetime | None = None
-    completed_at: datetime | None = None
-    duration_seconds: float | None = None
-    hardware: str | None = None
-    owner: str | None = None
-    owner_email: str | None = None
-    display_name: str | None = None
-    test_model: str | None = None
-    model_fo: str | None = None
-    deployment_type: str | None = None
-    processing_status: str | None = None
-    problem_category: str | None = None
-    related_pr: str | None = None
-    notes: str | None = None
-    head_sha: str | None = None
-    event: str | None = None
-    branch: str | None = None
-    failure_category: str | None = None
-    failure_message: str | None = None
-    github_job_url: str | None = None
 
 
 class CIStats(BaseModel):

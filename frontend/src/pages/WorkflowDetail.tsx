@@ -11,7 +11,7 @@ import {
   FileSearchOutlined,
   RobotOutlined,
 } from '@ant-design/icons'
-import { useJobsByRun, useRuns, useTestResultsByRun } from '../hooks/useCI'
+import { useJobsByRun, useRuns } from '../hooks/useCI'
 import { useJobOwners } from '../hooks/useJobOwners'
 import { useFailureAnalysisList, useAnalyzeFailedJob } from '../hooks/useFailureAnalysis'
 import { useCurrentUser } from '../hooks/useCurrentUser'
@@ -23,7 +23,6 @@ import relativeTime from 'dayjs/plugin/relativeTime'
 import 'dayjs/locale/zh-cn'
 import { formatTimezone, fromTimezoneNow } from '../utils/timezone'
 import { renderStatusTag, renderConclusionTag, formatDuration, renderHardwareTag } from '../utils/ciRenderers'
-import { CIRunTestResult } from '../services/ci'
 
 dayjs.extend(duration)
 dayjs.extend(relativeTime)
@@ -43,7 +42,6 @@ function WorkflowDetail() {
   const [selectedAnalysis, setSelectedAnalysis] = useState<any>(null)
 
   const { data: jobs, isLoading: jobsLoading, refetch: refetchJobs } = useJobsByRun(runIdNum)
-  const { data: testResults, isLoading: testResultsLoading, refetch: refetchTestResults } = useTestResultsByRun(runIdNum)
   const { data: runs, refetch: refetchRuns } = useRuns({ limit: 100 })
   const { data: jobOwners } = useJobOwners()
   const { data: analysisData } = useFailureAnalysisList({ days_back: 30 })
@@ -67,7 +65,7 @@ function WorkflowDetail() {
   }
 
   const handleRefresh = async () => {
-    await Promise.all([refetchJobs(), refetchTestResults(), refetchRuns()])
+    await Promise.all([refetchJobs(), refetchRuns()])
     message.success('数据已刷新')
   }
 
@@ -324,120 +322,6 @@ function WorkflowDetail() {
     },
   ]
 
-  const testStats = {
-    total: testResults?.length || 0,
-    success: testResults?.filter(result => result.result === 'passed').length || 0,
-    failure: testResults?.filter(result => result.result === 'failed').length || 0,
-    unprocessed: testResults?.filter(result => result.result === 'failed' && result.processing_status === '未处理').length || 0,
-  }
-
-  const testResultColumns = [
-    {
-      title: '测试日期',
-      key: 'test_date',
-      width: 110,
-      render: (_: unknown, record: CIRunTestResult) => record.started_at ? formatTimezone(record.started_at, 'YYYY-MM-DD') : '-',
-    },
-    {
-      title: 'Workflow',
-      dataIndex: 'workflow_name',
-      key: 'workflow_name',
-      width: 150,
-      ellipsis: true,
-    },
-    {
-      title: '测试用例',
-      key: 'test_case',
-      width: 260,
-      ellipsis: true,
-      render: (_: unknown, record: CIRunTestResult) => (
-        <Tooltip title={`${record.test_suite} / ${record.test_name}`}>
-          <Space direction="vertical" size={0}>
-            <Text strong ellipsis>{record.display_name || record.test_name}</Text>
-            <Text type="secondary" style={{ fontSize: 12 }} ellipsis>
-              {record.test_suite} · {record.test_type}
-            </Text>
-          </Space>
-        </Tooltip>
-      ),
-    },
-    {
-      title: 'Job',
-      dataIndex: 'job_name',
-      key: 'job_name',
-      width: 220,
-      ellipsis: true,
-    },
-    {
-      title: '硬件',
-      dataIndex: 'hardware',
-      key: 'hardware',
-      width: 80,
-      render: renderHardwareTag,
-    },
-    {
-      title: '负责人',
-      dataIndex: 'owner',
-      key: 'owner',
-      width: 100,
-      render: (owner: string | null) => owner ? <Space size={4}><UserOutlined /><Text>{owner}</Text></Space> : '-',
-    },
-    {
-      title: '模型 / FO',
-      key: 'model',
-      width: 180,
-      ellipsis: true,
-      render: (_: unknown, record: CIRunTestResult) => record.model_fo || record.test_model || '-',
-    },
-    {
-      title: '结果',
-      dataIndex: 'conclusion',
-      key: 'conclusion',
-      width: 90,
-      render: renderConclusionTag,
-    },
-    {
-      title: '处理状态',
-      dataIndex: 'processing_status',
-      key: 'processing_status',
-      width: 100,
-      render: (status: string | null, record: CIRunTestResult) => status
-        ? <Tag color={record.result === 'failed' ? 'warning' : 'success'}>{status}</Tag>
-        : '-',
-    },
-    {
-      title: '问题分类',
-      dataIndex: 'problem_category',
-      key: 'problem_category',
-      width: 110,
-      render: (category: string | null) => category || '-',
-    },
-    {
-      title: '耗时',
-      dataIndex: 'duration_seconds',
-      key: 'duration_seconds',
-      width: 90,
-      render: formatDuration,
-    },
-    {
-      title: '开始时间',
-      dataIndex: 'started_at',
-      key: 'started_at',
-      width: 170,
-      render: (startedAt: string | null) => startedAt ? formatTimezone(startedAt, 'MM-DD HH:mm:ss') : '-',
-    },
-    {
-      title: '操作',
-      key: 'actions',
-      width: 100,
-      render: (_: unknown, record: CIRunTestResult) => record.github_job_url ? (
-        <a href={record.github_job_url} target="_blank" rel="noopener noreferrer">
-          <Button type="link" size="small" icon={<GithubOutlined />}>GitHub</Button>
-        </a>
-      ) : '-',
-    },
-  ]
-
   const stats = {
     total: jobs?.length || 0,
     executed: jobs?.filter(j => j.conclusion && j.conclusion !== 'skipped').length || 0,
@@ -549,51 +433,6 @@ function WorkflowDetail() {
           </Descriptions>
         </Card>
       )}
-
-      <Card title="测试结果概览（每日失败追踪口径）" style={{ marginBottom: 24 }}>
-        <Space size="large" style={{ justifyContent: 'space-around', width: '100%' }}>
-          <div style={{ textAlign: 'center' }}>
-            <div style={{ fontSize: 24, fontWeight: 'bold' }}>{testStats.total}</div>
-            <div style={{ color: '#999' }}>测试记录</div>
-          </div>
-          <Divider type="vertical" style={{ height: 40 }} />
-          <div style={{ textAlign: 'center' }}>
-            <div style={{ fontSize: 24, fontWeight: 'bold', color: '#52c41a' }}>{testStats.success}</div>
-            <div style={{ color: '#999' }}>通过</div>
-          </div>
-          <Divider type="vertical" style={{ height: 40 }} />
-          <div style={{ textAlign: 'center' }}>
-            <div style={{ fontSize: 24, fontWeight: 'bold', color: '#ff4d4f' }}>{testStats.failure}</div>
-            <div style={{ color: '#999' }}>失败</div>
-          </div>
-          <Divider type="vertical" style={{ height: 40 }} />
-          <div style={{ textAlign: 'center' }}>
-            <div style={{ fontSize: 24, fontWeight: 'bold', color: '#faad14' }}>{testStats.unprocessed}</div>
-            <div style={{ color: '#999' }}>待处理</div>
-          </div>
-        </Space>
-      </Card>
-
-      {currentRun && testResults && testResults.length === 0 && !testResultsLoading && (
-        <Alert
-          message="尚未解析到测试结果"
-          description="该 Run 可能只包含工作流编排或基础设施 Job，或者测试报告尚未被收集。下面的原始 Jobs 仅用于诊断，不计入测试用例统计。"
-          type="info"
-          showIcon
-          style={{ marginBottom: 24 }}
-        />
-      )}
-
-      <Card title="测试结果（按测试记录展示）" style={{ marginBottom: 24 }}>
-        <Table
-          columns={testResultColumns}
-          dataSource={testResults || []}
-          loading={testResultsLoading}
-          rowKey="id"
-          pagination={{ pageSize: 20, showSizeChanger: false }}
-          scroll={{ x: 1700 }}
-        />
-      </Card>
 
       <Card style={{ marginBottom: 24 }}>
         <Space size="large" style={{ justifyContent: 'space-around', width: '100%' }}>

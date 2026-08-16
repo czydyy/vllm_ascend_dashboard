@@ -22,8 +22,6 @@ from infrastructure.persistence.models import (
     JobFailureAnalysis,
     JobOwner,
     NightlyTestCase,
-    TestCase,
-    TestRun,
     User,
     WorkflowConfig,
 )
@@ -31,7 +29,6 @@ from contracts.schemas import (
     CIDailyReport,
     CIJobDetailResponse,
     CIJobResponse,
-    CIRunTestResult,
     CIResultResponse,
     CIStats,
     CISyncResponse,
@@ -644,91 +641,6 @@ async def list_jobs_by_run(
             steps_summary=steps_summary,
             created_at=job.created_at,
         ))
-
-    return response
-
-
-@router.get("/runs/{run_id}/test-results", response_model=list[CIRunTestResult])
-async def list_test_results_by_run(
-    run_id: int,
-    db: DbSession,
-):
-    """返回 Run 中实际执行的测试结果，展示口径与每日失败追踪保持一致。
-
-    GitHub Job 是工作流编排层数据，包含 skipped 和基础设施任务；TestRun
-    才是测试结果层数据。这里以 TestRun 为主表，并补充测试用例、Job 和
-    每日失败追踪中的可编辑元数据，避免把编排 Job 数量误当成用例数量。
-    """
-    stmt = (
-        select(TestRun, TestCase, CIJob, DailyFailureRecord)
-        .join(TestCase, TestRun.test_case_id == TestCase.id)
-        .outerjoin(CIJob, CIJob.job_id == TestRun.ci_job_id)
-        .outerjoin(DailyFailureRecord, DailyFailureRecord.job_id == TestRun.ci_job_id)
-        .where(TestRun.ci_run_id == run_id)
-        # MySQL 不支持 PostgreSQL 的 NULLS LAST 语法；布尔排序可保持空时间在末尾。
-        .order_by(TestRun.started_at.is_(None), TestRun.started_at.asc(), TestRun.id.asc())
-    )
-    rows = (await db.execute(stmt)).all()
-
-    response: list[CIRunTestResult] = []
-    for test_run, test_case, job, failure_record in rows:
-        result = test_run.result or "unknown"
-        conclusion = "success" if result == "passed" else "failure"
-        job_id = test_run.ci_job_id or (job.job_id if job else None)
-        display_name = failure_record.display_name if failure_record else None
-        test_model = failure_record.test_model if failure_record else None
-        owner = (failure_record.owner if failure_record else None) or test_case.owner
-        owner_email = test_case.owner_email
-        processing_status = failure_record.processing_status if failure_record else None
-        if processing_status is None and result == "failed":
-            processing_status = "未处理"
-
-        github_job_url = failure_record.github_job_url if failure_record else None
-        if not github_job_url and job_id and settings.GITHUB_OWNER and settings.GITHUB_REPO:
-            github_job_url = (
-                f"https://github.com/{settings.GITHUB_OWNER}/{settings.GITHUB_REPO}"
-                f"/actions/runs/{run_id}/job/{job_id}"
-            )
-
-        response.append(
-            CIRunTestResult(
-                id=test_run.id,
-                test_case_id=test_run.test_case_id,
-                job_id=job_id,
-                run_id=run_id,
-                workflow_name=test_run.workflow_name or (job.workflow_name if job else ""),
-                job_name=test_run.job_name or (job.job_name if job else test_case.test_name),
-                test_name=test_case.test_name,
-                test_suite=test_case.test_suite,
-                test_type=test_case.test_type,
-                data_granularity=test_case.data_granularity,
-                result=result,
-                conclusion=conclusion,
-                started_at=test_run.started_at or (job.started_at if job else None),
-                completed_at=test_run.completed_at or (job.completed_at if job else None),
-                duration_seconds=test_run.duration_seconds
-                if test_run.duration_seconds is not None
-                else (job.duration_seconds if job else None),
-                hardware=test_case.hardware or (job.hardware if job else None),
-                owner=owner,
-                owner_email=owner_email,
-                display_name=display_name or test_case.test_name,
-                test_model=test_model or test_case.file_path,
-                model_fo=failure_record.model_fo if failure_record else None,
-                deployment_type=failure_record.deployment_type if failure_record else None,
-                processing_status=processing_status,
-                problem_category=(failure_record.problem_category if failure_record else None)
-                or test_run.failure_category,
-                related_pr=failure_record.related_pr if failure_record else None,
-                notes=failure_record.notes if failure_record else None,
-                head_sha=test_run.head_sha,
-                event=test_run.event,
-                branch=test_run.branch,
-                failure_category=test_run.failure_category,
-                failure_message=test_run.failure_message,
-                github_job_url=github_job_url,
-            )
-        )
 
     return response
 
