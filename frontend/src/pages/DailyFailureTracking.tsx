@@ -28,6 +28,7 @@ import {
   SyncOutlined,
   CloseCircleOutlined,
   CheckSquareOutlined,
+  DownloadOutlined,
 } from '@ant-design/icons'
 import {
   useBatchUpdateFailureStatus,
@@ -43,7 +44,11 @@ import {
   getInitialDateFilterMode,
   type DateFilterMode,
 } from '../components/WorkflowDateFilter'
-import type { DailyFailureBatchUpdateRequest, DailyFailureJob } from '../services/ci'
+import {
+  exportDailyFailures,
+  type DailyFailureBatchUpdateRequest,
+  type DailyFailureJob,
+} from '../services/ci'
 import dayjs, { Dayjs } from 'dayjs'
 import { Bar, BarChart, CartesianGrid, Cell, Legend, Line, LineChart, Pie, PieChart, ReferenceDot, ResponsiveContainer, Tooltip as ChartTooltip, XAxis, YAxis } from 'recharts'
 
@@ -266,6 +271,7 @@ function DailyFailureTracking() {
   ))
   const [editingJob, setEditingJob] = useState<DailyFailureJob | null>(null)
   const [editStatus, setEditStatus] = useState<string>('未处理')
+  const [editOwner, setEditOwner] = useState<string>('')
   const [editProblemCategory, setEditProblemCategory] = useState<string>('')
   const [editRelatedPr, setEditRelatedPr] = useState<string>('')
   const [editNotes, setEditNotes] = useState<string>('')
@@ -276,6 +282,7 @@ function DailyFailureTracking() {
     savedPreferences.breakdownDimension === 'owner' ? 'owner' : 'workflow'
   ))
   const [detailFilter, setDetailFilter] = useState<FailureDetailFilter | null>(null)
+  const [isExporting, setIsExporting] = useState(false)
 
   useEffect(() => {
     const timer = window.setInterval(() => {
@@ -318,11 +325,38 @@ function DailyFailureTracking() {
     notes_search: notesSearch,
   })
 
+  const handleExport = async () => {
+    setIsExporting(true)
+    try {
+      const blob = await exportDailyFailures({
+        start_date: startDate,
+        end_date: endDate,
+        workflow_name: workflowFilter,
+        processing_status: statusFilter,
+        notes_search: notesSearch,
+      })
+      const objectUrl = window.URL.createObjectURL(blob)
+      const link = document.createElement('a')
+      link.href = objectUrl
+      link.download = `每日失败追踪_${startDate || '全部'}_${endDate || '全部'}.csv`
+      document.body.appendChild(link)
+      link.click()
+      link.remove()
+      window.URL.revokeObjectURL(objectUrl)
+      message.success('导出完成')
+    } catch {
+      message.error('导出失败')
+    } finally {
+      setIsExporting(false)
+    }
+  }
+
   const updateMutation = useUpdateFailureStatus()
   const batchUpdateMutation = useBatchUpdateFailureStatus()
   const [selectedRowKeys, setSelectedRowKeys] = useState<React.Key[]>([])
   const [batchEditing, setBatchEditing] = useState(false)
   const [batchStatus, setBatchStatus] = useState<string | undefined>()
+  const [batchOwner, setBatchOwner] = useState<string | undefined>()
   const [batchProblemCategory, setBatchProblemCategory] = useState<string | undefined>()
   const [batchRelatedPr, setBatchRelatedPr] = useState<string | undefined>()
   const [batchNotes, setBatchNotes] = useState<string | undefined>()
@@ -331,6 +365,7 @@ function DailyFailureTracking() {
 
   const openBatchUpdate = () => {
     setBatchStatus(undefined)
+    setBatchOwner(undefined)
     setBatchProblemCategory(undefined)
     setBatchRelatedPr(undefined)
     setBatchNotes(undefined)
@@ -342,6 +377,7 @@ function DailyFailureTracking() {
   const handleBatchUpdate = async () => {
     const update: DailyFailureBatchUpdateRequest = {}
     if (batchStatus !== undefined) update.processing_status = batchStatus
+    if (batchOwner !== undefined) update.owner = batchOwner.trim() || null
     if (batchProblemCategory !== undefined) update.problem_category = batchProblemCategory || null
     if (batchRelatedPr !== undefined) update.related_pr = batchRelatedPr || null
     if (batchNotes !== undefined) update.notes = batchNotes || null
@@ -372,6 +408,7 @@ function DailyFailureTracking() {
   ;(window as any).__openEditDailyFailure = (job: DailyFailureJob) => {
     setEditingJob(job)
     setEditStatus(job.processing_status)
+    setEditOwner(job.owner || '')
     setEditProblemCategory(job.problem_category || ''); setEditRelatedPr(job.related_pr || '')
     setEditNotes(job.notes || '')
     setEditProcessingTime(job.processing_time ? dayjs(job.processing_time) : null)
@@ -385,6 +422,7 @@ function DailyFailureTracking() {
         jobDbId: editingJob.id,
         data: {
           processing_status: editStatus,
+          owner: editOwner.trim() || null,
           problem_category: editProblemCategory || null,
           related_pr: editRelatedPr || null,
           notes: editNotes || null,
@@ -392,7 +430,7 @@ function DailyFailureTracking() {
           closure_time: editClosureTime?.toISOString() || null,
         },
       })
-      message.success('处理状态已更新')
+      message.success('失败记录已更新')
       setEditingJob(null)
     } catch (error: any) {
       message.error(error?.response?.data?.detail || '更新失败')
@@ -527,6 +565,13 @@ function DailyFailureTracking() {
             style={{ width: 160 }}
           />
           <Button icon={<ReloadOutlined />} onClick={() => refetch()}>刷新</Button>
+          <Button
+            icon={<DownloadOutlined />}
+            loading={isExporting}
+            onClick={handleExport}
+          >
+            导出 CSV
+          </Button>
           <Segmented
             value={displayMode}
             onChange={(value) => setDisplayMode(value as 'list' | 'analysis')}
@@ -715,6 +760,31 @@ function DailyFailureTracking() {
         <Text type="secondary">只更新填写的字段，未填写的字段保持原值。</Text>
         <Space direction="vertical" size={16} style={{ width: '100%', marginTop: 16 }}>
           <div>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+              <Text type="secondary">责任人：</Text>
+              <Space size={4}>
+                <Button type="link" size="small" onClick={() => setBatchOwner(undefined)}>
+                  不修改
+                </Button>
+                <Button type="link" size="small" onClick={() => setBatchOwner('')}>
+                  清空责任人
+                </Button>
+              </Space>
+            </div>
+            <Input
+              value={batchOwner ?? ''}
+              onChange={(event) => setBatchOwner(event.target.value)}
+              allowClear
+              placeholder="不修改；输入责任人账号"
+              style={{ marginTop: 4 }}
+            />
+            {batchOwner !== undefined && (
+              <Text type="secondary" style={{ display: 'block', marginTop: 4, fontSize: 12 }}>
+                {batchOwner.trim() ? `将责任人更新为 ${batchOwner.trim()}` : '将清空责任人'}
+              </Text>
+            )}
+          </div>
+          <div>
             <Text type="secondary">处理时间：</Text>
             <DatePicker
               value={batchProcessingTime}
@@ -785,9 +855,9 @@ function DailyFailureTracking() {
         </Space>
       </Modal>
 
-      {/* 编辑处理状态弹窗 */}
+      {/* 编辑失败记录弹窗 */}
       <Modal
-        title={<Space><EditOutlined /><span>更新处理状态</span></Space>}
+        title={<Space><EditOutlined /><span>更新失败记录</span></Space>}
         open={!!editingJob}
         onOk={handleSaveStatus}
         onCancel={() => setEditingJob(null)}
@@ -830,7 +900,13 @@ function DailyFailureTracking() {
             </div>
             <div>
               <Text type="secondary">责任人：</Text>
-              <Text>{editingJob.owner || '未配置'}</Text>
+              <Input
+                value={editOwner}
+                onChange={(event) => setEditOwner(event.target.value)}
+                allowClear
+                placeholder="输入责任人账号；留空表示清除"
+                style={{ marginTop: 4 }}
+              />
             </div>
             <div>
               <Text type="secondary">失败时间：</Text>
