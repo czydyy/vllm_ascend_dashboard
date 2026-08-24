@@ -9,17 +9,24 @@ import asyncio
 import json
 import logging
 
-from sqlalchemy import text
+from sqlalchemy import case, func, select, text
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from collector.ci import CICollector
 from collector.pr_pipeline import PRPipelineCollector
 from infrastructure.clients.github_client import GitHubClient
 from infrastructure.core.config import settings
 from infrastructure.db.base import SessionLocal
+from infrastructure.persistence.models import CIJob, DailyFailureRecord, JobFailureAnalysis
 
 from .worker import CollectorWorker, TaskContext
 
 logger = logging.getLogger(__name__)
+
+# A single Collector can execute three tasks concurrently. Automatic failure
+# analysis is intentionally capped at two slots so sync work always retains
+# room on a small production host, even if a runtime setting is bad.
+AUTO_FAILURE_ANALYSIS_HARD_LIMIT = 2
 
 
 class CollectorRunner:
@@ -183,12 +190,20 @@ class CollectorRunner:
                 try:
                     from collector.nightly_data import NightlyDataCollector
 
-                    materialized = await NightlyDataCollector(db).sync()
+                    nightly_data = NightlyDataCollector(db)
+                    materialized = await nightly_data.sync()
+                    auto_analysis = await self._enqueue_auto_failure_analysis(
+                        db,
+                        nightly_data.last_materialized_job_ids,
+                        max_items=int(getattr(settings, "CI_AUTO_FAILURE_ANALYSIS_MAX_PER_SYNC", 2)),
+                    )
+                    await db.commit()
                     logger.info(
-                        "CI task %d completed: collected=%d nightly=%s",
+                        "CI task %d completed: collected=%d nightly=%s auto_analysis=%s",
                         ctx.task_id,
                         collected,
                         materialized,
+                        auto_analysis,
                     )
                 except Exception:
                     logger.exception(
@@ -205,8 +220,136 @@ class CollectorRunner:
         from collector.nightly_data import NightlyDataCollector
 
         async with SessionLocal() as db:
-            result = await NightlyDataCollector(db).sync()
-        logger.info("Nightly data task %d completed: %s", ctx.task_id, result)
+            nightly_data = NightlyDataCollector(db)
+            result = await nightly_data.sync()
+            auto_analysis = await self._enqueue_auto_failure_analysis(
+                db,
+                nightly_data.last_materialized_job_ids,
+                max_items=int(getattr(settings, "CI_AUTO_FAILURE_ANALYSIS_MAX_PER_SYNC", 2)),
+            )
+            await db.commit()
+        logger.info(
+            "Nightly data task %d completed: %s auto_analysis=%s",
+            ctx.task_id,
+            result,
+            auto_analysis,
+        )
+
+    async def _enqueue_auto_failure_analysis(
+        self,
+        db: AsyncSession,
+        job_ids: set[int],
+        max_items: int = 2,
+    ) -> dict[str, int]:
+        """Queue a bounded amount of analysis for failed Nightly jobs.
+
+        Analysis is deliberately enqueued as a durable Collector task rather
+        than executed inline, so a slow LLM or missing job log cannot extend
+        or fail the CI synchronization task. Only records without an
+        analysis row are eligible for automatic work. The bounded query is
+        ordered with the records materialized by this sync first, then older
+        pending records, so records beyond the limit are not lost and drain
+        on subsequent syncs. Manual retries remain available for a failed or
+        cancelled analysis.
+        """
+        from infrastructure.tasks.task_manager import TaskManager
+
+        max_items = min(AUTO_FAILURE_ANALYSIS_HARD_LIMIT, max(0, int(max_items)))
+        if max_items == 0:
+            return {"selected": 0, "queued": 0, "skipped": 0, "limit": 0, "active": 0}
+
+        failure_conclusions = ("failure", "timed_out", "startup_failure", "cancelled")
+        new_job_ids = {int(job_id) for job_id in job_ids if job_id is not None}
+
+        # A queued failure-analysis task has no JobFailureAnalysis row until
+        # the Collector starts it. Count and exclude those tasks explicitly;
+        # otherwise every sync would repeatedly select the same queued jobs
+        # and never fill an available slot with the next pending failure.
+        active_tasks_result = await db.execute(
+            text("""
+                SELECT JSON_UNQUOTE(JSON_EXTRACT(task_params, '$.job_id'))
+                FROM collection_tasks
+                WHERE task_type = 'failure_analysis'
+                  AND status IN ('pending', 'running')
+            """)
+        )
+        active_task_rows = active_tasks_result.all()
+        active_job_ids = {
+            int(job_id)
+            for (job_id,) in active_task_rows
+            if job_id is not None and str(job_id).strip().isdigit()
+        }
+        available_slots = max(0, max_items - len(active_task_rows))
+        if available_slots == 0:
+            return {
+                "selected": 0,
+                "queued": 0,
+                "skipped": 0,
+                "limit": max_items,
+                "active": len(active_task_rows),
+            }
+
+        first_record_id = func.min(DailyFailureRecord.id)
+        candidate_query = (
+            select(DailyFailureRecord.job_id)
+            .join(CIJob, CIJob.job_id == DailyFailureRecord.job_id)
+            .outerjoin(JobFailureAnalysis, JobFailureAnalysis.job_id == DailyFailureRecord.job_id)
+            .where(
+                DailyFailureRecord.conclusion.in_(failure_conclusions),
+                DailyFailureRecord.job_id.isnot(None),
+                # A queued Collector task has no analysis row until it starts;
+                # TaskManager's stable dedupe key makes a repeated scan safe.
+                JobFailureAnalysis.id.is_(None),
+            )
+            .group_by(DailyFailureRecord.job_id)
+        )
+        if active_job_ids:
+            candidate_query = candidate_query.where(~DailyFailureRecord.job_id.in_(active_job_ids))
+        if new_job_ids:
+            priority = case((DailyFailureRecord.job_id.in_(new_job_ids), 0), else_=1)
+            candidate_query = candidate_query.order_by(priority, first_record_id)
+        else:
+            candidate_query = candidate_query.order_by(first_record_id)
+        candidate_query = candidate_query.limit(available_slots)
+
+        records_result = await db.execute(candidate_query)
+        selected_job_ids = list(dict.fromkeys(
+            int(job_id) for (job_id,) in records_result.all() if job_id is not None
+        ))[:available_slots]
+        if not selected_job_ids:
+            return {
+                "selected": 0,
+                "queued": 0,
+                "skipped": 0,
+                "limit": max_items,
+                "active": len(active_task_rows),
+            }
+
+        queued = 0
+        skipped = 0
+        for job_id in selected_job_ids:
+            task_id = await TaskManager.create_task(
+                db,
+                "failure_analysis",
+                {"job_id": job_id, "force": False, "triggered_by": "scheduler"},
+                f"failure_analysis:{job_id}",
+                required_capability="python",
+                # Keep automatic analysis behind collection/sync work. Manual
+                # analysis requests still use their explicit higher priority.
+                priority=-10,
+            )
+            if task_id is not None:
+                queued += 1
+            else:
+                skipped += 1
+
+        return {
+            "selected": len(selected_job_ids),
+            "queued": queued,
+            "skipped": skipped,
+            "limit": max_items,
+            "active": len(active_task_rows),
+        }
 
     async def _run_model_sync(self, ctx: TaskContext, task_params: dict):
         """模型报告同步。"""
