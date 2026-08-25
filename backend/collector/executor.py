@@ -9,7 +9,7 @@ import asyncio
 import json
 import logging
 
-from sqlalchemy import case, func, select, text
+from sqlalchemy import case, func, or_, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from collector.ci import CICollector
@@ -245,12 +245,14 @@ class CollectorRunner:
 
         Analysis is deliberately enqueued as a durable Collector task rather
         than executed inline, so a slow LLM or missing job log cannot extend
-        or fail the CI synchronization task. Only records without an
-        analysis row are eligible for automatic work. The bounded query is
+        or fail the CI synchronization task. Records without an analysis row
+        and legacy ``reused`` records are eligible for automatic work. The
+        bounded query is
         ordered with the records materialized by this sync first, then older
         pending records, so records beyond the limit are not lost and drain
-        on subsequent syncs. Manual retries remain available for a failed or
-        cancelled analysis.
+        on subsequent syncs. Automatic work is forced so every newly
+        materialized job gets a real analysis; the cross-job failure
+        fingerprint cache is reserved for explicit non-forced requests.
         """
         from infrastructure.tasks.task_manager import TaskManager
 
@@ -299,7 +301,13 @@ class CollectorRunner:
                 DailyFailureRecord.job_id.isnot(None),
                 # A queued Collector task has no analysis row until it starts;
                 # TaskManager's stable dedupe key makes a repeated scan safe.
-                JobFailureAnalysis.id.is_(None),
+                # ``reused`` rows are legacy cross-job results and must be
+                # re-analyzed once so their report belongs to this concrete
+                # GitHub job instead of another test case.
+                or_(
+                    JobFailureAnalysis.id.is_(None),
+                    JobFailureAnalysis.analysis_status == "reused",
+                ),
             )
             .group_by(DailyFailureRecord.job_id)
         )
@@ -331,7 +339,11 @@ class CollectorRunner:
             task_id = await TaskManager.create_task(
                 db,
                 "failure_analysis",
-                {"job_id": job_id, "force": False, "triggered_by": "scheduler"},
+                # Scheduler-originated analysis is always a real analysis for
+                # this concrete GitHub job.  The worker derives force from
+                # the origin; keeping no force=false payload here prevents
+                # the obsolete cross-job reuse path from returning.
+                {"job_id": job_id, "triggered_by": "scheduler"},
                 f"failure_analysis:{job_id}",
                 required_capability="python",
                 # Keep automatic analysis behind collection/sync work. Manual
@@ -377,8 +389,10 @@ class CollectorRunner:
         from failure_analysis.failure_analysis import FailureAnalysisService
 
         job_id = int(task_params["job_id"])
-        force = bool(task_params.get("force", False))
         triggered_by = str(task_params.get("triggered_by", "manual"))
+        # Scheduler-originated work is always forced. Manual requests retain
+        # their explicit force option for deliberate reruns.
+        force = triggered_by == "scheduler" or bool(task_params.get("force", False))
         async with SessionLocal() as db:
             await FailureAnalysisService().analyze_failed_job(
                 job_id=job_id,
