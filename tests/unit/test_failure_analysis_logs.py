@@ -1,3 +1,4 @@
+import json
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 from zipfile import ZipFile
@@ -5,6 +6,7 @@ from zipfile import ZipFile
 import pytest
 
 from failure_analysis.failure_analysis import FailureAnalysisService
+from infrastructure.clients.claude_code_cli import ClaudeCodeCLI
 
 
 def test_extract_report_summary_unwraps_nested_json_envelope():
@@ -46,6 +48,66 @@ def test_extract_report_summary_accepts_gateway_aliases_and_list_values():
         "root_cause_summary": "Runner 断开",
         "improvement_measures_summary": "重试任务；检查 Runner",
     }
+
+
+def test_extract_report_summary_merges_sibling_json_objects():
+    payload = (
+        '{"result":{"problem_category":"基础设施"},'
+        '"content":{"root_cause_summary":"Runner 断开",'
+        '"improvement_measures_summary":"重试并检查 Runner"}}'
+    )
+
+    assert FailureAnalysisService._extract_report_summary(payload) == {
+        "problem_category": "基础设施",
+        "root_cause_summary": "Runner 断开",
+        "improvement_measures_summary": "重试并检查 Runner",
+    }
+
+
+def test_extract_report_summary_recovers_markdown_headings_without_json_footer():
+    payload = """## 失败原因
+Runner 在初始化阶段断开，日志显示连接被远端关闭。
+
+## 改进建议
+检查 Runner 网络和启动依赖后重新执行。
+"""
+
+    assert FailureAnalysisService._extract_report_summary(payload) == {
+        "root_cause_summary": "Runner 在初始化阶段断开，日志显示连接被远端关闭。",
+        "improvement_measures_summary": "检查 Runner 网络和启动依赖后重新执行。",
+    }
+
+
+def test_cli_prefers_nested_answer_with_more_report_fields():
+    payload = {
+        "result": '{"problem_category":"基础设施"}',
+        "content": '{"problem_category":"基础设施",'
+        '"root_cause_summary":"Runner 断开",'
+        '"improvement_measures_summary":"重试并检查 Runner"}',
+    }
+
+    assert ClaudeCodeCLI._content_from_payload(payload) == payload["content"]
+
+
+def test_cli_max_turns_envelope_is_not_treated_as_partial_report():
+    payload = {
+        "type": "result",
+        "subtype": "error_max_turns",
+        "is_error": True,
+        "terminal_reason": "max_turns",
+        "num_turns": 101,
+    }
+    cli = ClaudeCodeCLI()
+
+    result = cli._parse_output(
+        json.dumps(payload), "", 1.0, "json", "glm-5.3", exit_code=1
+    )
+
+    assert result.turns == 101
+    assert ClaudeCodeCLI._error_from_payload(result.raw_json) == (
+        "Claude Code CLI 在生成最终报告前达到最大分析轮次"
+        "（已执行 101 轮）；请缩小分析范围或提高轮次上限后重试"
+    )
 
 
 def test_legacy_parser_recovery_is_usable_for_missing_renderer_fields():

@@ -313,6 +313,16 @@ class ClaudeCodeCLI:
                     tool_calls=partial_result.tool_calls if partial_result and partial_result.tool_calls else None,
                     raw_json=partial_result.raw_json if partial_result else None,
                 )
+                envelope_error = self._error_from_payload(
+                    partial_result.raw_json if partial_result else None
+                )
+                if envelope_error:
+                    # ``--output-format json`` returns an error envelope when
+                    # the agent exhausts its tool budget. It is not partial
+                    # report content, even though the JSON itself is non-empty.
+                    # Returning it used to make the report renderer complain
+                    # about missing fields and hid the real failure reason.
+                    raise ClaudeCLINotAvailable(envelope_error)
                 # 如果能解析出非空内容，返回部分结果而不是抛异常
                 if partial_result and partial_result.content and len(partial_result.content.strip()) > 100:
                     logger.warning(
@@ -562,7 +572,7 @@ class ClaudeCodeCLI:
                 # 一层对象；统一展开后再交给报告解析器。
                 if isinstance(raw_json, dict):
                     content = self._content_from_payload(raw_json) or stdout
-                    turns = raw_json.get("turns", 0)
+                    turns = raw_json.get("turns", raw_json.get("num_turns", 0))
                     if "tool_calls" in raw_json:
                         tool_calls = raw_json["tool_calls"]
             except json.JSONDecodeError:
@@ -579,6 +589,35 @@ class ClaudeCodeCLI:
             stderr=stderr,
         )
 
+    @staticmethod
+    def _error_from_payload(payload: object) -> str:
+        """Return a safe, user-actionable CLI error from a JSON envelope.
+
+        Claude Code uses a non-zero process exit and a JSON object such as
+        ``{\"is_error\": true, \"subtype\": \"error_max_turns\"}`` when it
+        reaches its tool-call limit. That object contains no final answer and
+        must never be treated as a report merely because it has non-zero text
+        length.
+        """
+        if not isinstance(payload, dict) or not payload.get("is_error"):
+            return ""
+
+        subtype = str(payload.get("subtype") or "")
+        terminal_reason = str(payload.get("terminal_reason") or "")
+        num_turns = payload.get("num_turns") or payload.get("turns")
+        if subtype == "error_max_turns" or terminal_reason == "max_turns":
+            turn_suffix = f"（已执行 {num_turns} 轮）" if num_turns else ""
+            return (
+                "Claude Code CLI 在生成最终报告前达到最大分析轮次"
+                f"{turn_suffix}；请缩小分析范围或提高轮次上限后重试"
+            )
+
+        # Avoid exposing a provider error body, which can contain request
+        # details. The typed envelope is enough to distinguish it from an
+        # incomplete report in the UI and application log.
+        label = subtype or terminal_reason or "unknown"
+        return f"Claude Code CLI 返回执行错误（{label}），未生成最终分析报告"
+
     @classmethod
     def _content_from_payload(cls, payload: object) -> str:
         """Extract textual output from a CLI/LLM JSON envelope.
@@ -589,17 +628,61 @@ class ClaudeCodeCLI:
         helper accepts all of those shapes without serializing dictionaries
         into text that can never satisfy the failure-report JSON contract.
         """
+        # A reasoning gateway may return a short ``result`` summary while the
+        # actual final answer (including the required report JSON) is nested
+        # under ``content`` or ``reasoning_content``.  Returning the first
+        # non-empty value silently discarded that answer and made the report
+        # renderer see only ``problem_category``.  Collect all textual
+        # candidates and prefer the one that contains the most report fields;
+        # preserve the CLI's result-first order as the tie-breaker for normal
+        # responses.
+        candidates = cls._content_candidates(payload)
+        if not candidates:
+            return ""
+
+        report_markers = (
+            "problem_category",
+            "root_cause_summary",
+            "improvement_measures_summary",
+            "问题分类",
+            "根因摘要",
+            "改进措施摘要",
+        )
+
+        def score(item: tuple[int, str]) -> tuple[int, int, int]:
+            index, text = item
+            normalized = text.strip()
+            field_count = sum(marker in normalized for marker in report_markers)
+            structured = int("{" in normalized and "}" in normalized)
+            return field_count, structured, -index
+
+        return max(enumerate(candidates), key=score)[1]
+
+    @classmethod
+    def _content_candidates(cls, payload: object) -> list[str]:
+        """Collect textual answer candidates from nested CLI payloads."""
         if isinstance(payload, str):
-            return payload if payload.strip() else ""
+            return [payload] if payload.strip() else []
         if isinstance(payload, list):
-            parts = [cls._content_from_payload(item) for item in payload]
-            return "".join(part for part in parts if part)
-        if isinstance(payload, dict):
-            for key in ("result", "content", "reasoning_content", "reasoning", "text"):
-                text = cls._content_from_payload(payload.get(key))
-                if text:
-                    return text
-        return ""
+            candidates: list[str] = []
+            for item in payload:
+                candidates.extend(cls._content_candidates(item))
+            return candidates
+        if not isinstance(payload, dict):
+            return []
+
+        candidates = []
+        # Keep the established priority, while still inspecting every answer
+        # field before falling back to unrelated metadata.
+        answer_keys = ("result", "content", "reasoning_content", "reasoning", "text")
+        for key in answer_keys:
+            candidates.extend(cls._content_candidates(payload.get(key)))
+        if candidates:
+            return candidates
+
+        for value in payload.values():
+            candidates.extend(cls._content_candidates(value))
+        return candidates
 
 
 async def run_with_fallback(
