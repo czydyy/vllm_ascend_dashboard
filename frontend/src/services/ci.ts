@@ -50,6 +50,9 @@ export interface StepSummary {
 
 export interface CIStats {
   total_runs: number
+  passed_runs: number
+  failed_runs: number
+  other_runs: number
   success_rate: number
   avg_duration_seconds: number | null
   last_7_days: {
@@ -121,6 +124,8 @@ export const getRuns = async (params?: {
   workflow_name?: string
   status?: string
   hardware?: string
+  start_time?: string
+  end_time?: string
   limit?: number
 }): Promise<CIResult[]> => {
   const response = await api.get<CIResult[]>('/ci/runs', { params })
@@ -133,6 +138,8 @@ export const getRuns = async (params?: {
 export const getStats = async (params?: {
   workflow_name?: string
   hardware?: string
+  start_time?: string
+  end_time?: string
 }): Promise<CIStats> => {
   const response = await api.get<CIStats>('/ci/stats', { params })
   return response.data

@@ -175,6 +175,56 @@ html { scroll-behavior: smooth; }
   border-color: var(--brand-500) !important;
 }
 
+/* CI build date range: compact controls with a spacious, focused calendar. */
+.ci-time-range-popover .ant-popover-inner {
+  padding: 16px;
+  border: 1px solid #e5e7eb;
+  border-radius: 14px;
+  box-shadow: 0 18px 48px rgba(30, 41, 59, 0.16);
+}
+
+.ci-time-range-panel {
+  width: 316px;
+}
+
+.ci-time-range-presets {
+  margin-bottom: 16px;
+}
+
+.ci-time-range-presets .ant-btn {
+  min-width: 52px;
+  height: 36px;
+  border-radius: 9px;
+  font-weight: 600;
+}
+
+.ci-time-range-presets .ant-btn-primary,
+.ci-time-range-panel .ant-btn-primary {
+  background: #17133f;
+  box-shadow: 0 6px 14px rgba(23, 19, 63, 0.24);
+}
+
+.ci-time-range-date-input {
+  width: 100%;
+  height: 38px;
+  margin-top: 5px;
+  padding: 0 10px;
+  color: #15172a;
+  font: inherit;
+  font-size: 14px;
+  background: #fafafa;
+  border: 1px solid #dfe3ea;
+  border-radius: 9px;
+  outline: none;
+  accent-color: #17133f;
+}
+
+.ci-time-range-date-input:hover,
+.ci-time-range-date-input:focus {
+  border-color: #17133f;
+  box-shadow: 0 0 0 2px rgba(23, 19, 63, 0.1);
+}
+
 .ant-modal .ant-modal-content,
 .ant-drawer .ant-drawer-content {
   border: 1px solid rgba(223, 230, 239, 0.8);

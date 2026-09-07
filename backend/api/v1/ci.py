@@ -110,7 +110,9 @@ async def list_runs(
     workflow_name: str | None = None,
     status: str | None = None,
     hardware: str | None = None,
-    limit: int = Query(100, ge=1, le=500)
+    start_time: datetime | None = None,
+    end_time: datetime | None = None,
+    limit: int = Query(100, ge=1, le=5000)
 ):
     """获取 CI 运行列表（只返回启用的 workflow 的运行记录）"""
     # 获取启用的 workflow 配置（含时间窗口）
@@ -139,6 +141,10 @@ async def list_runs(
 
     # Workflow 列表按结束时间排序；运行中的记录回退到开始时间。
     run_belonging_time = func.coalesce(CIResult.completed_at, CIResult.started_at)
+    if start_time:
+        stmt = stmt.where(run_belonging_time >= start_time)
+    if end_time:
+        stmt = stmt.where(run_belonging_time <= end_time)
     stmt = stmt.order_by(run_belonging_time.desc()).limit(limit)
 
     result = await db.execute(stmt)
@@ -202,7 +208,9 @@ async def get_workflows_latest_results(
 async def get_ci_stats(
     db: DbSession,
     workflow_name: str | None = None,
-    hardware: str | None = None
+    hardware: str | None = None,
+    start_time: datetime | None = None,
+    end_time: datetime | None = None,
 ):
     """获取 CI 统计数据（只统计启用的 workflow）"""
     # 获取启用的 workflow 配置（含时间窗口）
@@ -215,139 +223,61 @@ async def get_ci_stats(
     wf_configs = [(row[0], row[1], row[2]) for row in enabled_result.all()]
 
     if not wf_configs:
-        return {"total_runs": 0, "success_rate": 0.0, "avg_duration_seconds": None,
+        return {"total_runs": 0, "passed_runs": 0, "failed_runs": 0,
+                "other_runs": 0, "success_rate": 0.0, "avg_duration_seconds": None,
                 "last_7_days": {"runs": 0, "success_rate": 0.0, "avg_duration_seconds": None}}
 
     wf_filter = build_workflow_time_filter(CIResult, wf_configs)
 
-    # 构建基础查询（只查询启用的 workflow）
-    base_query = select(CIResult).where(wf_filter)
+    # All aggregates use the same conditions.  Keeping them in one list avoids
+    # silently dropping one filter when workflow_name and hardware are combined.
+    base_conditions = [wf_filter]
     if workflow_name:
-        base_query = base_query.where(CIResult.workflow_name == workflow_name)
+        base_conditions.append(CIResult.workflow_name == workflow_name)
     if hardware:
-        base_query = base_query.where(CIResult.hardware == hardware)
+        base_conditions.append(CIResult.hardware == hardware)
+    run_belonging_time = func.coalesce(CIResult.completed_at, CIResult.started_at)
+    if start_time:
+        base_conditions.append(run_belonging_time >= start_time)
+    if end_time:
+        base_conditions.append(run_belonging_time <= end_time)
 
-    # 总运行次数
-    count_stmt = select(func.count()).select_from(base_query.subquery())
-    total_runs_result = await db.execute(count_stmt)
-    total_runs = total_runs_result.scalar() or 0
-
-    # 成功次数
-    success_query = select(func.count()).select_from(
-        select(CIResult)
-        .where(CIResult.conclusion == "success")
-        .where(wf_filter)
-        .subquery()
-    )
-    if workflow_name:
-        success_query = select(func.count()).select_from(
-            select(CIResult)
-            .where(CIResult.conclusion == "success")
-            .where(CIResult.workflow_name == workflow_name)
-            .where(wf_filter)
-            .subquery()
-        )
-    if hardware:
-        success_query = select(func.count()).select_from(
-            select(CIResult)
-            .where(CIResult.conclusion == "success")
-            .where(CIResult.hardware == hardware)
-            .where(wf_filter)
-            .subquery()
-        )
-    success_runs_result = await db.execute(success_query)
-    success_runs = success_runs_result.scalar() or 0
+    totals_stmt = select(
+        func.count().label("total_runs"),
+        func.sum(case((CIResult.conclusion == "success", 1), else_=0)).label("passed_runs"),
+        func.sum(case((CIResult.conclusion == "failure", 1), else_=0)).label("failed_runs"),
+        func.avg(CIResult.duration_seconds).label("avg_duration"),
+    ).where(*base_conditions)
+    totals = (await db.execute(totals_stmt)).one()
+    total_runs = int(totals.total_runs or 0)
+    passed_runs = int(totals.passed_runs or 0)
+    failed_runs = int(totals.failed_runs or 0)
+    other_runs = total_runs - passed_runs - failed_runs
 
     # 成功率
-    success_rate = (success_runs / total_runs * 100) if total_runs > 0 else 0.0
-
-    # 平均时长
-    avg_query = select(func.avg(CIResult.duration_seconds)).where(
-        CIResult.duration_seconds.isnot(None)
-    ).where(wf_filter)
-    if workflow_name:
-        avg_query = avg_query.where(CIResult.workflow_name == workflow_name)
-    if hardware:
-        avg_query = avg_query.where(CIResult.hardware == hardware)
-
-    avg_result = await db.execute(avg_query)
-    avg_duration = avg_result.scalar()
+    success_rate = (passed_runs / total_runs * 100) if total_runs > 0 else 0.0
+    avg_duration = totals.avg_duration
     avg_duration_seconds = float(avg_duration) if avg_duration else None
 
     # 最近 7 天统计（使用 completed_at 而不是 created_at）
     seven_days_ago = datetime.now(UTC) - timedelta(days=7)
-    last_7_days_query = select(func.count()).select_from(
-        select(CIResult)
-        .where(CIResult.completed_at >= seven_days_ago)
-        .where(wf_filter)
-        .subquery()
-    )
-    if workflow_name:
-        last_7_days_query = select(func.count()).select_from(
-            select(CIResult)
-            .where(CIResult.completed_at >= seven_days_ago)
-            .where(CIResult.workflow_name == workflow_name)
-            .where(wf_filter)
-            .subquery()
-        )
-    if hardware:
-        last_7_days_query = select(func.count()).select_from(
-            select(CIResult)
-            .where(CIResult.completed_at >= seven_days_ago)
-            .where(CIResult.hardware == hardware)
-            .where(wf_filter)
-            .subquery()
-        )
-
-    last_7_days_result = await db.execute(last_7_days_query)
-    last_7_days_runs = last_7_days_result.scalar() or 0
-
-    # 最近 7 天成功率
-    last_7_days_success_query = select(func.count()).select_from(
-        select(CIResult)
-        .where(CIResult.completed_at >= seven_days_ago)
-        .where(CIResult.conclusion == "success")
-        .where(wf_filter)
-        .subquery()
-    )
-    if workflow_name:
-        last_7_days_success_query = select(func.count()).select_from(
-            select(CIResult)
-            .where(CIResult.completed_at >= seven_days_ago)
-            .where(CIResult.workflow_name == workflow_name)
-            .where(CIResult.conclusion == "success")
-            .subquery()
-        )
-    if hardware:
-        last_7_days_success_query = select(func.count()).select_from(
-            select(CIResult)
-            .where(CIResult.completed_at >= seven_days_ago)
-            .where(CIResult.hardware == hardware)
-            .where(CIResult.conclusion == "success")
-            .subquery()
-        )
-
-    last_7_days_success_result = await db.execute(last_7_days_success_query)
-    last_7_days_success = last_7_days_success_result.scalar() or 0
+    recent_stmt = select(
+        func.count().label("runs"),
+        func.sum(case((CIResult.conclusion == "success", 1), else_=0)).label("success_runs"),
+        func.avg(CIResult.duration_seconds).label("avg_duration"),
+    ).where(CIResult.completed_at >= seven_days_ago, *base_conditions)
+    recent = (await db.execute(recent_stmt)).one()
+    last_7_days_runs = int(recent.runs or 0)
+    last_7_days_success = int(recent.success_runs or 0)
     last_7_days_success_rate = (last_7_days_success / last_7_days_runs * 100) if last_7_days_runs > 0 else 0.0
-
-    # 最近 7 天平均时长（使用 completed_at）
-    last_7_days_avg_query = select(func.avg(CIResult.duration_seconds)).where(
-        CIResult.completed_at >= seven_days_ago,
-        CIResult.duration_seconds.isnot(None),
-        wf_filter,
-    )
-    if workflow_name:
-        last_7_days_avg_query = last_7_days_avg_query.where(CIResult.workflow_name == workflow_name)
-    if hardware:
-        last_7_days_avg_query = last_7_days_avg_query.where(CIResult.hardware == hardware)
-
-    last_7_days_avg_result = await db.execute(last_7_days_avg_query)
-    last_7_days_avg_duration = last_7_days_avg_result.scalar()
+    last_7_days_avg_duration = recent.avg_duration
     last_7_days_avg_duration_seconds = float(last_7_days_avg_duration) if last_7_days_avg_duration else None
 
     return {
         "total_runs": total_runs,
+        "passed_runs": passed_runs,
+        "failed_runs": failed_runs,
+        "other_runs": other_runs,
         "success_rate": round(success_rate, 2),
         "avg_duration_seconds": avg_duration_seconds,
         "last_7_days": {

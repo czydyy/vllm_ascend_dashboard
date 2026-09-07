@@ -333,7 +333,12 @@ async def seed_ci(
         for workflow_index, workflow in enumerate(workflows):
             run_id = 970000 + day_offset * 10 + workflow_index
             started = now - timedelta(days=day_offset, hours=2 + workflow_index)
-            duration = 780 + workflow_index * 120 + (day_offset % 3) * 45
+            # Keep demo builds visually representative: completed Workflow Runs
+            # range from 20 minutes to 8 hours instead of clustering under 20 minutes.
+            duration_minutes = [20, 35, 50, 75, 100, 140, 180, 240, 320, 480][
+                (day_offset * len(workflows) + workflow_index) % 10
+            ]
+            duration = duration_minutes * 60
             failed = (day_offset + workflow_index) % 5 == 0
             in_progress = day_offset == 0 and workflow_index == 2
             conclusion = None if in_progress else "failure" if failed else "success"

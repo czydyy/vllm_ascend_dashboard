@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
-import { Card, Space, Statistic, Row, Col, Typography, Tabs, Button, message, Modal } from 'antd'
+import dayjs from 'dayjs'
+import { Alert, Card, Space, Statistic, Row, Col, Typography, Tabs, Button, message, Modal } from 'antd'
 import {
   GithubOutlined,
   BarChartOutlined,
@@ -8,20 +9,16 @@ import {
   ExclamationCircleOutlined,
   SettingOutlined,
 } from '@ant-design/icons'
-import { useCIStats, useCITrends } from '../hooks/useCI'
+import { useCIStats, useRuns } from '../hooks/useCI'
 import { useAnalyzeBatch } from '../hooks/useFailureAnalysis'
-import dayjs from 'dayjs'
-import relativeTime from 'dayjs/plugin/relativeTime'
-import 'dayjs/locale/zh-cn'
-import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, ResponsiveContainer } from 'recharts'
 import JobBoard from './JobBoard'
 import DailyFailureTracking from './DailyFailureTracking'
 import NightlyTestCaseConfig from './NightlyTestCaseConfig'
 import WorkflowTestExecutionTable from '../components/WorkflowTestExecutionTable'
+import CIBuildDurationChart from '../components/CIBuildDurationChart'
+import CIBuildTimeRange, { type CIBuildTimeRangeValue } from '../components/CIBuildTimeRange'
+import { toBuildStatsSummary } from '../utils/ciBuildStats'
 import './CIBoard.css'
-
-dayjs.extend(relativeTime)
-dayjs.locale('zh-cn')
 
 const { Text, Title } = Typography
 
@@ -35,6 +32,10 @@ function isCIBoardTab(value: string | null): value is CIBoardTab {
 
 function CIBoard() {
   const [searchParams] = useSearchParams()
+  const [buildTimeRange, setBuildTimeRange] = useState<CIBuildTimeRangeValue>(() => {
+    const end = dayjs().endOf('day')
+    return { start: end.subtract(13, 'day').startOf('day'), end, preset: '14d' }
+  })
 
   // 根据 URL 参数设置默认 Tab
   const [activeTab, setActiveTab] = useState(() => {
@@ -50,9 +51,16 @@ function CIBoard() {
     window.localStorage.setItem(CI_BOARD_TAB_STORAGE_KEY, activeTab)
   }, [activeTab])
 
-  const { data: stats, isLoading: statsLoading } = useCIStats()
-
-  const { data: trends } = useCITrends({ days: 30 })
+  const timeRangeParams = {
+    start_time: buildTimeRange.start.toISOString(),
+    end_time: buildTimeRange.end.toISOString(),
+  }
+  const { data: stats, isLoading: statsLoading, isError: statsError } = useCIStats(timeRangeParams)
+  const buildStats = toBuildStatsSummary(stats)
+  const { data: buildRuns = [], isLoading: buildRunsLoading } = useRuns({
+    ...timeRangeParams,
+    limit: 5000,
+  })
 
   const analyzeBatchMutation = useAnalyzeBatch()
 
@@ -67,8 +75,10 @@ function CIBoard() {
           onSuccess: (data) => {
             message.success(data.message || '批量分析完成')
           },
-          onError: (error: any) => {
-            message.error((error as any)?.response?.data?.detail || '批量分析失败')
+          onError: (error: unknown) => {
+            const detail = (error as { response?: { data?: { detail?: string } } })
+              .response?.data?.detail
+            message.error(detail || '批量分析失败')
           },
         })
       },
@@ -124,93 +134,61 @@ function CIBoard() {
                   </Space>
                 </div>
 
-                {/* 统计卡片 */}
-                <Row gutter={16} style={{ marginBottom: 24 }}>
-                  <Col span={8}>
+                <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 20 }}>
+                  <CIBuildTimeRange value={buildTimeRange} onApply={setBuildTimeRange} />
+                </div>
+
+                {statsError && (
+                  <Alert
+                    type="error"
+                    showIcon
+                    message="Builds 统计加载失败"
+                    description="运行记录仍可继续查看，请稍后刷新重试。"
+                    style={{ marginBottom: 16 }}
+                  />
+                )}
+
+                {/* Builds 统计摘要。统计对象为 Workflow Runs，范围遵循启用 Workflow 的配置。 */}
+                <Row gutter={[16, 16]} style={{ marginBottom: 24 }}>
+                  <Col xs={24} sm={12} lg={6}>
                     <Card loading={statsLoading}>
                       <Statistic
-                        title="总运行次数"
-                        value={stats?.total_runs || 0}
-                        suffix="次"
+                        title="Total Builds"
+                        value={buildStats.totalRuns}
                       />
-                      {stats?.last_7_days && (
+                      {buildStats.otherRuns > 0 && (
                         <div style={{ fontSize: 12, color: '#999', marginTop: 8 }}>
-                          近 7 天：{stats.last_7_days.runs}次
+                          Other：{buildStats.otherRuns}
                         </div>
                       )}
                     </Card>
                   </Col>
-                  <Col span={8}>
+                  <Col xs={24} sm={12} lg={6}>
                     <Card loading={statsLoading}>
                       <Statistic
-                        title="成功率"
-                        value={stats?.success_rate || 0}
+                        title="Pass Rate"
+                        value={buildStats.passRate}
                         suffix="%"
                         valueStyle={{
-                          color: (stats?.success_rate || 0) >= 90 ? '#3f8600' :
-                                 (stats?.success_rate || 0) >= 70 ? '#1890ff' : '#cf1322',
+                          color: buildStats.passRate >= 90 ? '#3f8600' :
+                                 buildStats.passRate >= 70 ? '#1890ff' : '#cf1322',
                         }}
                       />
-                      {stats?.last_7_days && (
-                        <div style={{ fontSize: 12, color: '#999', marginTop: 8 }}>
-                          近 7 天：{Math.round(stats.last_7_days.success_rate)}%
-                        </div>
-                      )}
                     </Card>
                   </Col>
-                  <Col span={8}>
+                  <Col xs={24} sm={12} lg={6}>
                     <Card loading={statsLoading}>
-                      <Statistic
-                        title="平均时长"
-                        value={stats?.avg_duration_seconds ? Math.round(stats.avg_duration_seconds / 60) : 0}
-                        suffix="分钟"
-                      />
-                      {stats?.last_7_days && (
-                        <div style={{ fontSize: 12, color: '#999', marginTop: 8 }}>
-                          近 7 天平均：{stats.last_7_days.avg_duration_seconds ? Math.round(stats.last_7_days.avg_duration_seconds / 60) : 0}分钟
-                        </div>
-                      )}
+                      <Statistic title="Passed" value={buildStats.passedRuns} valueStyle={{ color: '#00a76f' }} />
+                    </Card>
+                  </Col>
+                  <Col xs={24} sm={12} lg={6}>
+                    <Card loading={statsLoading}>
+                      <Statistic title="Failed" value={buildStats.failedRuns} valueStyle={{ color: '#ff4d4f' }} />
                     </Card>
                   </Col>
                 </Row>
 
-                {/* 趋势图表 */}
-                {trends && trends.length > 0 && (
-                  <Row gutter={16} style={{ marginBottom: 24 }}>
-                    <Col span={12}>
-                      <Card title="最大时长变化趋势（近 30 天）">
-                        <ResponsiveContainer width="100%" height={220}>
-                          <LineChart data={trends.map(t => ({
-                            date: dayjs(t.date).format('MM-DD'),
-                            duration: t.max_duration_seconds ? Math.round(t.max_duration_seconds / 60) : null,
-                          }))}>
-                            <CartesianGrid strokeDasharray="3 3" />
-                            <XAxis dataKey="date" tick={{ fontSize: 11 }} />
-                            <YAxis tickFormatter={(v: number) => `${v}m`} tick={{ fontSize: 11 }} />
-                            <RechartsTooltip formatter={(v: number) => `${v} 分钟`} />
-                            <Line type="monotone" dataKey="duration" stroke="#1677ff" strokeWidth={2} name="最大时长" dot={{ r: 3 }} connectNulls />
-                          </LineChart>
-                        </ResponsiveContainer>
-                      </Card>
-                    </Col>
-                    <Col span={12}>
-                      <Card title="成功率变化趋势（近 30 天）">
-                        <ResponsiveContainer width="100%" height={220}>
-                          <LineChart data={trends.map(t => ({
-                            date: dayjs(t.date).format('MM-DD'),
-                            rate: t.success_rate,
-                          }))}>
-                            <CartesianGrid strokeDasharray="3 3" />
-                            <XAxis dataKey="date" tick={{ fontSize: 11 }} />
-                            <YAxis domain={[0, 100]} tickFormatter={(v: number) => `${v}%`} tick={{ fontSize: 11 }} />
-                            <RechartsTooltip formatter={(v: number) => `${v}%`} />
-                            <Line type="monotone" dataKey="rate" stroke="#52c41a" strokeWidth={2} name="成功率" dot={{ r: 3 }} />
-                          </LineChart>
-                        </ResponsiveContainer>
-                      </Card>
-                    </Col>
-                  </Row>
-                )}
+                <CIBuildDurationChart runs={buildRuns} loading={buildRunsLoading} />
 
                 <WorkflowTestExecutionTable enabled={activeTab === 'workflow'} />
 
