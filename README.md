@@ -118,6 +118,24 @@ pnpm build
 pnpm lint
 ```
 
+### 本地开发（前端 + 后端）
+
+Windows 下最省事的启动方式是：
+
+```powershell
+.\dev-setup.ps1
+```
+
+它会启动本地前端、本地后端和本地数据库。前端访问 `http://localhost:3000`，后端 API 访问
+`http://localhost:8000`，API 文档访问 `http://localhost:8000/docs`，并自动写入本地演示数据。
+
+默认演示账号为 `admin/admin123`、`manager/manager123` 和 `user/user123`。需要重跑演示数据时，
+执行：
+
+```powershell
+docker compose --env-file .env.local -f deploy/compose/dev/compose.yml exec -T backend python database/seed_local_demo.py
+```
+
 ## 📊 开发计划
 
 | Phase | 周期 | 内容 | 状态 |

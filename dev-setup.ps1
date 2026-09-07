@@ -39,6 +39,19 @@ if ($Down) {
     if ($LASTEXITCODE -ne 0) {
         throw "Local development services failed to start."
     }
+    $seeded = $false
+    for ($attempt = 1; $attempt -le 12; $attempt++) {
+        & docker @composeArgs exec -T backend python database/seed_local_demo.py
+        if ($LASTEXITCODE -eq 0) {
+            $seeded = $true
+            break
+        }
+        Start-Sleep -Seconds 5
+    }
+    if (-not $seeded) {
+        throw "Local demo data seeding failed. Check the backend container logs."
+    }
     Write-Host "Dashboard: http://localhost:3000" -ForegroundColor Green
     Write-Host "API docs:  http://localhost:8000/docs" -ForegroundColor Green
+    Write-Host "Demo login: admin / admin123" -ForegroundColor Yellow
 }

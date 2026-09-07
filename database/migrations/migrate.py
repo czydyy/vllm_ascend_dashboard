@@ -43,8 +43,8 @@ async def migrate() -> None:
     if engine.dialect.name != "mysql":
         raise RuntimeError(f"Production migration requires MySQL, got {engine.dialect.name}")
 
-    users_before = await _user_count()
     await create_tables_with_latest_schema()
+    users_before = await _user_count()
     await migrate_mysql_schema()
     permission_result = await migrate_service_permissions()
     await migrate_phase_a()

@@ -46,6 +46,14 @@ async def run() -> dict[str, object]:
         label="collector user",
     )
 
+    # Local Compose uses the application account for every service and does
+    # not create the split production service accounts. Avoid querying
+    # mysql.user here because the application account intentionally cannot
+    # inspect MySQL's grant tables.
+    if os.getenv("ENVIRONMENT", "").lower() != "production":
+        logger.info("Skipping Collector grants outside production")
+        return {"applied": False, "tables": []}
+
     async with SessionLocal() as db:
         database_name = _validated_identifier(
             str((await db.execute(text("SELECT DATABASE()"))).scalar_one()),
