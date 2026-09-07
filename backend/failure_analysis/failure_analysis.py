@@ -420,7 +420,7 @@ class FailureAnalysisService:
             if runtime not in {"claude_cli", "custom_agent"}:
                 logger.warning("Unknown failure-analysis runtime %r; using claude_cli", runtime)
                 runtime = "claude_cli"
-            max_turns_val = max(3, min(int(agent_config.get("max_turns", 80)), 300))
+            max_turns_val = max(3, min(int(agent_config.get("max_turns", 80)), 1000))
             timeout_val = max(60, min(int(agent_config.get("timeout_seconds", 1800)), 7200))
             system_prompt = await self._get_system_prompt(db)
             user_prompt = await self._build_job_context(

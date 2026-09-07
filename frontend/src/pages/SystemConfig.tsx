@@ -111,7 +111,7 @@ function AgentAnalysisConfigTab() {
           />
         </Form.Item>
         <Form.Item name="max_turns" label="最大轮次" rules={[{ required: true }]}>
-          <InputNumber min={3} max={100} style={{ width: 100 }} />
+          <InputNumber min={3} max={1000} style={{ width: 100 }} />
         </Form.Item>
         <Form.Item name="timeout_seconds" label="超时(秒)" rules={[{ required: true }]}>
           <InputNumber min={60} max={7200} step={60} style={{ width: 120 }} />
