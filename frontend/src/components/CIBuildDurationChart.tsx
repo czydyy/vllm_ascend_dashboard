@@ -63,7 +63,7 @@ function BuildRunTooltip({
     <div style={{ minWidth: 260, background: '#fff', border: '1px solid #d9d9d9', borderRadius: 10, padding: '14px 16px', boxShadow: '0 6px 18px rgba(0, 0, 0, 0.12)' }}>
       <div style={{ color: statusColor, fontWeight: 600, marginBottom: 12 }}>{status}</div>
       <div style={{ color: '#344054', marginBottom: 8 }}>{point.tooltipLabel}</div>
-      <div style={{ color: '#344054' }}>Build duration：{formatDuration(point.durationMinutes)}</div>
+      <div style={{ color: '#344054' }}>Workflow duration：{formatDuration(point.durationMinutes)}</div>
     </div>
   )
 }
@@ -129,11 +129,11 @@ function CIBuildDurationChart({ runs, loading }: CIBuildDurationChartProps) {
     >
       <div style={{ display: 'flex', justifyContent: 'space-between', gap: 16, marginBottom: 20 }}>
         <div>
-          <Title level={4} style={{ margin: 0 }}>Build Duration</Title>
+          <Title level={4} style={{ margin: 0 }}>Workflow Duration</Title>
           <Text type="secondary">
             {firstDate && lastDate
-              ? `${firstDate} — ${lastDate} · ${runPoints.length} builds`
-              : '暂无构建时长数据'}
+              ? `${firstDate} — ${lastDate} · ${runPoints.length} workflows`
+              : '暂无 Workflow 时长数据'}
           </Text>
         </div>
         <Segmented
@@ -144,7 +144,7 @@ function CIBuildDurationChart({ runs, loading }: CIBuildDurationChartProps) {
       </div>
 
       {chartData.length === 0 ? (
-        <Empty description="暂无构建时长数据" image={Empty.PRESENTED_IMAGE_SIMPLE} />
+        <Empty description="暂无 Workflow 时长数据" image={Empty.PRESENTED_IMAGE_SIMPLE} />
       ) : (
         <ResponsiveContainer width="100%" height={360}>
           {mode === 'runs' ? (
@@ -153,7 +153,7 @@ function CIBuildDurationChart({ runs, loading }: CIBuildDurationChartProps) {
               <XAxis dataKey="timestamp" minTickGap={55} tick={{ fontSize: 12 }} />
               <YAxis domain={[0, runAxis.maxMinutes]} ticks={runAxis.ticks} tickFormatter={formatDurationAxis} width={52} allowDataOverflow />
               <Tooltip content={<BuildRunTooltip />} />
-              <Bar dataKey="durationMinutes" name="Build duration" minPointSize={2}>
+              <Bar dataKey="durationMinutes" name="Workflow duration" minPointSize={2}>
                 {runPoints.map((point) => (
                   <Cell key={point.id} fill={point.failed ? '#ff4d4f' : '#00b96b'} />
                 ))}
@@ -169,9 +169,9 @@ function CIBuildDurationChart({ runs, loading }: CIBuildDurationChartProps) {
               <Legend />
               <Area type="monotone" yAxisId="duration" dataKey="p50" stackId="duration-range" name="Typical (P50)" stroke="none" fill="transparent" legendType="none" />
               <Area type="monotone" yAxisId="duration" dataKey="p50ToP90" stackId="duration-range" name="P50–P90 range" stroke="none" fill="#1677ff" fillOpacity={0.14} />
-              <Line type="monotone" yAxisId="duration" dataKey="p50" name="Typical (P50)" stroke="#1677ff" strokeWidth={3} dot={{ r: 3 }} activeDot={{ r: 5 }} />
-              <Line type="monotone" yAxisId="duration" dataKey="p90" name="High (P90)" stroke="#fa8c16" strokeWidth={2} dot={false} activeDot={{ r: 5 }} />
-              <Line type="monotone" yAxisId="rate" dataKey="passRate" name="Pass rate" stroke="#00b96b" strokeWidth={2} strokeDasharray="6 5" dot={{ r: 3 }} activeDot={{ r: 5 }} />
+              <Line type="monotone" yAxisId="duration" dataKey="p50" name="Typical (P50)" stroke="#1677ff" strokeWidth={3} dot={false} activeDot={{ r: 4, fill: '#1677ff', stroke: '#fff', strokeWidth: 2 }} />
+              <Line type="monotone" yAxisId="duration" dataKey="p90" name="High (P90)" stroke="#fa8c16" strokeWidth={2} dot={false} activeDot={{ r: 4, fill: '#fa8c16', stroke: '#fff', strokeWidth: 2 }} />
+              <Line type="monotone" yAxisId="rate" dataKey="passRate" name="Pass rate" stroke="#00b96b" strokeWidth={2} strokeDasharray="6 5" dot={false} activeDot={{ r: 4, fill: '#00b96b', stroke: '#fff', strokeWidth: 2 }} />
             </ComposedChart>
           )}
         </ResponsiveContainer>

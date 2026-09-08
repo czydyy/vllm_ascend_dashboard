@@ -90,8 +90,8 @@ function readPreferences(): WorkflowExecutionPreferences {
 
 const toRunStatus = (run: CIResult) => run.status || (run.completed_at ? 'completed' : 'in_progress')
 
-// Workflow 的所属日期按结束时间计算；运行中的记录回退到开始时间。
-const getRunBelongingTime = (run: CIResult) => run.completed_at || run.started_at
+// Workflow 的所属日期统一按开始时间计算。
+const getRunBelongingTime = (run: CIResult) => run.started_at
 
 function WorkflowTestExecutionTable({ enabled }: WorkflowTestExecutionTableProps) {
   const navigate = useNavigate()

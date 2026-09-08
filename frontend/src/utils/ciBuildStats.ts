@@ -1,4 +1,5 @@
 import type { CIStats } from '../services/ci'
+import { formatTimezone } from './timezone'
 
 export type CIBuildStatsSummary = {
   totalRuns: number
@@ -9,7 +10,7 @@ export type CIBuildStatsSummary = {
   averageDurationMinutes: number
 }
 
-/** Convert the API response into safe display values for the Builds cards. */
+/** Convert the API response into safe display values for the Workflow cards. */
 export function toBuildStatsSummary(stats?: CIStats | null): CIBuildStatsSummary {
   return {
     totalRuns: stats?.total_runs ?? 0,
@@ -57,21 +58,22 @@ export function buildRunDurationPoints(runs: Array<{
   duration_seconds: number | null
 }>): BuildRunDurationPoint[] {
   return [...runs]
-    .filter((run) => run.duration_seconds != null && (run.completed_at || run.started_at))
+    .filter((run) => run.duration_seconds != null && run.started_at)
     .sort((left, right) => {
-      const leftTime = left.completed_at || left.started_at as string
-      const rightTime = right.completed_at || right.started_at as string
+      const leftTime = left.started_at as string
+      const rightTime = right.started_at as string
       return leftTime.localeCompare(rightTime)
     })
     .map((run) => {
-      const rawTime = run.completed_at || run.started_at as string
-      const date = new Date(rawTime)
+      const rawTime = run.started_at as string
+      const dateKey = formatTimezone(rawTime, 'YYYY-MM-DD')
+      const dateLabel = formatTimezone(rawTime, 'M月D日')
       return {
         id: run.run_id,
-        dateKey: rawTime.slice(0, 10),
-        dateLabel: date.toLocaleDateString('zh-CN', { month: 'short', day: 'numeric' }),
-        timestamp: date.toLocaleDateString('zh-CN', { month: 'short', day: 'numeric' }),
-        tooltipLabel: date.toLocaleString('zh-CN'),
+        dateKey,
+        dateLabel,
+        timestamp: dateLabel,
+        tooltipLabel: formatTimezone(rawTime, 'YYYY/M/D HH:mm:ss'),
         durationMinutes: (run.duration_seconds as number) / 60,
         failed: run.conclusion === 'failure',
       }

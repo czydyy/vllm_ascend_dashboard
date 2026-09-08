@@ -5,7 +5,7 @@ from unittest.mock import AsyncMock
 import pytest
 from sqlalchemy.dialects import mysql
 
-from api.v1.ci import get_ci_stats
+from api.v1.ci import get_ci_stats, list_runs
 from contracts.schemas import CIStats
 
 
@@ -23,6 +23,40 @@ class _OneResult:
 
     def one(self):
         return self._row
+
+
+class _ScalarsResult:
+    def scalars(self):
+        return self
+
+    def all(self):
+        return []
+
+
+@pytest.mark.asyncio
+async def test_ci_runs_filter_and_order_by_workflow_start_time():
+    db = AsyncMock()
+    db.execute.side_effect = [
+        _RowsResult([("nightly", None, None)]),
+        _ScalarsResult(),
+    ]
+
+    await list_runs(
+        db,
+        start_time=datetime(2026, 9, 1, tzinfo=UTC),
+        end_time=datetime(2026, 9, 7, tzinfo=UTC),
+        limit=100,
+    )
+
+    statement = db.execute.await_args_list[1].args[0]
+    sql = str(statement.compile(
+        dialect=mysql.dialect(),
+        compile_kwargs={"literal_binds": True},
+    ))
+    assert "ci_results.started_at >=" in sql
+    assert "ci_results.started_at <=" in sql
+    assert "ORDER BY ci_results.started_at DESC" in sql
+    assert "coalesce(ci_results.completed_at, ci_results.started_at)" not in sql
 
 
 @pytest.mark.asyncio
@@ -62,8 +96,9 @@ async def test_ci_stats_combines_workflow_and_hardware_filters_for_all_aggregate
         ))
         assert "ci_results.workflow_name = 'nightly'" in sql
         assert "ci_results.hardware = 'A2'" in sql
-        assert "coalesce(ci_results.completed_at, ci_results.started_at) >=" in sql
-        assert "coalesce(ci_results.completed_at, ci_results.started_at) <=" in sql
+        assert "ci_results.started_at >=" in sql
+        assert "ci_results.started_at <=" in sql
+        assert "coalesce(ci_results.completed_at, ci_results.started_at)" not in sql
 
 
 @pytest.mark.asyncio

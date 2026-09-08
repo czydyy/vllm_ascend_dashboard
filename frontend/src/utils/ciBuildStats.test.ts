@@ -64,6 +64,25 @@ describe('build duration chart data', () => {
     ])
   })
 
+  it('groups workflows by Beijing start date instead of completion date', () => {
+    const points = buildRunDurationPoints([
+      {
+        run_id: 4,
+        conclusion: 'success',
+        started_at: '2026-09-02T22:54:43Z',
+        completed_at: '2026-09-04T01:00:00Z',
+        duration_seconds: 7200,
+      },
+    ])
+
+    expect(points[0]).toMatchObject({
+      dateKey: '2026-09-03',
+      dateLabel: '9月3日',
+      timestamp: '9月3日',
+      tooltipLabel: '2026/9/3 06:54:43',
+    })
+  })
+
   it('calculates daily p50, p90 and peak values for Overview mode', () => {
     const points = buildRunDurationPoints([
       { run_id: 1, conclusion: 'success', started_at: '2026-09-01T01:00:00Z', completed_at: '2026-09-01T02:00:00Z', duration_seconds: 60 },
