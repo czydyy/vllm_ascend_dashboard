@@ -682,7 +682,13 @@ async def _download_tar(client: httpx.AsyncClient, destination: Path) -> None:
 async def _download_with_signature(
     *, signature: str | None = None, destination: Path | None = None
 ) -> tuple[Path, str]:
-    fd, filename = tempfile.mkstemp(prefix="coverage_", suffix=".tar")
+    if destination is not None:
+        # 临时文件必须与目标同文件系统：os.replace 不能跨设备重命名
+        # （生产容器 /tmp 是 overlayfs，/app/data 是独立卷，跨设备会 EXDEV）
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        fd, filename = tempfile.mkstemp(prefix="coverage_", suffix=".tar", dir=destination.parent)
+    else:
+        fd, filename = tempfile.mkstemp(prefix="coverage_", suffix=".tar")
     os.close(fd)
     temp = Path(filename)
     try:
@@ -690,7 +696,6 @@ async def _download_with_signature(
             signature = signature or await _head_signature(client)
             await _download_tar(client, temp)
         if destination:
-            destination.parent.mkdir(parents=True, exist_ok=True)
             os.replace(temp, destination)
             temp = destination
         return temp, signature

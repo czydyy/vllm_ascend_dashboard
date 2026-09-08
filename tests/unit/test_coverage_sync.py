@@ -200,6 +200,42 @@ async def test_download_failure_removes_partial_temp_tar(tmp_path: Path, monkeyp
 
 
 @pytest.mark.asyncio
+async def test_download_with_destination_keeps_temp_on_same_filesystem(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """Regression: 带 destination 时临时文件必须建在目标目录（同文件系统）。
+
+    生产容器 /tmp 是 overlayfs、/app/data 是独立卷，跨设备 os.replace 会抛
+    Invalid cross-device link (EXDEV)，导致 coverage 同步每小时必挂。
+    """
+    destination = tmp_path / "2026-09-08" / "updates" / "sig123" / "coverage.tar"
+    captured_kwargs: dict = {}
+    real_mkstemp = coverage_sync.tempfile.mkstemp
+
+    def spy_mkstemp(*args, **kwargs):
+        captured_kwargs.update(kwargs)
+        return real_mkstemp(*args, **kwargs)
+
+    monkeypatch.setattr(coverage_sync.tempfile, "mkstemp", spy_mkstemp)
+
+    async def ok_head(_client):
+        return "x-obs-version-id:version-1;etag:etag-1;content-length:3;last-modified:today"
+
+    async def fake_download(_client, path: Path):
+        path.write_bytes(b"tar")
+
+    monkeypatch.setattr(coverage_sync, "_head_signature", ok_head)
+    monkeypatch.setattr(coverage_sync, "_download_tar", fake_download)
+
+    result_path, signature = await coverage_sync._download_with_signature(destination=destination)
+
+    assert captured_kwargs.get("dir") == destination.parent
+    assert result_path == destination
+    assert destination.read_bytes() == b"tar"
+    assert signature
+
+
+@pytest.mark.asyncio
 async def test_hourly_sync_skips_only_a_usable_matching_snapshot(monkeypatch) -> None:
     signature = "x-obs-version-id:version-1;etag:etag-1;content-length:10;last-modified:today"
 
