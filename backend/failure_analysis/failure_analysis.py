@@ -2636,42 +2636,14 @@ class FailureAnalysisService:
                 f"fallback could not recover it ({job_detail}; {fallback_detail})"
             )
 
-        # 3. Artifacts 鈥?涓嬭浇鍚庤嚜鍔ㄨВ鍘?
-        artifacts_dir = log_dir / f"artifacts_{job.run_id}"
-        artifacts_extracted_dir = artifacts_dir / "extracted"
-        has_downloaded_artifacts = artifacts_dir.exists() and any(
-            child.name != "extracted" for child in artifacts_dir.iterdir()
-        )
-        artifacts_extracted_dir.mkdir(parents=True, exist_ok=True)
-        if not has_downloaded_artifacts:
-            artifacts_dir.mkdir(parents=True, exist_ok=True)
-            art_url = f"https://api.github.com/repos/{settings.GITHUB_OWNER}/{settings.GITHUB_REPO}/actions/runs/{job.run_id}/artifacts"
-            try:
-                async with aiohttp.ClientSession(timeout=request_timeout) as session:
-                    async with session.get(art_url, headers=headers) as resp:
-                        if resp.status == 200:
-                            art_data = await resp.json()
-                            for art in art_data.get("artifacts", []):
-                                art_path = artifacts_dir / f"{art['id']}_{art['name']}.zip"
-                                if not art_path.exists():
-                                    dl_url = art["archive_download_url"]
-                                    async with session.get(dl_url, headers=headers) as dl_resp:
-                                        if dl_resp.status == 200:
-                                            art_path.write_bytes(await dl_resp.read())
-                                # 鑷姩瑙ｅ帇
-                                art_extract_dir = artifacts_extracted_dir / art["name"]
-                                if not art_extract_dir.exists() and art_path.exists():
-                                    art_extract_dir.mkdir(parents=True, exist_ok=True)
-                                    try:
-                                        import zipfile
-                                        with zipfile.ZipFile(art_path, 'r') as zf:
-                                            zf.extractall(art_extract_dir)
-                                    except Exception:
-                                        pass
-            except Exception as e:
-                logger.warning("Failed to fetch artifacts: %s", e)
-        if artifacts_extracted_dir.exists() and any(artifacts_extracted_dir.iterdir()):
-            result["artifacts_dir"] = str(artifacts_extracted_dir)
+        # 3. Artifacts are materialized by CI sync, not by the LLM analysis.
+        # Each run owns its own immutable directory, so this analysis can never
+        # accidentally read evidence from another run or hide a partial cache.
+        evidence_dir = self._data_root() / "ci-evidence" / "runs" / str(job.run_id)
+        extracted_dir = evidence_dir / "extracted"
+        artifacts_dir = evidence_dir / "artifacts"
+        if extracted_dir.exists() and any(extracted_dir.iterdir()):
+            result["artifacts_dir"] = str(extracted_dir)
         elif artifacts_dir.exists() and any(artifacts_dir.iterdir()):
             result["artifacts_dir"] = str(artifacts_dir)
 

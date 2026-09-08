@@ -2,10 +2,17 @@
 CI 数据采集服务
 从 GitHub Actions API 采集 CI 运行数据并保存到数据库
 """
+import hashlib
 import json
 import logging
+import os
+import re
+import shutil
+import tempfile
+import zipfile
 from collections.abc import Awaitable, Callable
 from datetime import UTC, datetime, timedelta
+from pathlib import Path
 from typing import Any
 
 from sqlalchemy import delete, func, select
@@ -17,6 +24,7 @@ from infrastructure.clients.github_client import (
     GitHubClient,
     GitHubRateLimitError,
 )
+from infrastructure.core.config import settings
 from infrastructure.persistence.models import (
     CIJob,
     CIResult,
@@ -56,6 +64,131 @@ class CICollector:
         self.github = github_client
         self.db = db_session
         self.progress_callback = progress_callback
+
+    @staticmethod
+    def _evidence_root() -> Path:
+        """Return the immutable, run-scoped CI evidence root."""
+        root = Path(settings.DATA_DIR)
+        if not root.is_absolute():
+            root = Path.cwd() / root
+        return root.resolve() / "ci-evidence" / "runs"
+
+    @staticmethod
+    def _safe_artifact_name(name: str) -> str:
+        return re.sub(r"[^A-Za-z0-9._-]+", "_", name).strip("._") or "artifact"
+
+    @staticmethod
+    def _sha256(path: Path) -> str:
+        digest = hashlib.sha256()
+        with path.open("rb") as source:
+            for chunk in iter(lambda: source.read(1024 * 1024), b""):
+                digest.update(chunk)
+        return "sha256:" + digest.hexdigest()
+
+    @staticmethod
+    def _extract_zip(archive: Path, destination: Path) -> None:
+        """Extract a GitHub artifact without permitting Zip Slip paths."""
+        destination_root = destination.resolve()
+        with zipfile.ZipFile(archive) as zf:
+            for member in zf.infolist():
+                target = (destination / member.filename).resolve()
+                try:
+                    target.relative_to(destination_root)
+                except ValueError as exc:
+                    raise ValueError(f"Unsafe path in GitHub artifact: {member.filename}") from exc
+            zf.extractall(destination)
+
+    @staticmethod
+    def _is_failed_run(jobs: list[dict[str, Any]]) -> bool:
+        """Whether a completed run has evidence that failure analysis may need."""
+        return any(
+            job.get("status") == "completed"
+            and job.get("conclusion") in {"failure", "timed_out", "cancelled", "startup_failure"}
+            for job in jobs
+        )
+
+    async def _materialize_failure_run_artifacts(
+        self, run_id: int, jobs: list[dict[str, Any]]
+    ) -> None:
+        """Download all artifacts for a failed run during CI sync.
+
+        Evidence is immutable per GitHub run and artifact id.  A later sync
+        retries only missing or invalid artifacts, so a partial download can
+        never mark a run as fully cached.
+        """
+        if not self._is_failed_run(jobs):
+            return
+
+        artifacts = await self.github.list_artifacts(run_id)
+        if not artifacts:
+            return
+
+        run_dir = self._evidence_root() / str(run_id)
+        artifact_dir = run_dir / "artifacts"
+        extract_root = run_dir / "extracted"
+        artifact_dir.mkdir(parents=True, exist_ok=True)
+        extract_root.mkdir(parents=True, exist_ok=True)
+        manifest_path = run_dir / "manifest.json"
+        try:
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            manifest = {"run_id": run_id, "artifacts": {}}
+        entries = manifest.setdefault("artifacts", {})
+
+        for artifact in artifacts:
+            artifact_id = int(artifact["id"])
+            name = str(artifact.get("name") or f"artifact-{artifact_id}")
+            safe_name = self._safe_artifact_name(name)
+            archive = artifact_dir / f"{artifact_id}_{safe_name}.zip"
+            expected_digest = str(artifact.get("digest") or "")
+            valid = archive.exists() and zipfile.is_zipfile(archive)
+            if valid and expected_digest.startswith("sha256:"):
+                valid = self._sha256(archive) == expected_digest
+
+            if not valid:
+                try:
+                    payload = await self.github.download_artifact(artifact_id)
+                    with tempfile.NamedTemporaryFile(
+                        dir=artifact_dir, prefix=f".{artifact_id}_", suffix=".part", delete=False
+                    ) as temp:
+                        temp.write(payload)
+                        temporary_archive = Path(temp.name)
+                    try:
+                        if not zipfile.is_zipfile(temporary_archive):
+                            raise ValueError("GitHub artifact response is not a ZIP archive")
+                        actual_digest = self._sha256(temporary_archive)
+                        if expected_digest.startswith("sha256:") and actual_digest != expected_digest:
+                            raise ValueError("GitHub artifact SHA-256 does not match metadata")
+                        os.replace(temporary_archive, archive)
+                        valid = True
+                    finally:
+                        temporary_archive.unlink(missing_ok=True)
+                except Exception as exc:
+                    logger.warning("Failed to materialize artifact %s for run %s: %s", artifact_id, run_id, exc)
+                    entries[str(artifact_id)] = {
+                        "id": artifact_id, "name": name, "digest": expected_digest,
+                        "state": "failed", "error": str(exc),
+                    }
+                    continue
+
+            extraction_dir = extract_root / f"{artifact_id}_{safe_name}"
+            if not extraction_dir.exists():
+                temporary_dir = Path(tempfile.mkdtemp(dir=extract_root, prefix=f".{artifact_id}_"))
+                try:
+                    self._extract_zip(archive, temporary_dir)
+                    os.replace(temporary_dir, extraction_dir)
+                finally:
+                    if temporary_dir.exists():
+                        shutil.rmtree(temporary_dir, ignore_errors=True)
+            entries[str(artifact_id)] = {
+                "id": artifact_id, "name": name, "digest": expected_digest,
+                "archive": str(archive.relative_to(run_dir)),
+                "extracted": str(extraction_dir.relative_to(run_dir)), "state": "ready",
+            }
+
+        temporary_manifest = manifest_path.with_suffix(".json.part")
+        temporary_manifest.write_text(json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8")
+        os.replace(temporary_manifest, manifest_path)
 
     @staticmethod
     def _is_pr_nightly_dispatch(
@@ -727,6 +860,11 @@ class CICollector:
                 #         logger.error(f"Failed to fetch logs for job {job_id}: {e}")
 
             logger.info(f"Collected {saved_count} jobs for run {run_id} (new: {new_count}, updated: {update_count})")
+
+            # Artifacts are evidence, not a best-effort side effect of an LLM
+            # request.  Persist them now, while the CI sync still has the run
+            # context and before an asynchronous analysis can be enqueued.
+            await self._materialize_failure_run_artifacts(run_id, jobs)
 
             # 注意：不在这里 commit，由外层统一 commit
             return saved_count

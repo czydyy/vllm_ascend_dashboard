@@ -341,11 +341,28 @@ class GitHubClient:
         else:
             url = f"/repos/{self.owner}/{self.repo}/actions/artifacts"
 
-        params = {"per_page": min(per_page, 100)}
+        page = 1
+        page_size = min(per_page, 100)
+        artifacts: list[dict[str, Any]] = []
         logger.info(f"Fetching artifacts for run {workflow_run_id}")
 
-        result = await self._request("GET", url, params=params)
-        return result.get("artifacts", [])
+        # A run can produce more than 100 matrix artifacts.  Returning only
+        # the first page makes the local evidence cache look complete while
+        # silently omitting the artifact belonging to the failed job.
+        while True:
+            result = await self._request(
+                "GET", url, params={"per_page": page_size, "page": page}
+            )
+            items = result.get("artifacts", [])
+            if not items:
+                break
+            artifacts.extend(items)
+            if len(items) < page_size:
+                break
+            page += 1
+
+        logger.info("Fetched %d artifacts for run %s", len(artifacts), workflow_run_id)
+        return artifacts
 
     async def list_artifacts(
         self,
