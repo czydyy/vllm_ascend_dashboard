@@ -501,7 +501,19 @@ class CollectorRunner:
         from test_board.coverage_sync import sync_all_coverage
 
         async with SessionLocal() as db:
-            result = await sync_all_coverage(db, source=str(task_params.get("source", "all")))
+            result = await sync_all_coverage(
+                db,
+                source=str(task_params.get("source", "all")),
+                strategy=str(task_params.get("strategy", "hourly")),
+            )
+        failed_sources = [
+            name for name, value in result.items()
+            if isinstance(value, dict) and value.get("success") is False
+        ]
+        if failed_sources:
+            raise RuntimeError(
+                "coverage synchronization failed for: " + ", ".join(failed_sources)
+            )
         logger.info("coverage task %d completed: %s", ctx.task_id, result)
 
     async def _run_support_matrix_sync(self, ctx: TaskContext, task_params: dict):

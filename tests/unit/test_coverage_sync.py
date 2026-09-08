@@ -197,3 +197,73 @@ async def test_download_failure_removes_partial_temp_tar(tmp_path: Path, monkeyp
         await coverage_sync._download_with_signature()
 
     assert not temp_path.exists()
+
+
+@pytest.mark.asyncio
+async def test_hourly_sync_skips_only_a_usable_matching_snapshot(monkeypatch) -> None:
+    signature = "x-obs-version-id:version-1;etag:etag-1;content-length:10;last-modified:today"
+
+    async def matching_head(_client):
+        return signature
+
+    async def usable_snapshot(_db, _key):
+        return {
+            "tar_signature": signature,
+            "analysis_version": coverage_sync.LINE_ANALYSIS_VERSION,
+            "status": "ok",
+            "files": [{"path": "vllm_ascend/example.py"}],
+        }
+
+    async def download_must_not_run(**_kwargs):
+        raise AssertionError("unchanged usable hourly snapshot must not download")
+
+    monkeypatch.setattr(coverage_sync, "_head_signature", matching_head)
+    monkeypatch.setattr(coverage_sync, "_load_config", usable_snapshot)
+    monkeypatch.setattr(coverage_sync, "_download_with_signature", download_must_not_run)
+
+    result = await coverage_sync.sync_pr_lines(SimpleNamespace())
+
+    assert result["success"] is True
+    assert result["skipped"] is True
+
+
+@pytest.mark.asyncio
+async def test_hourly_sync_retries_an_empty_failed_snapshot(tmp_path: Path, monkeypatch) -> None:
+    signature = "x-obs-version-id:version-1;etag:etag-1;content-length:10;last-modified:today"
+    tar_path = _make_tar(tmp_path)
+    downloaded = False
+
+    async def matching_head(_client):
+        return signature
+
+    async def failed_snapshot(_db, _key):
+        return {
+            "tar_signature": signature,
+            "analysis_version": coverage_sync.LINE_ANALYSIS_VERSION,
+            "status": "failed",
+            "files": [],
+        }
+
+    async def download(**_kwargs):
+        nonlocal downloaded
+        downloaded = True
+        return tar_path, signature
+
+    monkeypatch.setattr(coverage_sync, "_head_signature", matching_head)
+    monkeypatch.setattr(coverage_sync, "_load_config", failed_snapshot)
+    monkeypatch.setattr(coverage_sync, "_download_with_signature", download)
+    monkeypatch.setattr(
+        coverage_sync,
+        "_process_line_coverage",
+        lambda *_args: {"status": "failed", "warning": "no UT covdata"},
+    )
+
+    result = await coverage_sync.sync_pr_lines(SimpleNamespace())
+
+    assert downloaded is True
+    assert result == {
+        "success": False,
+        "status": "failed",
+        "error": "no UT covdata",
+        "tar_signature": signature,
+    }

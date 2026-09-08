@@ -61,6 +61,28 @@ def is_coverage_syncing() -> bool:
     return _coverage_sync_lock is not None and _coverage_sync_lock.locked()
 
 
+def _coverage_archive_path(signature: str, kind: str) -> Path:
+    """Store a downloaded source package by day and immutable source version."""
+    root = Path(settings.DATA_DIR)
+    if not root.is_absolute():
+        root = Path.cwd() / root
+    version = hashlib.sha256(signature.encode("utf-8")).hexdigest()[:16]
+    return root.resolve() / "coverage" / datetime.now(UTC).strftime("%Y-%m-%d") / kind / version / "coverage.tar"
+
+
+def _cleanup_coverage_archives() -> None:
+    root = _coverage_archive_path("placeholder", "placeholder").parents[3]
+    cutoff = datetime.now(UTC).date().toordinal() - max(1, settings.COVERAGE_ARCHIVE_RETENTION_DAYS)
+    if not root.exists():
+        return
+    for child in root.iterdir():
+        try:
+            if datetime.strptime(child.name, "%Y-%m-%d").date().toordinal() < cutoff:
+                shutil.rmtree(child, ignore_errors=True)
+        except ValueError:
+            continue
+
+
 async def _load_config(db: AsyncSession, key: str) -> dict | None:
     row = (
         await db.execute(
@@ -630,9 +652,11 @@ def _process_line_coverage_with_source(
 async def _head_signature(client: httpx.AsyncClient) -> str:
     response = await client.head(settings.PR_COVERAGE_TAR_URL, timeout=30)
     response.raise_for_status()
+    # OBS version-id is an object version.  ETag is only a fallback and must
+    # not be treated as a cryptographic or business-version guarantee.
     return ";".join(
         f"{key}:{response.headers.get(key, '')}"
-        for key in ("content-length", "etag", "last-modified")
+        for key in ("x-obs-version-id", "etag", "content-length", "last-modified")
     )
 
 
@@ -655,14 +679,20 @@ async def _download_tar(client: httpx.AsyncClient, destination: Path) -> None:
     raise RuntimeError(f"coverage.tar download failed: {last_error}")
 
 
-async def _download_with_signature() -> tuple[Path, str]:
+async def _download_with_signature(
+    *, signature: str | None = None, destination: Path | None = None
+) -> tuple[Path, str]:
     fd, filename = tempfile.mkstemp(prefix="coverage_", suffix=".tar")
     os.close(fd)
     temp = Path(filename)
     try:
         async with httpx.AsyncClient(follow_redirects=True) as client:
-            signature = await _head_signature(client)
+            signature = signature or await _head_signature(client)
             await _download_tar(client, temp)
+        if destination:
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            os.replace(temp, destination)
+            temp = destination
         return temp, signature
     except BaseException:
         # The caller can only clean up a path it receives.  If HEAD or the
@@ -686,15 +716,24 @@ async def sync_e2e(db: AsyncSession) -> dict[str, Any]:
         return {"success": False, "error": str(exc)}
 
 
-async def sync_pr_breadth(db: AsyncSession) -> dict[str, Any]:
+async def sync_pr_breadth(
+    db: AsyncSession, *, force_download: bool = False, archive_kind: str | None = None
+) -> dict[str, Any]:
     tar_path: Path | None = None
     handed_off = False
     try:
-        tar_path, signature = await _download_with_signature()
+        async with httpx.AsyncClient(follow_redirects=True) as client:
+            signature = await _head_signature(client)
         existing = await _load_config(db, PR_BREADTH_KEY)
-        if existing and existing.get("tar_signature") == signature:
-            tar_path.unlink(missing_ok=True)
+        if existing and existing.get("tar_signature") == signature and not force_download:
             return {"success": True, "skipped": True, "tar_signature": signature}
+        destination = _coverage_archive_path(signature, archive_kind) if archive_kind else None
+        if destination and destination.exists() and tarfile.is_tarfile(destination):
+            tar_path = destination
+        else:
+            tar_path, signature = await _download_with_signature(
+                signature=signature, destination=destination
+            )
         result = await asyncio.to_thread(_process_tar_breadth, tar_path, signature)
         await _save_config(db, PR_BREADTH_KEY, result, "PR 流水线覆盖广度矩阵")
         await db.commit()
@@ -714,23 +753,41 @@ async def sync_pr_lines(
     db: AsyncSession,
     tar_path: str | None = None,
     signature: str | None = None,
+    force_download: bool = False,
+    archive_kind: str | None = None,
 ) -> dict[str, Any]:
     if not settings.PR_COVERAGE_LINE_ENABLED:
         return {"success": True, "skipped": True, "reason": "disabled"}
-    own_tar = tar_path is None
+    own_tar = tar_path is None and archive_kind is None
     path = Path(tar_path) if tar_path else None
     try:
-        if path is None or not path.exists():
-            path, signature = await _download_with_signature()
+        if signature is None:
+            async with httpx.AsyncClient(follow_redirects=True) as client:
+                signature = await _head_signature(client)
         assert signature is not None
         existing = await _load_config(db, PR_LINES_KEY)
         if (
             existing
             and existing.get("tar_signature") == signature
             and existing.get("analysis_version") == LINE_ANALYSIS_VERSION
+            and existing.get("status") == "ok"
+            and existing.get("files")
+            and not force_download
         ):
             return {"success": True, "skipped": True, "tar_signature": signature}
+        if path is None or not path.exists():
+            destination = _coverage_archive_path(signature, archive_kind) if archive_kind else None
+            if destination and destination.exists() and tarfile.is_tarfile(destination):
+                path = destination
+            else:
+                path, signature = await _download_with_signature(
+                    signature=signature, destination=destination
+                )
         result = await asyncio.to_thread(_process_line_coverage, path, signature, "ut")
+        if result["status"] == "failed":
+            # Keep the last usable snapshot in MySQL. The durable task and
+            # sync status expose the current failure without blanking the UI.
+            return {"success": False, "status": "failed", "error": result["warning"], "tar_signature": signature}
         await _save_config(db, PR_LINES_KEY, result, "PR/UT 流水线行覆盖率")
         await db.commit()
         return {"success": result["status"] != "failed", "status": result["status"], "tar_signature": signature}
@@ -742,7 +799,9 @@ async def sync_pr_lines(
             path.unlink(missing_ok=True)
 
 
-async def sync_all_coverage(db: AsyncSession, source: str = "all") -> dict[str, Any]:
+async def sync_all_coverage(
+    db: AsyncSession, source: str = "all", strategy: str = "hourly"
+) -> dict[str, Any]:
     lock = _get_lock()
     if lock.locked():
         raise RuntimeError("coverage sync in progress")
@@ -750,22 +809,35 @@ async def sync_all_coverage(db: AsyncSession, source: str = "all") -> dict[str, 
         status: dict[str, Any] = {"last_check_at": datetime.now(UTC).isoformat()}
         tar_path: str | None = None
         signature: str | None = None
+        force_download = strategy == "daily_baseline"
+        archive_kind = "baseline" if force_download else "updates"
         try:
             if source in ("all", "e2e"):
                 status["e2e"] = await sync_e2e(db)
             if source in ("all", "pr_breadth"):
-                breadth = await sync_pr_breadth(db)
+                breadth = await sync_pr_breadth(
+                    db, force_download=force_download, archive_kind=archive_kind
+                )
                 status["pr_breadth"] = {key: value for key, value in breadth.items() if key != "tar_path"}
                 tar_path = breadth.get("tar_path")
                 signature = breadth.get("tar_signature")
             if source in ("all", "pr_lines"):
-                lines = await sync_pr_lines(db, tar_path=tar_path, signature=signature)
+                lines = await sync_pr_lines(
+                    db, tar_path=tar_path, signature=signature,
+                    force_download=force_download, archive_kind=archive_kind,
+                )
                 status["pr_lines"] = lines
+            status["strategy"] = strategy
             await _save_config(db, SYNC_STATUS_KEY, status, "测试覆盖率同步状态")
             await db.commit()
+            if force_download:
+                _cleanup_coverage_archives()
             return status
         finally:
-            if tar_path:
+            # Daily baselines and changed hourly versions are evidence files,
+            # not temporary parsing scratch space.  Keep them for retention
+            # cleanup; only ephemeral manual paths are removed here.
+            if tar_path and archive_kind is None:
                 Path(tar_path).unlink(missing_ok=True)
 
 

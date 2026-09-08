@@ -314,6 +314,7 @@ async def get_case_matrix(user: User = Depends(get_current_user)):
 
 class CoverageSyncRequest(BaseModel):
     source: Literal["all", "e2e", "pr_breadth", "pr_lines"] = "all"
+    strategy: Literal["hourly", "daily_baseline"] = "hourly"
 
 
 @router.get("/coverage/e2e")
@@ -399,8 +400,8 @@ async def trigger_coverage_sync(request: CoverageSyncRequest, user: CurrentAdmin
         task_id = await TaskManager.create_task(
             db,
             "coverage_sync",
-            {"source": request.source},
-            f"coverage_sync:{request.source}:{uuid4()}",
+            {"source": request.source, "strategy": request.strategy},
+            f"coverage_sync:{request.source}:{request.strategy}:{uuid4()}",
             required_capability="python",
             priority=10,
         )
@@ -408,7 +409,7 @@ async def trigger_coverage_sync(request: CoverageSyncRequest, user: CurrentAdmin
     return {
         "success": True,
         "task_id": task_id,
-        "message": f"coverage sync ({request.source}) queued",
+        "message": f"coverage sync ({request.source}, {request.strategy}) queued",
     }
 
 

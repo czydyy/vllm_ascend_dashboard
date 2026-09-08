@@ -320,6 +320,21 @@ class DataSyncScheduler:
 
         try:
             self.scheduler.add_job(
+                self._sync_coverage_daily_baseline_job,
+                trigger=CronTrigger(
+                    hour=int(getattr(settings, "COVERAGE_DAILY_SYNC_HOUR", 3)),
+                    minute=int(getattr(settings, "COVERAGE_DAILY_SYNC_MINUTE", 15)),
+                    timezone=self._timezone,
+                ),
+                id="coverage_daily_baseline",
+                name="Test Coverage Daily Baseline",
+                replace_existing=True,
+            )
+        except Exception as e:
+            logger.error("Failed to add daily coverage baseline job: %s", e, exc_info=True)
+
+        try:
+            self.scheduler.add_job(
                 self._calc_test_health_job,
                 trigger=IntervalTrigger(minutes=test_board_interval + 30),
                 id="test_health_calc",
@@ -1001,13 +1016,30 @@ class DataSyncScheduler:
             task_id = await TaskManager.create_task(
                 db,
                 "coverage_sync",
-                {"source": "all"},
+                {"source": "all", "strategy": "hourly"},
                 dedupe_key,
                 required_capability="python",
             )
             await db.commit()
         if task_id:
             logger.info("Queued coverage sync task %d", task_id)
+
+    async def _sync_coverage_daily_baseline_job(self) -> None:
+        """Queue the daily, independently retained coverage source snapshot."""
+        from infrastructure.tasks.task_manager import TaskManager
+
+        day = datetime.now(UTC).strftime("%Y-%m-%d")
+        async with SessionLocal() as db:
+            task_id = await TaskManager.create_task(
+                db,
+                "coverage_sync",
+                {"source": "all", "strategy": "daily_baseline"},
+                f"coverage_sync:daily-baseline:{day}",
+                required_capability="python",
+            )
+            await db.commit()
+        if task_id:
+            logger.info("Queued daily coverage baseline task %d", task_id)
     async def _calc_test_health_job(self) -> None:
         logger.info("TEST BOARD HEALTH CALC JOB STARTED")
         async with SessionLocal() as db:
