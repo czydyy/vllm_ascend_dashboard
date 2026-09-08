@@ -214,14 +214,11 @@ class CICollector:
             if str(inputs.get("request_id") or "").strip():
                 return True
 
-        # The shared Nightly workflow exposes these conditional steps only when
-        # ``vllm_ascend_ref``/``request_id`` is set by ``/nightly pr``.  The
-        # workflow-run response does not include dispatch inputs, so inspect
-        # the jobs response as a second source of truth.  Keep this list in
-        # sync with the PR-only steps in the reusable Nightly workflows; a
-        # successful or cancelled PR-only step is evidence that the run is a
-        # PR run, while a skipped or not-yet-started step is present in normal
-        # Nightly runs too.
+        # The workflow-run response does not include dispatch inputs.  Inspect
+        # the Jobs response instead: these steps only execute when the
+        # ``/nightly`` comment command supplied ``vllm_ascend_ref`` and
+        # ``request_id``.  A skipped step is *not* evidence because the normal
+        # daily workflow has the same conditional steps in its definition.
         pr_only_step_markers = (
             "checkout pr code",
             "uninstall vlm vllm-ascend and remove code (if pr test)",
@@ -230,24 +227,34 @@ class CICollector:
             "move code to /vllm-workspace",
             "install vllm-project/vllm-ascend",
         )
-        # Only inspect jobs that represent an actual test case. Aggregate
-        # setup/build jobs can contain the same conditional step names or be
-        # skipped for reasons unrelated to ``/nightly pr``.
         test_job_markers = ("single-node", "double-node", "multi-node")
+        has_executed_test_job = False
+        has_skipped_nightly_build = False
         for job in jobs or []:
             job_name = str(job.get("name") or "").strip().casefold()
-            if not any(marker in job_name for marker in test_job_markers):
-                continue
-            if job.get("conclusion") == "skipped":
-                continue
+            is_test_job = any(marker in job_name for marker in test_job_markers)
+            is_nightly_setup_job = job_name == "export global env vars as job outputs"
+            if is_test_job and job.get("conclusion") != "skipped":
+                has_executed_test_job = True
+            if job_name.startswith("build nightly-") and job.get("conclusion") == "skipped":
+                has_skipped_nightly_build = True
 
             for step in job.get("steps") or []:
                 name = str(step.get("name") or "").strip().casefold()
                 if (
+                    (is_test_job or is_nightly_setup_job)
+                    and
                     any(name == marker or name.startswith(f"{marker} ") for marker in pr_only_step_markers)
                     and step.get("conclusion") not in (None, "skipped")
                 ):
                     return True
+
+        # ``pr_nightly_command.yml`` dispatches child Nightly workflows with
+        # ``skip_build_image=true``.  The normal daily dispatch builds the
+        # image.  Require an executed test job too, so a separately cancelled
+        # daily run with every job skipped is not falsely removed.
+        if has_skipped_nightly_build and has_executed_test_job:
+            return True
 
         return False
 

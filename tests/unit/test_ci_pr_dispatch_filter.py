@@ -67,7 +67,7 @@ def test_reusable_pr_only_step_is_filtered() -> None:
     assert CICollector._is_pr_nightly_dispatch(run, jobs) is True
 
 
-def test_skipped_nightly_build_job_is_not_enough_to_filter() -> None:
+def test_skipped_nightly_build_with_executed_test_is_pr_dispatch() -> None:
     run = {"event": "workflow_dispatch"}
     jobs = [
         {"name": "Build nightly-a3 image", "conclusion": "skipped", "steps": []},
@@ -84,10 +84,20 @@ def test_skipped_nightly_build_job_is_not_enough_to_filter() -> None:
         },
     ]
 
-    assert CICollector._is_pr_nightly_dispatch(run, jobs) is False
+    assert CICollector._is_pr_nightly_dispatch(run, jobs) is True
 
 
-def test_pr_marker_in_aggregate_job_is_not_enough_to_filter() -> None:
+def test_pr_dispatch_skips_build_image_but_runs_test_jobs() -> None:
+    run = {"event": "workflow_dispatch"}
+    jobs = [
+        {"name": "Build nightly-a3 image", "conclusion": "skipped", "steps": []},
+        {"name": "single-node (nightly test)", "conclusion": "success", "steps": []},
+    ]
+
+    assert CICollector._is_pr_nightly_dispatch(run, jobs) is True
+
+
+def test_pr_checkout_in_setup_job_is_definitive() -> None:
     run = {"event": "workflow_dispatch"}
     jobs = [
         {
@@ -97,7 +107,7 @@ def test_pr_marker_in_aggregate_job_is_not_enough_to_filter() -> None:
         }
     ]
 
-    assert CICollector._is_pr_nightly_dispatch(run, jobs) is False
+    assert CICollector._is_pr_nightly_dispatch(run, jobs) is True
 
 
 def test_accuracy_matrix_job_is_not_enough_to_filter() -> None:
