@@ -32,6 +32,19 @@ if [[ "${1:-}" == "--down" ]]; then
   docker "${args[@]}" down
 else
   docker "${args[@]}" up --build -d
+  seeded=false
+  for attempt in $(seq 1 12); do
+    if docker "${args[@]}" exec -T backend python database/seed_local_demo.py; then
+      seeded=true
+      break
+    fi
+    sleep 5
+  done
+  if [[ "$seeded" != true ]]; then
+    echo "Local demo data seeding failed. Check the backend container logs." >&2
+    exit 1
+  fi
   echo "Dashboard: http://localhost:3000"
   echo "API docs:  http://localhost:8000/docs"
+  echo "Demo login: admin / admin123"
 fi

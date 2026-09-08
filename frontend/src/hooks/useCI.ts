@@ -18,6 +18,8 @@ export const useRuns = (params?: {
   workflow_name?: string
   status?: string
   hardware?: string
+  start_time?: string
+  end_time?: string
   limit?: number
 }, enabled = true) => {
   return useQuery({
@@ -33,6 +35,8 @@ export const useRuns = (params?: {
 export const useCIStats = (params?: {
   workflow_name?: string
   hardware?: string
+  start_time?: string
+  end_time?: string
 }) => {
   return useQuery({
     queryKey: ['ci-stats', params],

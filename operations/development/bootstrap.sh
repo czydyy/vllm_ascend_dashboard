@@ -16,11 +16,16 @@ echo "Installing frontend dependencies"
 
 echo "Initializing the current MySQL schema without creating users"
 uv run --directory backend python ../database/bootstrap.py --no-users
+echo "Seeding local dashboard demo data"
+uv run --directory backend python ../database/seed_local_demo.py
 
 cat <<'EOF'
 
 Development initialization completed.
 Start the stack with the platform-specific compose helper.
-Administrator accounts must be provisioned through the controlled user-management flow;
-this script intentionally contains no default credentials.
+The local demo accounts are:
+  admin/admin123
+  manager/manager123
+  user/user123
+Change these passwords before sharing the development environment.
 EOF

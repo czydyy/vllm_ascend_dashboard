@@ -1,37 +1,47 @@
-import { defineConfig } from 'vite'
-import react from '@vitejs/plugin-react'
+import { defineConfig, loadEnv } from "vite";
+import react from "@vitejs/plugin-react";
 
 // https://vitejs.dev/config/
-export default defineConfig({
-  plugins: [react()],
-  resolve: {
-    alias: {
-      '@': '/src',
-    },
-  },
-  server: {
-    port: 3000,
-    proxy: {
-      '/api': {
-        target: 'http://localhost:8000',
-        changeOrigin: true,
+export default defineConfig(({ mode }) => {
+  const env = loadEnv(mode, process.cwd(), "");
+  const apiProxyTarget = env.VITE_API_PROXY_TARGET || "http://localhost:8000";
+  const apiProxySecure = env.VITE_API_PROXY_SECURE !== "false";
+
+  console.info(`[vite] API proxy target: ${apiProxyTarget}`);
+
+  return {
+    plugins: [react()],
+    resolve: {
+      alias: {
+        "@": "/src",
       },
     },
-  },
-  build: {
-    outDir: 'dist',
-    sourcemap: false,
-    minify: 'esbuild',
-    rollupOptions: {
-      output: {
-        manualChunks: {
-          'react-vendor': ['react', 'react-dom', 'react-router-dom'],
-          'antd-vendor': ['antd', '@ant-design/icons'],
-          'charts-vendor': ['recharts'],
-          'utils-vendor': ['axios', 'dayjs'],
+    server: {
+      port: 3000,
+      proxy: {
+        "/api": {
+          target: apiProxyTarget,
+          changeOrigin: true,
+          secure: apiProxySecure,
+          ws: true,
         },
       },
     },
-    chunkSizeWarningLimit: 1000,
-  },
-})
+    build: {
+      outDir: "dist",
+      sourcemap: false,
+      minify: "esbuild",
+      rollupOptions: {
+        output: {
+          manualChunks: {
+            "react-vendor": ["react", "react-dom", "react-router-dom"],
+            "antd-vendor": ["antd", "@ant-design/icons"],
+            "charts-vendor": ["recharts"],
+            "utils-vendor": ["axios", "dayjs"],
+          },
+        },
+      },
+      chunkSizeWarningLimit: 1000,
+    },
+  };
+});

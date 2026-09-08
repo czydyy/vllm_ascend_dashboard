@@ -265,6 +265,9 @@ class CIJobDetailResponse(CIJobResponse):
 class CIStats(BaseModel):
     """CI 统计信息"""
     total_runs: int
+    passed_runs: int
+    failed_runs: int
+    other_runs: int
     success_rate: float
     avg_duration_seconds: float | None = None
     last_7_days: dict | None = None
