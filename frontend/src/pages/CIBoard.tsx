@@ -142,18 +142,18 @@ function CIBoard() {
                   <Alert
                     type="error"
                     showIcon
-                    message="Builds 统计加载失败"
+                    message="Workflow 统计加载失败"
                     description="运行记录仍可继续查看，请稍后刷新重试。"
                     style={{ marginBottom: 16 }}
                   />
                 )}
 
-                {/* Builds 统计摘要。统计对象为 Workflow Runs，范围遵循启用 Workflow 的配置。 */}
+                {/* Workflow 统计摘要。统计对象为 Workflow Runs，范围遵循启用 Workflow 的配置。 */}
                 <Row gutter={[16, 16]} style={{ marginBottom: 24 }}>
                   <Col xs={24} sm={12} lg={6}>
                     <Card loading={statsLoading}>
                       <Statistic
-                        title="Total Builds"
+                        title="Total Workflows"
                         value={buildStats.totalRuns}
                       />
                       {buildStats.otherRuns > 0 && (

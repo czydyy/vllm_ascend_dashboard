@@ -139,8 +139,8 @@ async def list_runs(
     if hardware:
         stmt = stmt.where(CIResult.hardware == hardware)
 
-    # Workflow 列表按结束时间排序；运行中的记录回退到开始时间。
-    run_belonging_time = func.coalesce(CIResult.completed_at, CIResult.started_at)
+    # Workflow 列表统一按开始时间筛选和排序。
+    run_belonging_time = CIResult.started_at
     if start_time:
         stmt = stmt.where(run_belonging_time >= start_time)
     if end_time:
@@ -236,7 +236,7 @@ async def get_ci_stats(
         base_conditions.append(CIResult.workflow_name == workflow_name)
     if hardware:
         base_conditions.append(CIResult.hardware == hardware)
-    run_belonging_time = func.coalesce(CIResult.completed_at, CIResult.started_at)
+    run_belonging_time = CIResult.started_at
     if start_time:
         base_conditions.append(run_belonging_time >= start_time)
     if end_time:
@@ -265,7 +265,7 @@ async def get_ci_stats(
         func.count().label("runs"),
         func.sum(case((CIResult.conclusion == "success", 1), else_=0)).label("success_runs"),
         func.avg(CIResult.duration_seconds).label("avg_duration"),
-    ).where(CIResult.completed_at >= seven_days_ago, *base_conditions)
+    ).where(CIResult.started_at >= seven_days_ago, *base_conditions)
     recent = (await db.execute(recent_stmt)).one()
     last_7_days_runs = int(recent.runs or 0)
     last_7_days_success = int(recent.success_runs or 0)
