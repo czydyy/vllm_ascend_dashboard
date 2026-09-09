@@ -167,8 +167,11 @@ if ! compose exec -T mysql sh -c "exec $dump_cmd" | zstd -q > "$backup_file"; th
 fi
 
 [[ -s "$backup_file" ]] || die "backup is empty"
-decompress "$backup_file" | grep -q 'CREATE TABLE .users.' || die "backup does not contain users table"
-decompress "$backup_file" | grep -q 'Dump completed on' || die "mysqldump completion marker is missing"
+# 注意：不能用 grep -q —— 它找到匹配即退出会让上游 zstd -dc 收到 SIGPIPE，
+# 在 pipefail 下整个管道被误判为失败（曾导致"backup does not contain users
+# table"误报）。grep -c 会读完整个流，无此问题。
+[[ "$(decompress "$backup_file" | grep -c 'CREATE TABLE .users.')" -gt 0 ]] || die "backup does not contain users table"
+[[ "$(decompress "$backup_file" | grep -c 'Dump completed on')" -gt 0 ]] || die "mysqldump completion marker is missing"
 
 # 提取 binlog 恢复坐标
 binlog_file="$(decompress "$backup_file" | grep -oP 'SOURCE_LOG_FILE='\''\K[^'\'']+' 2>/dev/null || echo "")"
