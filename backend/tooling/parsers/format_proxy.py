@@ -10,6 +10,7 @@ Anthropic Messages API ↔ OpenAI Chat Completions API 格式翻译代理
 """
 import json
 import logging
+import os
 import time
 
 import aiohttp
@@ -380,6 +381,14 @@ class FormatProxy:
             "messages": openai_messages,
             "stream": False,  # 强制非流式，避免 SSE 翻译 bug
         }
+
+        # 推理模型（glm-5.3 / deepseek-r1 等）先输出长思考再产出 content：
+        # 思考阶段上游返回空流/空 content，CLI 侧表现为
+        # "Stream ended without receiving any events" 并无限重试。
+        # 默认注入禁思考参数；换到不兼容的后端时可用
+        # FORMAT_PROXY_DISABLE_THINKING=false 关闭。
+        if os.environ.get("FORMAT_PROXY_DISABLE_THINKING", "true").lower() != "false":
+            openai_body["reasoning_effort"] = "none"
 
         if body.get("max_tokens"):
             openai_body["max_tokens"] = body["max_tokens"]
