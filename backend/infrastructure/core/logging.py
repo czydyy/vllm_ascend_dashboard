@@ -6,6 +6,7 @@ queue so that database writes never block the calling thread.
 """
 import asyncio
 import logging
+import os
 import queue
 import traceback
 from datetime import UTC, datetime
@@ -120,6 +121,10 @@ def setup_db_logging() -> None:
     """Install the DB log handler and start the background worker.
 
     Safe to call multiple times — subsequent calls are no-ops.
+
+    DB 端日志级别默认 WARNING：INFO/DEBUG 仍会输出到 stdout（docker logs），
+    但不写库。历史教训：DEBUG 级入库曾让 app_logs 膨胀到 780 万行 / 2GB，
+    并持续放大 binlog（每日数十 GB）。需要临时排障可用 DB_LOG_LEVEL=INFO。
     """
     global _worker_started
     if _worker_started:
@@ -127,7 +132,8 @@ def setup_db_logging() -> None:
     _worker_started = True
 
     handler = DBLogHandler()
-    handler.setLevel(logging.DEBUG)
+    db_log_level = os.environ.get("DB_LOG_LEVEL", "WARNING").upper()
+    handler.setLevel(getattr(logging, db_log_level, logging.WARNING))
     handler.setFormatter(logging.Formatter("%(message)s"))
 
     root = logging.getLogger()
