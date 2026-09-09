@@ -25,9 +25,10 @@ class SkillRegistry:
         self._load_all()
 
     def _resolve_builtin_skills_dir(self) -> Path:
-        # __file__ = /app/app/services/skill_registry.py
-        # .parent.parent.parent = /app （项目根）
-        project_root = Path(__file__).parent.parent.parent
+        # Development: <repo>/backend/agent/skill_registry.py ->
+        # <repo>/backend/.agents/skills.  Container: /app/agent/... ->
+        # /app/.agents/skills.  Dockerfile copies backend/.agents there.
+        project_root = Path(__file__).parent.parent
         agents_skills_dir = project_root / ".agents" / "skills"
         if agents_skills_dir.exists():
             return agents_skills_dir

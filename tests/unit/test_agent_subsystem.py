@@ -12,6 +12,16 @@ from agent.memory_manager import MemoryManager, MemoryRecord, extract_keywords
 from agent.skill_registry import SkillInfo, SkillRegistry
 
 
+def test_builtin_failure_analysis_skill_is_discoverable():
+    registry = SkillRegistry()
+
+    skill = registry.get_skill_by_scope("ci_failure_analysis")
+
+    assert skill is not None
+    assert skill.name == "auto-bug-fixer"
+    assert "Last-good 对照是强制步骤" in skill.content
+
+
 class _FakeAgent:
     def __init__(self, **kwargs):
         self.kwargs = kwargs
