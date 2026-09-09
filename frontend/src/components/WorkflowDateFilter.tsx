@@ -33,7 +33,9 @@ export function getInitialDateFilterMode(
 ): DateFilterMode {
   if (preferences.dateFilterMode) return preferences.dateFilterMode
   if (preferences.dateRange === null) return 'all'
-  if (!preferences.dateRange?.start && !preferences.dateRange?.end) return 'recent_day'
+  // 无偏好时默认显示全部：nightly 运行多归属凌晨/昨日，
+  // 默认"只看今天"会让看板看起来没有数据。
+  if (!preferences.dateRange?.start && !preferences.dateRange?.end) return 'all'
 
   const today = dayjs()
   const start = preferences.dateRange.start ? dayjs(preferences.dateRange.start) : null

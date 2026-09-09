@@ -66,7 +66,13 @@ const EVENT_LABELS: Record<string, string> = {
 
 const WORKFLOW_EXECUTION_PREFERENCES_KEY = 'ci-workflow-execution-preferences'
 
+// 偏好版本 v2：初始渲染曾把默认值 recent_day 写入存储，导致看板
+// "只看今天"而夜间数据不可见。迁移时把无版本标记的 recent_day 重置为 all；
+// 用户再次手动选择后按新值记住。
+const PREFERENCES_VERSION = 2
+
 type WorkflowExecutionPreferences = {
+  v?: number
   workflowFilter?: string[]
   selectedWorkflow?: string | null
   hardwareFilter?: string[]
@@ -82,7 +88,15 @@ function readPreferences(): WorkflowExecutionPreferences {
   if (typeof window === 'undefined') return {}
   try {
     const raw = window.localStorage.getItem(WORKFLOW_EXECUTION_PREFERENCES_KEY)
-    return raw ? JSON.parse(raw) as WorkflowExecutionPreferences : {}
+    if (!raw) return {}
+    const parsed = JSON.parse(raw) as WorkflowExecutionPreferences
+    if (parsed.v !== PREFERENCES_VERSION) {
+      if (parsed.dateFilterMode === 'recent_day' && !parsed.dateRange?.start && !parsed.dateRange?.end) {
+        parsed.dateFilterMode = 'all'
+      }
+      parsed.v = PREFERENCES_VERSION
+    }
+    return parsed
   } catch {
     return {}
   }
@@ -126,6 +140,7 @@ function WorkflowTestExecutionTable({ enabled }: WorkflowTestExecutionTableProps
 
   useEffect(() => {
     window.localStorage.setItem(WORKFLOW_EXECUTION_PREFERENCES_KEY, JSON.stringify({
+      v: PREFERENCES_VERSION,
       workflowFilter,
       selectedWorkflow: selectedWorkflow ?? null,
       hardwareFilter,
