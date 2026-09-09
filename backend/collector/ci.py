@@ -119,6 +119,17 @@ class CICollector:
         if not self._is_failed_run(jobs):
             return
 
+        await self.materialize_run_artifacts(run_id)
+
+    async def materialize_run_artifacts(self, run_id: int) -> None:
+        """Cache immutable artifacts for one explicit workflow run.
+
+        CI sync calls this only for failed runs. Failure analysis may also call
+        it for the selected last-good run, so the comparison always uses two
+        run-scoped evidence directories rather than a current-run artifact by
+        accident.
+        """
+
         artifacts = await self.github.list_artifacts(run_id)
         if not artifacts:
             return

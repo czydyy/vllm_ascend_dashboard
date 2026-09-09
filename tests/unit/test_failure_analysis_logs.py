@@ -137,8 +137,8 @@ def test_legacy_parser_recovers_markdown_without_invalid_regex():
 
 
 @pytest.mark.asyncio
-async def test_claude_cli_context_uses_local_evidence_on_demand(monkeypatch):
-    """CLI analyses must not eagerly replay logs, history, and diffs."""
+async def test_claude_cli_context_prepares_last_good_evidence(monkeypatch):
+    """CLI analyses always receive the resolved branch-safe comparison index."""
     service = FailureAnalysisService()
     service._get_ci_result = AsyncMock(return_value=None)
     service._download_all_logs = AsyncMock(
@@ -154,6 +154,9 @@ async def test_claude_cli_context_uses_local_evidence_on_demand(monkeypatch):
         side_effect=AssertionError("must not preload")
     )
     service._fetch_commit_diff = AsyncMock(side_effect=AssertionError("must not preload"))
+    service._prepare_last_good_evidence = AsyncMock(
+        return_value=("### Last-good 对比证据\n未找到兼容成功运行", {})
+    )
     monkeypatch.setattr(
         github_cache,
         "ensure_analysis_repos_ready",
@@ -178,11 +181,121 @@ async def test_claude_cli_context_uses_local_evidence_on_demand(monkeypatch):
         db=object(),
     )
 
-    assert "没有预加载" in context
+    assert "Last-good 对比证据" in context
     assert "先读取本地索引中的最小必要证据" in context
+    service._prepare_last_good_evidence.assert_awaited_once()
     service._fetch_job_annotations.assert_not_awaited()
     service._fetch_historical_run_comparison.assert_not_awaited()
     service._fetch_commit_diff.assert_not_awaited()
+
+
+class _RowsResult:
+    def __init__(self, rows):
+        self._rows = rows
+
+    def all(self):
+        return self._rows
+
+
+class _RowsDb:
+    def __init__(self, rows):
+        self.rows = rows
+
+    async def execute(self, _statement):
+        return _RowsResult(self.rows)
+
+
+@pytest.mark.asyncio
+async def test_last_good_evidence_downloads_branch_matching_artifacts(tmp_path):
+    service = FailureAnalysisService()
+    good_commit = "a" * 40
+    bad_commit = "b" * 40
+    log_path = tmp_path / "last-good.log"
+    log_path.write_text(
+        f"Branch: main\nCommit hash: {good_commit}\n", encoding="utf-8"
+    )
+    artifacts_dir = tmp_path / "artifacts"
+    artifacts_dir.mkdir()
+    current = SimpleNamespace(
+        job_id=2,
+        run_id=200,
+        workflow_name="Nightly-A3",
+        job_name="single-node (main, qwen)",
+        hardware="A3",
+        completed_at=None,
+        started_at=None,
+    )
+    candidate = SimpleNamespace(
+        job_id=1,
+        run_id=100,
+        workflow_name="Nightly-A3",
+        job_name="single-node (main, qwen)",
+        hardware="A3",
+        conclusion="success",
+    )
+    run = SimpleNamespace(run_number=10, run_id=100)
+    service._download_all_logs = AsyncMock(
+        return_value={
+            "job_log": str(log_path),
+            "artifacts_dir": str(artifacts_dir),
+        }
+    )
+
+    evidence, comparison = await service._prepare_last_good_evidence(
+        current,
+        _RowsDb([(run, candidate)]),
+        tested_branch="main",
+        tested_commit=bad_commit,
+    )
+
+    assert f"good_commit `{good_commit}`" in evidence
+    assert f"bad_commit `{bad_commit}`" in evidence
+    assert "必做代码调查" in evidence
+    assert comparison["good_commit"] == good_commit
+    assert comparison["good_branch"] == "main"
+    assert service._download_all_logs.await_count == 2
+    assert service._download_all_logs.await_args_list[-1].kwargs["materialize_artifacts"] is True
+
+
+@pytest.mark.asyncio
+async def test_last_good_evidence_rejects_different_tested_branch(tmp_path):
+    service = FailureAnalysisService()
+    log_path = tmp_path / "wrong-branch.log"
+    log_path.write_text(
+        f"Branch: releases/v0.26.0rc\nCommit hash: {'a' * 40}\n",
+        encoding="utf-8",
+    )
+    current = SimpleNamespace(
+        job_id=2,
+        run_id=200,
+        workflow_name="Nightly-A3",
+        job_name="single-node (main, qwen)",
+        hardware="A3",
+        completed_at=None,
+        started_at=None,
+    )
+    candidate = SimpleNamespace(
+        job_id=1,
+        run_id=100,
+        workflow_name="Nightly-A3",
+        job_name="single-node (main, qwen)",
+        hardware="A3",
+        conclusion="success",
+    )
+    run = SimpleNamespace(run_number=10, run_id=100)
+    service._download_all_logs = AsyncMock(return_value={"job_log": str(log_path)})
+
+    evidence, comparison = await service._prepare_last_good_evidence(
+        current,
+        _RowsDb([(run, candidate)]),
+        tested_branch="main",
+        tested_commit="b" * 40,
+    )
+
+    assert "已全部排除" in evidence
+    assert "禁止跨分支构造 good_commit" in evidence
+    assert comparison == {}
+    assert service._download_all_logs.await_count == 1
 
 
 def test_extract_job_log_from_run_zip_uses_matching_matrix_job(tmp_path):

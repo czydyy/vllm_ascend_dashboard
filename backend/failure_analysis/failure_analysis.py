@@ -1274,6 +1274,17 @@ class FailureAnalysisService:
                     "禁止把 workflow main 的 PR/commit 当作候选根因。"
                 )
 
+        # A branch-compatible last-good run is mandatory comparison evidence,
+        # not an optional tool call left for the CLI to discover.  The CLI has
+        # no database index for resolving the exact historical job itself.
+        last_good_evidence, comparison = await self._prepare_last_good_evidence(
+            job,
+            db,
+            tested_branch=tested_branch,
+            tested_commit=tested_commit,
+        )
+        lines.append(last_good_evidence)
+
         try:
             steps = json.loads(job.steps_data) if job.steps_data else []
             failed_steps = []
@@ -1334,23 +1345,9 @@ class FailureAnalysisService:
                     else:
                         lines.append(f"  - [{level}] {message}")
 
-            historical_comparison = await self._fetch_historical_run_comparison(job, db)
-            if historical_comparison:
-                lines.append(historical_comparison)
-
-            commit_diff = await self._fetch_commit_diff(
-                job,
-                db,
-                matrix_target_ref=matrix_target_ref,
-                tested_branch=tested_branch,
-                tested_commit=tested_commit,
-                workflow_branch=ci_result.branch if ci_result else None,
-                failure_context=self._extract_failure_context_for_candidate_ranking(
-                    logs.get("job_log")
-                ),
-            )
-            if commit_diff:
-                lines.append(commit_diff)
+            # The custom pipeline receives annotations inline.  Historical
+            # evidence is already prepared above using stricter branch checks;
+            # do not replace it with the legacy workflow-SHA comparison.
 
         # 纭繚鏈湴 Git 浠撳簱宸?clone
         from infrastructure.clients.github_cache import (
@@ -1392,6 +1389,19 @@ class FailureAnalysisService:
                     f"本地镜像缺少被测提交 {tested_commit}，且定向补充失败；"
                     "本次仅使用日志、步骤和 Artifact 证据。"
                 )
+        good_commit = comparison.get("good_commit")
+        if good_commit and source_repositories_ready:
+            good_ready = await asyncio.to_thread(
+                get_github_cache().ensure_ref,
+                good_commit,
+                branch=comparison.get("good_branch"),
+            )
+            if not good_ready:
+                warning = (
+                    f"本地镜像缺少 last-good 提交 {good_commit}，无法完成双端代码比较；"
+                    "必须在报告中保留该证据缺口。"
+                )
+                source_warning = f"{source_warning} {warning}".strip()
         ref_value = tested_commit or (ci_result.head_sha if ci_result and ci_result.head_sha else "main")
 
         # 棰勬媺鍙栨墍鏈夊彲鐢ㄦ棩蹇楀埌鏈湴锛孋LI 鍙鏈湴鏂囦欢涓?curl
@@ -1417,11 +1427,10 @@ class FailureAnalysisService:
             if logs["jobs_list"]:
                 lines.append(f"- Run 全部 job 列表：`{logs['jobs_list']}`，用于定位多节点/worker job 日志")
         if preload_evidence:
-            lines.append("- Annotations、Steps、历史对比、Commit Diff：下方已预加载")
+            lines.append("- Annotations、Steps：下方已预加载；last-good 证据包见上方")
         else:
             lines.append(
-                "- Annotations、历史运行和回归区间没有预加载。只有失败日志无法解释"
-                "或需要证明代码回归时，才读取对应的本地文件/仓库信息。"
+                "- Annotations 没有预加载；last-good 证据包已经准备完成，必须先做成功/失败对比。"
             )
         lines.append("")
         if source_warning:
@@ -1438,8 +1447,10 @@ class FailureAnalysisService:
         if ci_result and ci_result.head_sha and tested_commit and ci_result.head_sha != tested_commit:
             lines.append(f"  Workflow head（不要当作代码边界）：`{ci_result.head_sha}`")
         lines.append("")
-        lines.append("  首先解释失败 Job 的直接错误原因。日志已明确证明 Runner、网络、磁盘、镜像/依赖、权限、配置、超时或测试断言问题时，直接完成分析；不要求找到 PR。")
-        lines.append("  仅当代码回归仍是合理解释或直接原因不明确时，再建立同一 Job 的 last-good-tested..bad-tested 回归区间，并读取区间内与日志症状有关的候选提交。")
+        lines.append("  如果上方存在 last-good 证据包，必须先比较成功/失败 Job 日志、Artifact、Runner 和配置；不得跳过该步骤直接猜测根因。")
+        lines.append("  当 good_commit 与 bad_commit 都存在时，必须在两个本地代码仓中审查 good..bad 提交区间，并以日志症状筛选候选提交。")
+        lines.append("  如果上方明确说明未找到分支兼容的 last-good，只能进行正向分析；不得用 main、其他硬件、其他用例或其他分支的成功记录伪造 good_commit。")
+        lines.append("  首先解释失败 Job 的直接错误原因。日志已明确证明 Runner、网络、磁盘、镜像/依赖、权限、配置、超时或测试断言问题时，可以不关联 PR，但仍须报告 last-good 对比结论（如可用）。")
         lines.append("  可随时读取 last-good、bad/head 和候选提交；使用结构化 Git 工具，无需 checkout 或修改工作树。区间提交是调查材料，不是必须逐一审查的清单。")
         lines.append("  如果 Matrix/Code Target Ref 与 Workflow Branch 不一致，必须从 job log/历史 job log 中抽取被测代码 SHA；抽不到时不要使用 workflow/main 的 commit diff。")
         lines.append("  只有日志事实、实际运行入口/配置、源码路径和候选提交 diff 能形成因果链时，才能归因到 PR。否则关联 PR 留空，正常报告错误原因、证据缺口和建议动作。")
@@ -1480,6 +1491,129 @@ class FailureAnalysisService:
         except Exception as e:
             logger.warning(f"Failed to fetch annotations for job {job_id}: {e}")
             return []
+
+    async def _prepare_last_good_evidence(
+        self,
+        job: CIJob,
+        db: AsyncSession,
+        *,
+        tested_branch: str | None,
+        tested_commit: str | None,
+    ) -> tuple[str, dict[str, str | None]]:
+        """Resolve and materialize the only safe last-good comparison target.
+
+        Workflow ``head_sha`` is deliberately not enough here.  A Nightly
+        workflow may run on ``main`` while a matrix job checks out a release
+        branch.  The candidate's own job log must therefore prove the same
+        tested branch before it is allowed to become a ``good_commit``.
+        """
+        cutoff = job.completed_at or job.started_at
+        conditions = [
+            CIResult.run_id == CIJob.run_id,
+            CIResult.workflow_name == job.workflow_name,
+            CIJob.workflow_name == job.workflow_name,
+            CIJob.job_name == job.job_name,
+            CIJob.conclusion == "success",
+            CIResult.run_id != job.run_id,
+        ]
+        if job.hardware:
+            conditions.append(CIJob.hardware == job.hardware)
+        if cutoff is not None:
+            conditions.append(CIResult.completed_at < cutoff)
+
+        stmt = (
+            select(CIResult, CIJob)
+            .join(CIJob, CIJob.run_id == CIResult.run_id)
+            .where(and_(*conditions))
+            .order_by(desc(CIResult.completed_at))
+            .limit(30)
+        )
+        rows = (await db.execute(stmt)).all()
+        if not rows:
+            return (
+                "\n### Last-good 对比证据\n"
+                "未找到同 Workflow、同 Job、同硬件的历史成功运行；本次必须仅做当前失败的正向分析，"
+                "不得混用其他分支或其他用例的成功记录。"
+            ), {}
+
+        expected_branch = self._normalize_matrix_ref(tested_branch)
+        rejected_branches: list[str] = []
+        for run, candidate_job in rows:
+            candidate_logs = await self._download_all_logs(candidate_job, db)
+            candidate_ref = self._extract_tested_repo_ref_from_log(
+                candidate_logs.get("job_log")
+            )
+            candidate_branch = self._normalize_matrix_ref(
+                candidate_ref.get("branch")
+                or self._infer_matrix_target_ref_from_job_name(candidate_job.job_name)
+            )
+
+            # When the current job's tested branch is known, accepting a
+            # candidate without an explicit matching branch would recreate the
+            # main-vs-release false comparison this guard is meant to prevent.
+            if expected_branch and candidate_branch != expected_branch:
+                rejected_branches.append(candidate_branch or "unknown")
+                continue
+
+            # Cache the success-side artifacts only after the job is proven
+            # compatible. This keeps disk use bounded to one selected run.
+            candidate_logs = await self._download_all_logs(
+                candidate_job,
+                db,
+                materialize_artifacts=True,
+            )
+            good_commit = candidate_ref.get("commit")
+            bad_commit = tested_commit
+            lines = ["\n### Last-good 对比证据（必须调查）\n"]
+            lines.append(
+                f"- 当前失败：Run #{job.run_id} / Job #{job.job_id} / "
+                f"被测分支 `{expected_branch or 'unknown'}` / bad_commit `{bad_commit or 'unknown'}`"
+            )
+            lines.append(
+                f"- 最近兼容成功：Run #{run.run_number} (id={run.run_id}) / "
+                f"Job #{candidate_job.job_id} / 被测分支 `{candidate_branch or 'unknown'}` / "
+                f"good_commit `{good_commit or 'unknown'}`"
+            )
+            lines.append(f"- 失败 Job 日志：`{self._data_root() / 'failure-analysis' / job.workflow_name / f'{job.job_id}.log'}`")
+            lines.append(f"- 成功 Job 日志：`{candidate_logs.get('job_log') or 'unavailable'}`")
+            lines.append(
+                f"- 失败 Run Artifact：`{self._data_root() / 'ci-evidence' / 'runs' / str(job.run_id) / 'extracted'}`"
+            )
+            lines.append(
+                f"- 成功 Run Artifact：`{candidate_logs.get('artifacts_dir') or 'unavailable'}`"
+            )
+            if candidate_logs.get("artifacts_error"):
+                lines.append(
+                    f"- **成功 Artifact 下载失败**：{candidate_logs['artifacts_error']}；"
+                    "必须在报告中列为证据缺口，不能声称已完成 Artifact 对比。"
+                )
+            elif not candidate_logs.get("artifacts_dir"):
+                lines.append(
+                    "- 成功 Run 未发布可用 Artifact；日志对比仍为必做，Artifact 对比应明确标记为不适用。"
+                )
+            if not good_commit or not bad_commit:
+                lines.append(
+                    "- **代码边界限制**：至少一端 Job 日志未能提取实际 checkout SHA；"
+                    "可以比较日志/Artifact 与当前代码，但禁止以 workflow head SHA 代替 good/bad 提交区间。"
+                )
+            else:
+                lines.append(
+                    "- **必做代码调查**：在 vllm-ascend 与 vLLM 两个本地镜像仓中，"
+                    f"审查 `{good_commit}`..`{bad_commit}` 提交区间；先用日志和 Artifact 差异筛选候选，"
+                    "再验证完整源码、调用链、配置和测试。"
+                )
+            return "\n".join(lines), {
+                "good_commit": good_commit,
+                "good_branch": candidate_branch,
+                "good_run_id": str(run.run_id),
+            }
+
+        details = ", ".join(sorted(set(rejected_branches))) or "unknown"
+        return (
+            "\n### Last-good 对比证据\n"
+            f"找到同名成功 Job，但其被测分支与当前 `{expected_branch}` 不一致（候选分支：{details}），"
+            "已全部排除。必须仅做当前失败的正向分析，禁止跨分支构造 good_commit。"
+        ), {}
 
     async def _fetch_historical_run_comparison(self, job: CIJob, db: AsyncSession) -> str:
         stmt = select(CIResult).where(
@@ -2536,8 +2670,21 @@ class FailureAnalysisService:
             logger.warning("Failed to extract job %s from run log ZIP %s: %s", job_id, run_zip_path, exc)
             return False
 
-    async def _download_all_logs(self, job: CIJob) -> dict[str, str | None]:
-        """Download available logs to local files and return their paths."""
+    async def _download_all_logs(
+        self,
+        job: CIJob,
+        db: AsyncSession | None = None,
+        *,
+        materialize_artifacts: bool = False,
+    ) -> dict[str, str | None]:
+        """Download run-scoped evidence and return local paths.
+
+        Failed-run artifacts are normally cached during CI sync.  The selected
+        last-good run is different: its artifacts are downloaded here on
+        demand, after it has passed the strict same-test/branch match.  This
+        avoids downloading every successful Nightly while guaranteeing that a
+        comparison never has only the failing side's artifacts.
+        """
 
         import aiohttp
 
@@ -2636,7 +2783,32 @@ class FailureAnalysisService:
                 f"fallback could not recover it ({job_detail}; {fallback_detail})"
             )
 
-        # 3. Artifacts are materialized by CI sync, not by the LLM analysis.
+        # 3. Artifacts are normally materialized by CI sync for failed runs.
+        # A last-good run is explicitly cached here when comparison is needed.
+        if materialize_artifacts:
+            if db is None:
+                raise ValueError("db session is required when caching comparison artifacts")
+            try:
+                from collector.ci import CICollector
+                from infrastructure.clients.github_client import GitHubClient
+
+                evidence_client = GitHubClient(
+                    token=settings.GITHUB_TOKEN,
+                    owner=settings.GITHUB_OWNER,
+                    repo=settings.GITHUB_REPO,
+                )
+                await CICollector(evidence_client, db).materialize_run_artifacts(job.run_id)
+            except Exception as exc:
+                # Logs can still establish a useful comparison if GitHub has
+                # expired an artifact.  Preserve the reason in the evidence
+                # bundle instead of silently pretending it was available.
+                logger.warning(
+                    "Failed to cache comparison artifacts for run %s: %s",
+                    job.run_id,
+                    exc,
+                )
+                result["artifacts_error"] = str(exc)
+
         # Each run owns its own immutable directory, so this analysis can never
         # accidentally read evidence from another run or hide a partial cache.
         evidence_dir = self._data_root() / "ci-evidence" / "runs" / str(job.run_id)
