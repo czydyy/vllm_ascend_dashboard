@@ -112,8 +112,13 @@ restore_database() {
     [[ -s "$backup_file" ]] || die "restore backup is missing: $backup_file"
     compose exec -T mysql sh -c \
         'exec mysql -uroot -p"$MYSQL_ROOT_PASSWORD" -e "DROP DATABASE IF EXISTS \`$1\`; CREATE DATABASE \`$1\` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci"' sh "$DATABASE_NAME"
-    compose exec -T mysql sh -c \
-        'exec mysql -uroot -p"$MYSQL_ROOT_PASSWORD" "$1"' sh "$DATABASE_NAME" < "$backup_file"
+    if [[ "$backup_file" == *.zst ]]; then
+        zstd -dc "$backup_file" | compose exec -T mysql sh -c \
+            'exec mysql -uroot -p"$MYSQL_ROOT_PASSWORD" "$1"' sh "$DATABASE_NAME"
+    else
+        compose exec -T mysql sh -c \
+            'exec mysql -uroot -p"$MYSQL_ROOT_PASSWORD" "$1"' sh "$DATABASE_NAME" < "$backup_file"
+    fi
 }
 
 rollback() {
@@ -157,7 +162,7 @@ DATABASE_NAME="$(compose exec -T mysql sh -c 'printf %s "$MYSQL_DATABASE"')"
 [[ "$DATABASE_NAME" =~ ^[a-zA-Z0-9_]+$ ]] || die "unsafe MySQL database name"
 
 if $FORCE_ROLLBACK; then
-    latest_backup="$(find "$BACKUP_DIR" -maxdepth 1 -type f -name 'vllm_dashboard_*.sql' -printf '%T@ %p\n' 2>/dev/null | sort -nr | head -1 | cut -d' ' -f2-)"
+    latest_backup="$(find "$BACKUP_DIR" -maxdepth 1 -type f \( -name 'vllm_dashboard_*.sql' -o -name 'vllm_dashboard_*.sql.zst' \) -printf '%T@ %p\n' 2>/dev/null | sort -nr | head -1 | cut -d' ' -f2-)"
     [[ -n "$latest_backup" ]] || die "no MySQL backup is available"
     rollback "$latest_backup"
     exit 0

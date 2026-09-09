@@ -15,7 +15,7 @@ if [[ -f "$ENV_FILE" ]]; then
     source "$ENV_FILE"
     set +a
 fi
-RETENTION_DAYS=30
+RETENTION_DAYS=7
 SILENT=false
 VERIFY_RESTORE=false
 CHECK_LATEST=false
@@ -74,7 +74,8 @@ latest_verified_backup() {
         log "reusing verified backup: $backup_file (age=${age_seconds}s users=$metadata_users tables=$metadata_tables)"
         printf '%s\n' "$backup_file"
         return 0
-    done < <(find "$BACKUP_DIR" -maxdepth 1 -type f -name 'vllm_dashboard_*.sql.meta' \
+    done < <(find "$BACKUP_DIR" -maxdepth 1 -type f \
+        \( -name 'vllm_dashboard_*.sql.meta' -o -name 'vllm_dashboard_*.sql.zst.meta' \) \
         -printf '%T@ %p\n' 2>/dev/null | sort -nr | cut -d' ' -f2-)
 
     die "no recent restore-verified MySQL backup with a valid checksum found in $BACKUP_DIR"
@@ -124,8 +125,11 @@ log "backup targets: $EXISTING_DBS"
 
 mkdir -p "$BACKUP_DIR"
 timestamp="$(date +%Y%m%d_%H%M%S)"
-backup_file="$BACKUP_DIR/vllm_dashboard_${timestamp}.sql"
-metadata_file="$backup_file.meta"
+backup_file="$BACKUP_DIR/vllm_dashboard_${timestamp}.sql.zst"
+metadata_file="$BACKUP_DIR/vllm_dashboard_${timestamp}.sql.zst.meta"
+
+# 解压工具（压缩备份的内容校验/恢复都用它）
+decompress() { zstd -dc "$1"; }
 
 # 记录备份前状态
 pre_users=0
@@ -157,18 +161,18 @@ dump_cmd="mysqldump -uroot -p\"\$MYSQL_ROOT_PASSWORD\" \
   --source-data=2 \
   --no-tablespaces"
 
-if ! compose exec -T mysql sh -c "exec $dump_cmd" > "$backup_file"; then
+if ! compose exec -T mysql sh -c "exec $dump_cmd" | zstd -q > "$backup_file"; then
     rm -f "$backup_file"
     die "mysqldump failed"
 fi
 
 [[ -s "$backup_file" ]] || die "backup is empty"
-grep -q 'CREATE TABLE .users.' "$backup_file" || die "backup does not contain users table"
-grep -q 'Dump completed on' "$backup_file" || die "mysqldump completion marker is missing"
+decompress "$backup_file" | grep -q 'CREATE TABLE .users.' || die "backup does not contain users table"
+decompress "$backup_file" | grep -q 'Dump completed on' || die "mysqldump completion marker is missing"
 
 # 提取 binlog 恢复坐标
-binlog_file="$(grep -oP 'SOURCE_LOG_FILE='\''\K[^'\'']+' "$backup_file" 2>/dev/null || echo "")"
-binlog_position="$(grep -oP 'SOURCE_LOG_POS=\K[0-9]+' "$backup_file" 2>/dev/null || echo "")"
+binlog_file="$(decompress "$backup_file" | grep -oP 'SOURCE_LOG_FILE='\''\K[^'\'']+' 2>/dev/null || echo "")"
+binlog_position="$(decompress "$backup_file" | grep -oP 'SOURCE_LOG_POS=\K[0-9]+' 2>/dev/null || echo "")"
 
 backup_users="$pre_users"
 backup_tables="$pre_tables_total"
@@ -194,7 +198,7 @@ if $VERIFY_RESTORE; then
     trap cleanup_verify EXIT
 
     # 去掉 GTID_PURGED 语句（verify 用独立临时库，不需要 GTID）
-    sed '/^SET @@GLOBAL.GTID_PURGED=/d' "$backup_file" | sed "${sed_args[@]}" | \
+    decompress "$backup_file" | sed '/^SET @@GLOBAL.GTID_PURGED=/d' | sed "${sed_args[@]}" | \
     compose exec -T mysql sh -c \
         'exec mysql -uroot -p"$MYSQL_ROOT_PASSWORD"'
 
@@ -234,9 +238,10 @@ git_commit="$(git -C "$PROJECT_ROOT" rev-parse --short HEAD 2>/dev/null || echo 
     echo "backup_time=$(date --iso-8601=seconds)"
 } > "$metadata_file"
 
-# 清理过期备份
+# 清理过期备份（含压缩与未压缩两种命名）
 find "$BACKUP_DIR" -maxdepth 1 -type f \
-    \( -name 'vllm_dashboard_*.sql' -o -name 'vllm_dashboard_*.sql.meta' \) \
+    \( -name 'vllm_dashboard_*.sql' -o -name 'vllm_dashboard_*.sql.meta' \
+       -o -name 'vllm_dashboard_*.sql.zst' -o -name 'vllm_dashboard_*.sql.zst.meta' \) \
     -mtime "+$RETENTION_DAYS" -delete
 
 log "backup verified: users=$backup_users tables=$backup_tables sha256=$checksum"
