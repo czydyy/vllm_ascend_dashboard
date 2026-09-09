@@ -39,8 +39,10 @@ fi
 touch "$LOG_FILE" 2>/dev/null || true
 
 if [[ "$FREQUENCY" == "--daily" ]]; then
-    CRON_LINE="0 2 * * * $BACKUP_SCRIPT --silent >> $LOG_FILE 2>&1"
-    LABEL="daily at 02:00"
+    # 每日备份带还原验证：保证 fast 部署永远有 <24h 的已验证备份可复用，
+    # 部署时不再需要现场跑 15 分钟的完整验证备份。
+    CRON_LINE="0 2 * * * $BACKUP_SCRIPT --silent --verify-restore >> $LOG_FILE 2>&1"
+    LABEL="daily at 02:00 (restore-verified)"
 else
     CRON_LINE="0 * * * * $BACKUP_SCRIPT --silent >> $LOG_FILE 2>&1"
     LABEL="hourly"
