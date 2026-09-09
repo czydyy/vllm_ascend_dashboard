@@ -223,7 +223,9 @@ def decode_job_dir(job_dir: str) -> dict[str, Any]:
     test_func = None
     if "--" in decoded:
         decoded, test_func = decoded.split("--", 1)
-    test_type = "ut" if decoded.startswith("tests/ut/") else (
+    # 上游 UT 任务目录为 cpu-ut（无 tests__ut__ 前缀），需单独识别
+    is_ut = decoded.startswith("tests/ut/") or decoded == "cpu-ut" or decoded.startswith("cpu-ut/")
+    test_type = "ut" if is_ut else (
         "e2e" if decoded.startswith("tests/e2e/") else "other"
     )
     return {"job_dir": job_dir, "test_path": decoded, "test_type": test_type, "test_func": test_func}

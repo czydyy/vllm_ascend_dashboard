@@ -55,6 +55,31 @@ def test_read_covdata_uses_coverage_public_api(tmp_path: Path) -> None:
     assert result["lines"]["vllm_ascend/sample.py"] == [1, 3]
 
 
+def test_decode_job_dir_recognizes_cpu_ut() -> None:
+    """上游 UT 任务目录名是 cpu-ut（不是 tests__ut__ 前缀），必须归为 ut。"""
+    assert coverage_sync.decode_job_dir("cpu-ut")["test_type"] == "ut"
+    assert coverage_sync.decode_job_dir("cpu-ut/sub")["test_type"] == "ut"
+    assert coverage_sync.decode_job_dir("tests__ut__sample")["test_type"] == "ut"
+    assert coverage_sync.decode_job_dir("cpu-uts")["test_type"] == "other"
+
+
+def test_breadth_classifies_cpu_ut_directory_as_ut(tmp_path: Path) -> None:
+    tar_path = tmp_path / "coverage-cpu-ut.tar"
+    source_path = "/__w/vllm-ascend/vllm-ascend/vllm_ascend/sample.py"
+    with tarfile.open(tar_path, "w") as archive:
+        data_path = tmp_path / "coverage-cpu.data"
+        _write_covdata(data_path, source_path, {5, 6})
+        archive.add(
+            data_path,
+            arcname="VLLM-ASCEND@task-cpu/cpu-ut/covdata/coverage.linux-amd64-cpu-8-runner",
+        )
+
+    result = coverage_sync._process_tar_breadth(tar_path, "test-signature")
+
+    assert result["summary"]["total_jobs"] == 1
+    assert result["summary"]["by_test_type"] == {"ut": 1}
+
+
 def test_breadth_preserves_job_to_file_matrix(tmp_path: Path) -> None:
     result = coverage_sync._process_tar_breadth(_make_tar(tmp_path), "test-signature")
 
