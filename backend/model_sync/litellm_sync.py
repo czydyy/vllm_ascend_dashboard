@@ -2,16 +2,27 @@
 LiteLLM Provider 同步服务
 
 从数据库读取启用的 LLM provider，生成 LiteLLM 配置文件，
-写入共享卷后触发热加载。前台页面修改 provider 后重启 backend 即可生效。
+写入共享卷后，由 LiteLLM 容器入口监视并重启代理子进程。
 """
+import asyncio
 import logging
 from pathlib import Path
+from typing import Any
+from uuid import uuid4
 
 import aiohttp
 
 from infrastructure.core.config import settings
 
 logger = logging.getLogger(__name__)
+
+
+class LiteLLMConfigSyncError(RuntimeError):
+    """Raised when a saved provider cannot be routed by the live gateway."""
+
+
+_RUNTIME_MODEL_POLL_ATTEMPTS = 40
+_RUNTIME_MODEL_POLL_INTERVAL_SECONDS = 0.5
 
 # provider → LiteLLM model 前缀映射
 _PROVIDER_PREFIX = {
@@ -108,7 +119,14 @@ class LiteLLMSync:
             return False
 
     async def sync_from_db(self, db_session) -> int:
-        """从 DB 读取 provider → 生成 YAML → 写入文件 → 热加载"""
+        """Persist active providers and verify the live LiteLLM routes.
+
+        The production LiteLLM 1.91 image does not implement the former
+        ``/config/reload`` endpoint, and its dynamic model endpoint requires
+        LiteLLM's own database (which we intentionally do not run).  The
+        compose entrypoint watches this bind-mounted file and restarts only
+        the proxy process.  Wait for the live model list before success.
+        """
         from sqlalchemy import select
 
         from infrastructure.persistence.models.daily_summary import LLMProviderConfig
@@ -142,35 +160,90 @@ class LiteLLMSync:
         content = _build_config_yaml(model_list)
 
         config_path = Path(_CONFIG_FILE)
-        config_path.write_text(content, encoding="utf-8")
+        config_path.parent.mkdir(parents=True, exist_ok=True)
+        previous_content = config_path.read_text(encoding="utf-8") if config_path.exists() else None
+        # Keep the temporary file in the same directory: ``replace`` is then
+        # atomic and never crosses a mount boundary (the runtime config is a
+        # bind mount in production).  A unique name also avoids two admin
+        # requests clobbering each other's staged content.
+        temporary_path = config_path.with_suffix(f"{config_path.suffix}.{uuid4().hex}.tmp")
+        temporary_path.write_text(content, encoding="utf-8")
+        temporary_path.replace(config_path)
         logger.info("LiteLLM config written to %s (%d models)", _CONFIG_FILE, len(model_list))
 
-        if self.litellm_url:
-            await self._reload()
+        try:
+            if self.litellm_url:
+                await self._wait_for_runtime_models(model_list)
+        except Exception:
+            # Do not leave a file that will silently take effect on the next
+            # proxy restart when the corresponding database update failed.
+            if previous_content is None:
+                config_path.unlink(missing_ok=True)
+            else:
+                rollback_path = config_path.with_suffix(
+                    f"{config_path.suffix}.{uuid4().hex}.rollback"
+                )
+                rollback_path.write_text(previous_content, encoding="utf-8")
+                rollback_path.replace(config_path)
+            raise
 
         logger.info("LiteLLM sync: %d providers configured", len(model_list))
         return len(model_list)
 
-    async def _reload(self) -> bool:
-        """Reload LiteLLM through its management API."""
-        if not self.litellm_url:
-            return False
-        try:
-            headers = {"Authorization": f"Bearer {self.master_key}"}
-            async with aiohttp.ClientSession() as s:
-                async with s.post(
-                    f"{self.litellm_url}/config/reload",
-                    headers=headers,
-                    timeout=aiohttp.ClientTimeout(total=5),
-                ) as r:
-                    if r.status in (200, 202):
-                        logger.info("LiteLLM config reloaded via API")
-                        return True
-        except Exception as e:
-            logger.debug("LiteLLM API reload failed: %s", e)
+    async def _wait_for_runtime_models(self, model_list: list[dict[str, Any]]) -> None:
+        """Wait until the file-watching proxy has loaded every requested model."""
+        headers = {"Authorization": f"Bearer {self.master_key}"}
+        timeout = aiohttp.ClientTimeout(total=10)
+        requested_names = {str(item["model_name"]) for item in model_list}
+        last_error = ""
+        async with aiohttp.ClientSession() as session:
+            for attempt in range(_RUNTIME_MODEL_POLL_ATTEMPTS):
+                try:
+                    available = await self._runtime_model_names(session, headers, timeout)
+                    missing = sorted(requested_names - available)
+                    if not missing:
+                        logger.info("LiteLLM loaded configured model(s): %s", ", ".join(sorted(requested_names)))
+                        return
+                    last_error = "missing: " + ", ".join(missing)
+                except LiteLLMConfigSyncError as exc:
+                    # The watcher is deliberately restarting the proxy. A
+                    # short connection failure is expected during that swap.
+                    last_error = str(exc)
+                if attempt + 1 < _RUNTIME_MODEL_POLL_ATTEMPTS:
+                    await asyncio.sleep(_RUNTIME_MODEL_POLL_INTERVAL_SECONDS)
 
-        logger.warning("LiteLLM needs a manual restart to pick up the new config")
-        return False
+        raise LiteLLMConfigSyncError(
+            "LiteLLM did not load the updated configuration within "
+            f"{_RUNTIME_MODEL_POLL_ATTEMPTS * _RUNTIME_MODEL_POLL_INTERVAL_SECONDS:g}s ({last_error})"
+        )
+
+    async def _runtime_model_names(
+        self,
+        session: aiohttp.ClientSession,
+        headers: dict[str, str],
+        timeout: aiohttp.ClientTimeout,
+    ) -> set[str]:
+        try:
+            async with session.get(
+                f"{self.litellm_url}/v1/models",
+                headers=headers,
+                timeout=timeout,
+            ) as response:
+                if response.status != 200:
+                    detail = (await response.text()).strip()
+                    raise LiteLLMConfigSyncError(
+                        f"LiteLLM model-list check failed ({response.status}): {detail[:300]}"
+                    )
+                payload = await response.json(content_type=None)
+        except aiohttp.ClientError as exc:
+            raise LiteLLMConfigSyncError(f"LiteLLM model-list check failed: {exc}") from exc
+
+        entries = payload.get("data", []) if isinstance(payload, dict) else []
+        return {
+            str(entry.get("id") or entry.get("model_name"))
+            for entry in entries
+            if isinstance(entry, dict) and (entry.get("id") or entry.get("model_name"))
+        }
 
 _litellm_sync: LiteLLMSync | None = None
 

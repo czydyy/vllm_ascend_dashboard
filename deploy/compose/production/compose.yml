@@ -21,10 +21,14 @@ services:
       - LITELLM_MASTER_KEY=${LITELLM_MASTER_KEY:-sk-litellm-master-key-change-me}
       - STORE_MODEL_IN_DB=false
     entrypoint: []
-    command: ["litellm", "--config", "/app/litellm_config.yaml", "--port", "4000"]
+    # The entrypoint watches the external runtime configuration.  It restarts
+    # only LiteLLM when an administrator changes the active provider; backend,
+    # scheduler and collector keep running.
+    command: ["/bin/sh", "/app/litellm-entrypoint.sh"]
     volumes:
       # Backend writes the same runtime file after provider changes.
       - ${DASHBOARD_LITELLM_CONFIG_FILE:-../../config-templates/litellm_config.yaml}:/app/litellm_config.yaml
+      - ./litellm-entrypoint.sh:/app/litellm-entrypoint.sh:ro
     expose:
       - "4000"
     networks:

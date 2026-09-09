@@ -918,6 +918,8 @@ async def update_llm_provider(
                 detail=f"LLM 提供商 {provider} 不存在"
             )
 
+        was_active = provider_config.is_active
+
         # 更新字段
         if 'enabled' in config:
             provider_config.enabled = config['enabled']
@@ -947,21 +949,21 @@ async def update_llm_provider(
         if 'api_base_url' in config:
             provider_config.api_base_url = config['api_base_url']
 
-        await db.commit()
-
-        # 只有当前激活的 provider 或其配置变化时才同步 LiteLLM
-        should_sync = (
-            provider_config.is_active or
-            config.get('is_active')
-        )
+        # Active-provider changes must reach the live LiteLLM router before
+        # they are acknowledged.  The older flow committed first and only
+        # logged a failed hot reload, leaving the UI/DB on a model that the
+        # gateway could not route.
+        # Deactivating the current provider also changes the generated
+        # runtime file, so include its state *before* applying the request.
+        should_sync = was_active or provider_config.is_active
         if should_sync:
-            try:
-                from model_sync.litellm_sync import get_litellm_sync
-                sync = get_litellm_sync()
-                if sync.available:
-                    await sync.sync_from_db(db)
-            except Exception as e:
-                logger.warning("LiteLLM sync after provider update failed: %s", e)
+            await db.flush()
+            from model_sync.litellm_sync import get_litellm_sync
+            sync = get_litellm_sync()
+            if sync.available:
+                await sync.sync_from_db(db)
+
+        await db.commit()
 
         return {
             "success": True,
@@ -975,6 +977,14 @@ async def update_llm_provider(
     except HTTPException:
         raise
     except Exception as e:
+        from model_sync.litellm_sync import LiteLLMConfigSyncError
+        if isinstance(e, LiteLLMConfigSyncError):
+            await db.rollback()
+            logger.warning("LiteLLM provider update was not applied: %s", e)
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail=f"LiteLLM 配置尚未生效，未保存本次修改：{e}",
+            ) from e
         await db.rollback()
         logger.error(f"Failed to update LLM provider: {e}")
         raise HTTPException(
@@ -1022,17 +1032,15 @@ async def create_llm_provider(
             active_p.is_active = False
 
     db.add(new_config)
+    if new_config.is_active:
+        await db.flush()
+        from model_sync.litellm_sync import get_litellm_sync
+        sync = get_litellm_sync()
+        if sync.available:
+            await sync.sync_from_db(db)
+
     await db.commit()
     await db.refresh(new_config)
-
-    if new_config.is_active:
-        try:
-            from model_sync.litellm_sync import get_litellm_sync
-            sync = get_litellm_sync()
-            if sync.available:
-                await sync.sync_from_db(db)
-        except Exception as e:
-            logger.warning("LiteLLM sync after create failed: %s", e)
 
     logger.info(f"LLM provider created: {provider_name} by {current_user.username}")
     return {"success": True, "message": f"LLM 提供商 {provider_name} 已创建", "provider": provider_name}

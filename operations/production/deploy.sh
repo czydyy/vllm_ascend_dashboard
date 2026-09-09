@@ -232,6 +232,13 @@ if $FAST && [[ "$pre_git_full" != "$new_git_full" ]]; then
         exit 1
     fi
 fi
+litellm_runtime_changed=false
+if [[ "$pre_git_full" != "$new_git_full" ]]; then
+    litellm_runtime_changes="$(git -C "$PROJECT_ROOT" diff --name-only "$pre_git_full" "$new_git_full" -- \
+        deploy/compose/production/compose.yml \
+        deploy/compose/production/litellm-entrypoint.sh)"
+    [[ -n "$litellm_runtime_changes" ]] && litellm_runtime_changed=true
+fi
 ok "$pre_git -> $new_git"
 
 step "4/9 Pull immutable release images"
@@ -267,6 +274,11 @@ fi
 step "6/9 Start updated containers"
 if $FAST; then
     start_services=(backend frontend scheduler collector)
+    # Most fast deployments leave the proxy untouched.  A changed LiteLLM
+    # runtime wrapper/config mount must be recreated once to take effect.
+    if $litellm_runtime_changed; then
+        start_services=(litellm "${start_services[@]}")
+    fi
 else
     start_services=(mysql litellm backend frontend scheduler collector)
 fi
