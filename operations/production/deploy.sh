@@ -224,8 +224,12 @@ fi
 new_git_full="$(git -C "$PROJECT_ROOT" rev-parse HEAD)"
 new_git="$(git -C "$PROJECT_ROOT" rev-parse --short HEAD)"
 if $FAST && [[ "$pre_git_full" != "$new_git_full" ]]; then
+    # Demo seed data is never used by the production migration or runtime.
+    # It is safe to ship with an application-only release, unlike every
+    # other change under database/ (including migrations and bootstrap code).
     database_changes="$(git -C "$PROJECT_ROOT" diff --name-only "$pre_git_full" "$new_git_full" -- \
-        database/ backend/infrastructure/persistence/ operations/production/migrate.sh)"
+        database/ backend/infrastructure/persistence/ operations/production/migrate.sh | \
+        sed '/^database\/seed_local_demo\.py$/d')"
     if [[ -n "$database_changes" ]]; then
         echo "[ERROR] fast mode detected database-related changes; rerun without --fast:" >&2
         echo "$database_changes" >&2
