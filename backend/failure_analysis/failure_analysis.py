@@ -297,6 +297,9 @@ class FailureAnalysisService:
         ):
             raise ValueError(f"CIJob {job_id} conclusion is '{job.conclusion}', not a failed/cancelled job")
 
+        ci_result = await self._get_ci_result(db, job.run_id)
+        canonical_workflow_name = ci_result.workflow_name if ci_result else job.workflow_name
+
         # Automatic sync work must analyze this exact Job and must not reuse a
         # report generated for another Job with a similar failed step.
         force = bool(force or triggered_by == "scheduler")
@@ -306,12 +309,14 @@ class FailureAnalysisService:
         ).order_by(JobFailureAnalysis.id.desc()).limit(1)
         existing_result = await db.execute(existing_stmt)
         existing = existing_result.scalar_one_or_none()
+        if existing and existing.workflow_name != canonical_workflow_name:
+            existing.workflow_name = canonical_workflow_name
         if existing and existing.analysis_status in ("completed", "reused") and not force:
             changed = await self._sync_problem_category_to_daily_failure(
                 db,
                 job_id=job_id,
                 run_id=job.run_id,
-                workflow_name=job.workflow_name,
+                workflow_name=canonical_workflow_name,
                 job_name=job.job_name,
                 problem_category=existing.problem_category,
             )
@@ -320,23 +325,11 @@ class FailureAnalysisService:
             return existing
 
         fingerprint = self.compute_failure_fingerprint(job)
-        try:
-            llm_config = await self._get_llm_config(db)
-        except Exception as exc:
-            # The API creates the placeholder before enqueueing this task.  If
-            # runtime configuration disappears before the Collector starts,
-            # close that placeholder instead of leaving it in analyzing.
-            if existing:
-                existing.analysis_status = "failed"
-                existing.analysis_phase = "failed"
-                existing.error_message = str(exc)
-                await db.commit()
-                return existing
-            raise
 
         # Fingerprint reuse is available only to explicit non-forced requests;
         # scheduler-originated work was normalized to force=True above.
         if not force:
+            llm_config = await self._get_llm_config(db)
             dedup_stmt = select(JobFailureAnalysis).where(
                 and_(
                     JobFailureAnalysis.failure_fingerprint == fingerprint,
@@ -349,7 +342,7 @@ class FailureAnalysisService:
             if dedup_match:
                 target = existing if existing else JobFailureAnalysis(
                     job_id=job_id, run_id=job.run_id,
-                    workflow_name=job.workflow_name, job_name=job.job_name,
+                    workflow_name=canonical_workflow_name, job_name=job.job_name,
                     failure_date=job.completed_at or datetime.now(UTC),
                 )
                 target.failure_fingerprint = fingerprint
@@ -368,7 +361,7 @@ class FailureAnalysisService:
                     db,
                     job_id=job_id,
                     run_id=job.run_id,
-                    workflow_name=job.workflow_name,
+                    workflow_name=canonical_workflow_name,
                     job_name=job.job_name,
                     problem_category=target.problem_category,
                 )
@@ -399,7 +392,7 @@ class FailureAnalysisService:
             analysis = JobFailureAnalysis(
                 job_id=job_id,
                 run_id=job.run_id,
-                workflow_name=job.workflow_name,
+                workflow_name=canonical_workflow_name,
                 job_name=job.job_name,
                 failure_date=job.completed_at or datetime.now(UTC),
                 failure_fingerprint=fingerprint,
@@ -415,6 +408,7 @@ class FailureAnalysisService:
             # same failure boundary as the LLM call.  Previously
             # ``_build_job_context`` ran before this ``try`` block, so a 404
             # from GitHub left the placeholder permanently in ``analyzing``.
+            llm_config = await self._get_llm_config(db)
             agent_config = await self._get_agent_config(db)
             runtime = str(agent_config.get("runtime", "claude_cli")).strip().lower()
             if runtime not in {"claude_cli", "custom_agent"}:
@@ -635,7 +629,7 @@ class FailureAnalysisService:
                 db,
                 job_id=job_id,
                 run_id=job.run_id,
-                workflow_name=job.workflow_name,
+                workflow_name=canonical_workflow_name,
                 job_name=job.job_name,
                 problem_category=analysis.problem_category,
             )
@@ -645,7 +639,7 @@ class FailureAnalysisService:
             # Commit the user-visible result before scheduling optional PDF work.
             if report_content:
                 pdf_task = asyncio.create_task(self._generate_pdf_async(
-                    analysis.id, report_content, job.workflow_name, job.job_name, job_id
+                    analysis.id, report_content, canonical_workflow_name, job.job_name, job_id
                 ))
                 _BACKGROUND_TASKS.add(pdf_task)
                 pdf_task.add_done_callback(_BACKGROUND_TASKS.discard)
@@ -2479,7 +2473,12 @@ class FailureAnalysisService:
             if filters.get("analysis_status"):
                 stmt = stmt.where(JobFailureAnalysis.analysis_status == filters["analysis_status"])
             if filters.get("workflow_name"):
-                stmt = stmt.where(JobFailureAnalysis.workflow_name == filters["workflow_name"])
+                # Older analysis rows may contain GitHub's decorated Job
+                # display name.  The associated Run owns the stable workflow
+                # identity used by the page-level filter.
+                stmt = stmt.join(
+                    CIResult, CIResult.run_id == JobFailureAnalysis.run_id
+                ).where(CIResult.workflow_name == filters["workflow_name"])
             if filters.get("days_back"):
                 cutoff = datetime.now(UTC) - timedelta(days=filters["days_back"])
                 stmt = stmt.where(JobFailureAnalysis.failure_date >= cutoff)
