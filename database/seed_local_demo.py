@@ -291,6 +291,7 @@ async def seed_workflows(
     specs = [
         ("Nightly-A2", "schedule_nightly_test_a2.yaml", "A2", "schedule"),
         ("Nightly-A3", "schedule_nightly_test_a3.yaml", "A3", "schedule"),
+        ("Nightly-A5", "schedule_nightly_test_a5.yaml", "A5", "workflow_dispatch"),
         ("PR-Validation", "pull_request_validation.yaml", "A3", "pull_request"),
     ]
     workflows: list[WorkflowConfig] = []
@@ -327,6 +328,7 @@ async def seed_ci(
     job_names = [
         "Qwen2.5-7B nightly benchmark",
         "DeepSeek-R1 compatibility suite",
+        "A5 nightly validation suite",
         "Llama-3.1 serving regression",
     ]
     for day_offset in range(9, -1, -1):
@@ -340,7 +342,7 @@ async def seed_ci(
             ]
             duration = duration_minutes * 60
             failed = (day_offset + workflow_index) % 5 == 0
-            in_progress = day_offset == 0 and workflow_index == 2
+            in_progress = day_offset == 0 and workflow_index == len(workflows) - 1
             conclusion = None if in_progress else "failure" if failed else "success"
             result = await upsert(
                 db,
@@ -352,7 +354,7 @@ async def seed_ci(
                     "status": "in_progress" if in_progress else "completed",
                     "conclusion": conclusion,
                     "event": workflow.event,
-                    "branch": "main" if workflow.event == "schedule" else "feature/local-demo",
+                    "branch": "main" if workflow.event in ("schedule", "workflow_dispatch") else "feature/local-demo",
                     "head_sha": f"demo{run_id:036d}"[-40:],
                     "started_at": started,
                     "completed_at": None if in_progress else started + timedelta(seconds=duration),
@@ -421,13 +423,14 @@ async def seed_nightly_and_failures(
 ) -> None:
     today = now.date()
     nightly_jobs = [
-        ("Nightly-A2", "Qwen2.5-7B nightly benchmark", "Qwen/Qwen2.5-7B-Instruct", "qwen2.5-7b", "A2"),
-        ("Nightly-A3", "DeepSeek-R1 compatibility suite", "deepseek-ai/DeepSeek-R1-Distill-Qwen-7B", "deepseek-r1-distill-qwen-7b", "A3"),
-        ("PR-Validation", "Llama-3.1 serving regression", "meta-llama/Llama-3.1-8B-Instruct", "llama3.1-8b", "A3"),
+        ("Nightly-A2", "Qwen2.5-7B nightly benchmark", "Qwen/Qwen2.5-7B-Instruct", "qwen2.5-7b", "A2", "alice"),
+        ("Nightly-A3", "DeepSeek-R1 compatibility suite", "deepseek-ai/DeepSeek-R1-Distill-Qwen-7B", "deepseek-r1-distill-qwen-7b", "A3", "bob"),
+        ("Nightly-A5", "A5 nightly validation suite", "Qwen/Qwen2.5-7B-Instruct", "qwen2.5-7b", "A5", "avery"),
+        ("PR-Validation", "Llama-3.1 serving regression", "meta-llama/Llama-3.1-8B-Instruct", "llama3.1-8b", "A3", "charlie"),
     ]
     for offset in range(4):
         report_date = today - timedelta(days=offset)
-        for index, (workflow_name, job_name, model, fo, hardware) in enumerate(nightly_jobs):
+        for workflow_name, job_name, model, fo, hardware, owner in nightly_jobs:
             await upsert(
                 db,
                 NightlyTestCase,
@@ -441,7 +444,7 @@ async def seed_nightly_and_failures(
                     "display_name": f"{model.split('/')[-1]} nightly",
                     "test_model": model,
                     "model_fo": fo,
-                    "owner": ["alice", "bob", "charlie"][index],
+                    "owner": owner,
                     "deployment_type": "single-node",
                     "notes": f"{DEMO_PREFIX} nightly snapshot",
                     "enabled": True,
@@ -450,7 +453,7 @@ async def seed_nightly_and_failures(
             )
 
         if offset < 3:
-            workflow_name, job_name, model, fo, hardware = nightly_jobs[(offset + 1) % len(nightly_jobs)]
+            workflow_name, job_name, model, fo, hardware, _owner = nightly_jobs[(offset + 1) % len(nightly_jobs)]
             job = next(
                 item
                 for item in jobs
@@ -493,6 +496,7 @@ async def seed_nightly_and_failures(
     for workflow_name, job_name, owner in [
         ("Nightly-A2", "Qwen2.5-7B nightly benchmark", "Alice Zhang"),
         ("Nightly-A3", "DeepSeek-R1 compatibility suite", "Bob Li"),
+        ("Nightly-A5", "A5 nightly validation suite", "Avery Chen"),
         ("PR-Validation", "Llama-3.1 serving regression", "Charlie Wang"),
     ]:
         await upsert(

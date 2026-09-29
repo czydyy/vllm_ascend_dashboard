@@ -8,6 +8,21 @@ from typing import Any
 PARSER_VERSION = 1
 _ANSI = re.compile(r"\x1b\[[0-?]*[ -/]*[@-~]")
 _FIELD = re.compile(r"^\s*(Branch|Commit hash|Date|Message|Tags|Remote)\s*:\s*(.*?)\s*$", re.I)
+_SHOW_VERSION_STEP = "show vllm and vllm-ascend version"
+
+
+def version_snapshot_step_name(steps: list[dict[str, Any]] | None) -> str | None:
+    """Return the best CI step that prints the checked-out vLLM versions.
+
+    Newer workflows expose this evidence explicitly.  Keep ``Stream logs`` as a
+    fallback for older workflow definitions that printed the same information
+    there.
+    """
+    names = [str(step.get("name", "")).strip() for step in steps or [] if isinstance(step, dict)]
+    for name in names:
+        if _SHOW_VERSION_STEP in name.lower():
+            return name
+    return next((name for name in names if "stream logs" in name.lower()), None)
 
 
 def _iso_date(value: str | None) -> str | None:
@@ -19,7 +34,9 @@ def _iso_date(value: str | None) -> str | None:
         return value.strip()
 
 
-def parse_ci_version_snapshot(log_text: str, *, source_job_id: int | None = None) -> dict[str, Any] | None:
+def parse_ci_version_snapshot(
+    log_text: str, *, source_job_id: int | None = None, source_step: str | None = None
+) -> dict[str, Any] | None:
     if isinstance(log_text, bytes):
         log_text = log_text.decode("utf-8", errors="replace")
     text = _ANSI.sub("", log_text or "")
@@ -54,7 +71,7 @@ def parse_ci_version_snapshot(log_text: str, *, source_job_id: int | None = None
     result: dict[str, Any] = {
         "parser_version": PARSER_VERSION,
         "source_job_id": source_job_id,
-        "source_step": "Stream logs",
+        "source_step": source_step or "Stream logs",
         "status": "complete" if blocks.get("vllm_ascend", {}).get("commit_hash") else "partial",
     }
     for prefix in ("vllm", "vllm_ascend"):

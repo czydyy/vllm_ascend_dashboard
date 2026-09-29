@@ -261,6 +261,7 @@ function WorkflowManagement() {
                 <Select>
                   <Option value="A2">A2</Option>
                   <Option value="A3">A3</Option>
+                  <Option value="A5">A5</Option>
                   <Option value="310P">310P</Option>
                 </Select>
               </Form.Item>

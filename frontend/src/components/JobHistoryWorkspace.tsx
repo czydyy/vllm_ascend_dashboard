@@ -4,14 +4,14 @@ import { Alert, Button, Card, Collapse, Empty, Modal, Space, Spin, Table, Tag, T
 import { CopyOutlined, GithubOutlined, RobotOutlined } from '@ant-design/icons'
 import api from '../services/api'
 import { createJobLogRootCause, getJobComparison, getJobLogRootCause, refreshRunVersionSnapshot } from '../services/ci'
-import type { CIJob, FailureStageEvidence } from '../services/ci'
+import type { CIJob } from '../services/ci'
 import { formatDuration } from '../utils/ciRenderers'
 import { formatTimezone } from '../utils/timezone'
 
 const { Text, Link } = Typography
 
 function TimelineNode({
-  record, currentJobId, selectedAsStart, selectedAsEnd, onStart, onEnd, onOpenSummary, versionProbeRunning,
+  record, currentJobId, selectedAsStart, selectedAsEnd, onStart, onEnd, onOpenSummary,
 }: {
   record: CIJob
   currentJobId: number
@@ -20,15 +20,25 @@ function TimelineNode({
   onStart: () => void
   onEnd: () => void
   onOpenSummary?: (jobId: number) => void
-  versionProbeRunning?: boolean
 }) {
   const [hovered, setHovered] = useState(false)
+  const [linkHovered, setLinkHovered] = useState(false)
   const failedStep = record.steps_summary?.find(step => ['failure', 'timed_out', 'cancelled'].includes(step.conclusion || ''))?.name
   const nodeColor = record.conclusion === 'success' ? '#237a45' : record.conclusion === 'failure' ? '#b8323c' : '#595959'
   const statusText = record.conclusion === 'success' ? '成功' : record.conclusion === 'failure' ? '失败' : record.conclusion || '未知'
 
   return (
-    <div style={{ width: 190, flex: '0 0 190px', position: 'relative', textAlign: 'center' }}>
+    <div
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
+      style={{
+        width: 190,
+        flex: '0 0 190px',
+        position: 'relative',
+        textAlign: 'center',
+        zIndex: 2,
+      }}
+    >
       <div style={{ height: 28, color: '#595959', fontSize: 12 }}>{record.started_at ? formatTimezone(record.started_at, 'MM-DD') : '时间未知'}</div>
       <div style={{ height: 50, display: 'flex', justifyContent: 'center' }}>
         <a
@@ -36,8 +46,8 @@ function TimelineNode({
           target="_blank"
           rel="noopener noreferrer"
           title="打开 GitHub Job 日志"
-          onMouseEnter={() => setHovered(true)}
-          onMouseLeave={() => setHovered(false)}
+          onMouseEnter={() => setLinkHovered(true)}
+          onMouseLeave={() => setLinkHovered(false)}
           style={{
             width: 76,
             height: 36,
@@ -49,35 +59,23 @@ function TimelineNode({
             fontWeight: 700,
             fontSize: 13,
             zIndex: 1,
-            boxShadow: selectedAsStart || selectedAsEnd ? '0 0 0 2px #262626' : undefined,
             textDecoration: 'none',
             display: 'inline-flex',
             alignItems: 'center',
             justifyContent: 'center',
-            gap: hovered ? 5 : 0,
+            gap: linkHovered ? 5 : 0,
             transition: 'gap 160ms ease, transform 160ms ease, filter 160ms ease',
-            transform: hovered ? 'translateY(-2px)' : 'none',
-            filter: hovered ? 'brightness(1.08)' : 'none',
+            transform: linkHovered ? 'translateY(-2px)' : 'none',
+            filter: linkHovered ? 'brightness(1.08)' : 'none',
           }}
         >
-          <GithubOutlined style={{ width: hovered ? 15 : 0, opacity: hovered ? 1 : 0, overflow: 'hidden', transition: 'width 160ms ease, opacity 120ms ease' }} />
+          <GithubOutlined style={{ width: linkHovered ? 15 : 0, opacity: linkHovered ? 1 : 0, overflow: 'hidden', transition: 'width 160ms ease, opacity 120ms ease' }} />
           <span>{statusText}</span>
         </a>
       </div>
       <div style={{ fontSize: 12, fontWeight: 600 }}>{record.started_at ? formatTimezone(record.started_at, 'HH:mm') : '--:--'}</div>
       <div style={{ color: '#595959', fontSize: 12, marginTop: 2 }}>{formatDuration(record.duration_seconds)}</div>
-      <div style={{ height: 18, marginTop: 2, fontSize: 11 }}>
-        {record.vllm_ascend_commit ? (
-          <Link
-            href={`https://github.com/vllm-project/vllm-ascend/commit/${record.vllm_ascend_commit}`}
-            target="_blank"
-            title={record.vllm_ascend_commit}
-          >
-            commit {record.vllm_ascend_commit.slice(0, 7)}
-          </Link>
-        ) : <Text type="secondary">{versionProbeRunning ? '自动勘测中…' : '版本未知'}</Text>}
-      </div>
-      <div title={record.vllm_ascend_commit_message || undefined} style={{ height: 17, color: '#595959', fontSize: 10 }}>
+      <div style={{ height: 17, marginTop: 2, color: '#595959', fontSize: 10 }}>
         {record.vllm_ascend_commit_date ? `版本 ${formatTimezone(record.vllm_ascend_commit_date, 'MM-DD HH:mm')}` : '版本时间未知'}
       </div>
       <div title={failedStep || undefined} style={{ height: 36, marginTop: 3, padding: '0 5px', color: record.conclusion === 'success' ? '#8c8c8c' : '#a61d24', fontSize: 11, lineHeight: '17px', overflow: 'hidden', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical' }}>
@@ -91,10 +89,17 @@ function TimelineNode({
         )}
       </div>
       {record.job_id === currentJobId && <Tag style={{ margin: '4px 0 0' }}>当前</Tag>}
-      <Space size={4} style={{ marginTop: 6 }}>
-        <Button size="small" type={selectedAsStart ? 'primary' : 'default'} style={{ borderRadius: 2, paddingInline: 7 }} onClick={onStart}>Start</Button>
-        <Button size="small" type={selectedAsEnd ? 'primary' : 'default'} style={{ borderRadius: 2, paddingInline: 7 }} onClick={onEnd}>End</Button>
-      </Space>
+      <div style={{ height: 30, marginTop: 6, overflow: 'hidden', position: 'relative' }}>
+        {(selectedAsStart || selectedAsEnd) && (
+          <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#17133f', fontSize: 13, fontWeight: 700, opacity: hovered ? 0 : 1, transform: hovered ? 'scale(0.88)' : 'scale(1)', transition: hovered ? 'opacity 120ms ease, transform 180ms ease' : 'opacity 360ms ease, transform 460ms cubic-bezier(0.22, 1, 0.36, 1)' }}>
+            {selectedAsStart ? 'Start' : 'End'}
+          </div>
+        )}
+        <div style={{ display: 'flex', justifyContent: 'center', gap: 4 }}>
+          <Button size="small" type={selectedAsStart ? 'primary' : 'default'} style={{ borderRadius: 2, paddingInline: 7, opacity: hovered ? 1 : 0, transform: hovered ? 'translateX(0)' : 'translateX(44px)', transition: hovered ? 'opacity 140ms ease-out, transform 220ms cubic-bezier(0.34, 1.56, 0.64, 1)' : 'opacity 360ms ease-in, transform 480ms cubic-bezier(0.22, 1, 0.36, 1)', pointerEvents: hovered ? 'auto' : 'none' }} onClick={onStart}>设为 Start</Button>
+          <Button size="small" type={selectedAsEnd ? 'primary' : 'default'} style={{ borderRadius: 2, paddingInline: 7, opacity: hovered ? 1 : 0, transform: hovered ? 'translateX(0)' : 'translateX(-44px)', transition: hovered ? 'opacity 140ms ease-out, transform 220ms cubic-bezier(0.34, 1.56, 0.64, 1)' : 'opacity 360ms ease-in, transform 480ms cubic-bezier(0.22, 1, 0.36, 1)', pointerEvents: hovered ? 'auto' : 'none' }} onClick={onEnd}>设为 End</Button>
+        </div>
+      </div>
     </div>
   )
 }
@@ -109,7 +114,6 @@ export function JobHistoryWorkspace({ job, workflowName }: { job: CIJob; workflo
   const [startJobId, setStartJobId] = useState<number | null>(null)
   const [endJobId, setEndJobId] = useState<number | null>(null)
   const [summaryJobId, setSummaryJobId] = useState<number | null>(null)
-  const [probingRunIds, setProbingRunIds] = useState<Set<number>>(new Set())
   const attemptedVersionRuns = useRef(new Set<number>())
   const timelineViewportRef = useRef<HTMLDivElement>(null)
   const queryClient = useQueryClient()
@@ -147,7 +151,6 @@ export function JobHistoryWorkspace({ job, workflowName }: { job: CIJob; workflo
     if (runIds.length === 0) return
     runIds.forEach(runId => attemptedVersionRuns.current.add(runId))
     let cancelled = false
-    setProbingRunIds(new Set(runIds))
     void (async () => {
       let collected = false
       for (const runId of runIds) {
@@ -158,14 +161,6 @@ export function JobHistoryWorkspace({ job, workflowName }: { job: CIJob; workflo
         } catch {
           // Missing/expired logs are represented as "版本未知"; do not turn
           // automatic evidence collection into a page-level error.
-        } finally {
-          if (!cancelled) {
-            setProbingRunIds(previous => {
-              const next = new Set(previous)
-              next.delete(runId)
-              return next
-            })
-          }
         }
       }
       if (!cancelled && collected) {
@@ -179,6 +174,11 @@ export function JobHistoryWorkspace({ job, workflowName }: { job: CIJob; workflo
   const start = data.find(item => item.job_id === startJobId)
   const end = data.find(item => item.job_id === endJobId)
   const timeline = [...data].sort((a, b) => new Date(a.started_at || 0).getTime() - new Date(b.started_at || 0).getTime())
+  const startIndex = timeline.findIndex(record => record.job_id === startJobId)
+  const endIndex = timeline.findIndex(record => record.job_id === endJobId)
+  const rangeStartIndex = startIndex >= 0 && endIndex >= 0 ? Math.min(startIndex, endIndex) : -1
+  const rangeEndIndex = startIndex >= 0 && endIndex >= 0 ? Math.max(startIndex, endIndex) : -1
+  const hasSelectedRange = rangeStartIndex >= 0 && rangeEndIndex >= 0
 
   useEffect(() => {
     const viewport = timelineViewportRef.current
@@ -248,7 +248,6 @@ export function JobHistoryWorkspace({ job, workflowName }: { job: CIJob; workflo
     )
     const linkLines = intervalRecords.map(record => `- ${formatTimezone(record.started_at)} | ${record.conclusion || '未知'} | ${record.github_job_url || '无链接'}`)
     const logLines = (intervalLogSummaries.data || []).map(({ record, summary, source }) => `- ${formatTimezone(record.started_at)} | ${record.conclusion || '未知'} | ${source}\n  ${summary}`)
-    const stageLine = (label: string, stage: FailureStageEvidence | undefined) => `- ${label}: ${stage?.first_failed_step || '未知'}；${stage?.direct_error || '无直接错误信息'}`
     const text = [
       `故障定位证据：${job.job_name}`,
       `区间：${formatTimezone(start.started_at)} -> ${formatTimezone(end.started_at)}`,
@@ -264,10 +263,6 @@ export function JobHistoryWorkspace({ job, workflowName }: { job: CIJob; workflo
       ...(prLines.length ? prLines : ['- 区间内无有效 PR']),
       evidence.pr_changes.compare_url ? `- GitHub commit 对比：${evidence.pr_changes.compare_url}` : '',
       ...(revertLines.length ? ['', '【回退关系】', ...revertLines] : []),
-      '',
-      '【失败阶段差异】',
-      stageLine('Start', evidence.failure_stage_difference.start),
-      stageLine('End', evidence.failure_stage_difference.end),
       '',
       '【区间日志汇总】',
       ...(logLines.length ? logLines : ['- 尚无日志汇总']),
@@ -288,33 +283,26 @@ export function JobHistoryWorkspace({ job, workflowName }: { job: CIJob; workflo
     }
   }
 
-  const stageCard = (label: string, stage: FailureStageEvidence | undefined) => (
-    <div style={{ flex: 1, minWidth: 220, border: '1px solid #d9d9d9', padding: '8px 10px' }}>
-      <Text strong>{label}</Text>
-      <div>首个失败阶段：{displayValue(stage?.first_failed_step)}</div>
-      <div>直接报错点：{displayValue(stage?.direct_error)}</div>
-    </div>
-  )
   const revertRelations = comparison.data?.pr_changes.revert_commits || []
   const cancelledRelationCount = revertRelations.filter(item => item.cancellation_status === 'cancelled').length
   const retainedRelationCount = revertRelations.length - cancelledRelationCount
 
   return (
     <Card
+      className="job-history-workspace"
       size="small"
       title={`Job 运行历史 · ${job.job_name}`}
-      style={{ margin: '8px 0', width: '100%', maxWidth: '100%', overflow: 'hidden' }}
+      style={{
+        margin: '8px 0',
+        width: '100%',
+        minWidth: 0,
+        maxWidth: '100%',
+        overflow: 'hidden',
+        // Do not let comparison tables contribute their intrinsic width to
+        // the parent Job table's max-content width.
+        contain: 'inline-size',
+      }}
     >
-      <Text type="secondary">以首页“今日 CI 详情”中的 Workflow/Job 集合作为范围，向历史回溯并展示每天对应的正式运行；不是只展示今天的 Run。选择较早记录为 Start、较新记录为 End。</Text>
-      {(start || end) && (
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, margin: '10px 0' }}>
-          {[{ label: 'Start', item: start }, { label: 'End', item: end }].map(({ label, item }) => (
-            <div key={label} style={{ border: '1px solid #8c8c8c', padding: '7px 10px', background: '#fafafa' }}>
-              <strong style={{ marginRight: 10 }}>{label}</strong>{item ? formatTimezone(item.started_at) : '未选择'}
-            </div>
-          ))}
-        </div>
-      )}
       {intervalInvalid && <Alert type="warning" showIcon message="Start 必须早于 End，请重新选择边界。" style={{ marginTop: 10 }} />}
       {isError && <Alert type="error" showIcon message="历史记录加载失败" style={{ marginTop: 10 }} />}
       {!isLoading && !isError && !data.some(item => item.job_id === job.job_id) && (
@@ -344,8 +332,23 @@ export function JobHistoryWorkspace({ job, workflowName }: { job: CIJob; workflo
             style={{ width: '100%', maxWidth: 1980, overflowX: 'auto', overflowY: 'hidden', padding: '12px 4px 10px' }}
           >
             <div style={{ display: 'flex', width: 'max-content', position: 'relative', gap: 8 }}>
-            <div style={{ position: 'absolute', left: 48, right: 48, top: 53, height: 1, background: '#8c8c8c' }} />
-            {timeline.map(record => {
+            <div style={{ position: 'absolute', left: 48, right: 48, top: 53, height: 1, background: '#8c8c8c', zIndex: 1 }} />
+            {hasSelectedRange && rangeEndIndex > rangeStartIndex && (
+              <div
+                style={{
+                  position: 'absolute',
+                  left: rangeStartIndex * 198 + 95,
+                  width: (rangeEndIndex - rangeStartIndex) * 198,
+                  top: 52,
+                  height: 3,
+                  borderRadius: 2,
+                  background: '#17133f',
+                  boxShadow: '0 3px 7px rgba(23, 19, 63, 0.28)',
+                  zIndex: 1,
+                }}
+              />
+            )}
+            {timeline.map((record, index) => {
               const selectedAsStart = startJobId === record.job_id
               const selectedAsEnd = endJobId === record.job_id
               return (
@@ -358,7 +361,6 @@ export function JobHistoryWorkspace({ job, workflowName }: { job: CIJob; workflo
                   onStart={() => { setStartJobId(record.job_id); if (endJobId === record.job_id) setEndJobId(null) }}
                   onEnd={() => { setEndJobId(record.job_id); if (startJobId === record.job_id) setStartJobId(null) }}
                   onOpenSummary={setSummaryJobId}
-                  versionProbeRunning={probingRunIds.has(record.run_id)}
                 />
               )
             })}
@@ -375,29 +377,41 @@ export function JobHistoryWorkspace({ job, workflowName }: { job: CIJob; workflo
       )}
       {canCompare && comparison.isError && <Alert type="error" showIcon message="差异证据加载失败，请检查后端日志。" />}
       {comparison.data && (
-        <div style={{ marginTop: 12 }}>
-          <Alert type="info" showIcon message="展示实际 vllm-ascend commit 区间内的合入 PR 全集" description={comparison.data.warnings.join('；')} style={{ marginBottom: 8 }} />
+        <div style={{ marginTop: 12, width: '100%', minWidth: 0, maxWidth: '100%', overflow: 'hidden' }}>
           <Button type="primary" icon={<CopyOutlined />} loading={intervalLogSummaries.isLoading} onClick={copyComparisonEvidence} style={{ marginBottom: 8 }}>一键复制全部故障定位证据</Button>
-          <Collapse size="small" defaultActiveKey={['commit', 'pr', 'stage']} items={[
-            {
-              key: 'commit',
-              label: 'CI 实际对应的 vllm-ascend commit 版本',
-              children: <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
-                {(['start', 'end'] as const).map(side => {
-                  const sha = comparison.data?.[side].vllm_ascend_commit
-                  return <div key={side} style={{ border: '1px solid #d9d9d9', padding: '8px 10px' }}>
-                    <Text strong>{side === 'start' ? 'Start' : 'End'}：</Text>
-                    {sha ? <><Link href={`https://github.com/vllm-project/vllm-ascend/commit/${sha}`} target="_blank"><code>{sha}</code></Link><div><Text type="secondary">提交时间：{displayValue(comparison.data?.[side].vllm_ascend_commit_date)}</Text></div></> : <Text type="secondary">未知（不会使用 Workflow head SHA 代替）</Text>}
+          <div style={{ width: '100%', maxWidth: 620, padding: '6px 2px 14px' }}>
+            <Text type="secondary" style={{ display: 'block', marginBottom: 10, fontSize: 12 }}>vllm-ascend 版本区间</Text>
+            {(['start', 'end'] as const).map((side, index) => {
+              const sha = comparison.data?.[side].vllm_ascend_commit
+              const commitDate = comparison.data?.[side].vllm_ascend_commit_date
+              return <div key={side}>
+                {index > 0 && (
+                  <div style={{ width: 132, height: 22, position: 'relative', margin: '4px 0' }} aria-hidden="true">
+                    <span style={{ position: 'absolute', left: 0, right: 2, top: 10, borderTop: '1px solid #a6a6a6' }} />
+                    <span style={{ position: 'absolute', right: 2, top: 7, width: 7, height: 7, borderTop: '1px solid #a6a6a6', borderRight: '1px solid #a6a6a6', transform: 'rotate(45deg)' }} />
                   </div>
-                })}
-              </div>,
-            },
+                )}
+                <div style={{ fontSize: 12, lineHeight: '20px', textAlign: 'left' }}>
+                  <div style={{ color: '#595959' }}>{side === 'start' ? 'Start' : 'End'}</div>
+                  <div>
+                    {sha ? (
+                      <Link href={`https://github.com/vllm-project/vllm-ascend/commit/${sha}`} target="_blank" title={sha}>
+                        <code style={{ fontSize: 12 }}>{sha.slice(0, 12)}</code>
+                      </Link>
+                    ) : <Text type="secondary" style={{ fontSize: 12 }}>未知</Text>}
+                  </div>
+                  <div><Text type="secondary" style={{ fontSize: 12 }}>{displayValue(commitDate)}</Text></div>
+                </div>
+              </div>
+            })}
+          </div>
+          <Collapse style={{ width: '100%', minWidth: 0, maxWidth: '100%' }} size="small" defaultActiveKey={['pr']} items={[
             { key: 'pr', label: `PR / 提交修改（${comparison.data.pr_changes.items.length} 个）`, children: <>
               {comparison.data.pr_changes.compare_url && <div style={{ marginBottom: 8 }}><Link href={comparison.data.pr_changes.compare_url} target="_blank">打开 GitHub commit 对比</Link></div>}
               {comparison.data.pr_changes.error && <Alert type="warning" showIcon message={`GitHub compare 获取失败：${comparison.data.pr_changes.error}`} style={{ marginBottom: 8 }} />}
               {comparison.data.pr_changes.items.length === 0 ? <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="Start / End 的 commit 范围内没有提交，或 compare 暂不可用" /> :
-                <div style={{ width: 'min(100%, 980px)' }}>
-                  <Table size="small" pagination={false} tableLayout="fixed" rowKey={row => row.sha || String(row.number)} dataSource={[...comparison.data.pr_changes.items].sort((a, b) => new Date(a.merged_at || 0).getTime() - new Date(b.merged_at || 0).getTime())} columns={[
+                <div style={{ width: '100%', maxWidth: 980, minWidth: 0, overflowX: 'auto' }}>
+                  <Table scroll={{ x: 910 }} size="small" pagination={false} tableLayout="fixed" rowKey={row => row.sha || String(row.number)} dataSource={[...comparison.data.pr_changes.items].sort((a, b) => new Date(a.merged_at || 0).getTime() - new Date(b.merged_at || 0).getTime())} columns={[
                     { title: '', width: 34, render: () => <div style={{ position: 'relative', height: 36, borderLeft: '2px solid #64748b', marginLeft: 8 }}><span style={{ position: 'absolute', top: 12, left: -6, width: 10, height: 10, background: '#334155', border: '2px solid #fff', boxShadow: '0 0 0 1px #334155' }} /></div> },
                     { title: 'PR', width: 66, render: (_, row) => row.url ? <Link href={row.url} target="_blank">{row.number ? `#${row.number}` : row.sha?.slice(0, 7)}</Link> : row.number ? `#${row.number}` : row.sha?.slice(0, 7) },
                     { title: '合入时间', dataIndex: 'merged_at', width: 112, render: value => value ? <span title={formatTimezone(value)}>{formatTimezone(value, 'MM-DD HH:mm')}</span> : '未知' },
@@ -431,7 +445,6 @@ export function JobHistoryWorkspace({ job, workflowName }: { job: CIJob; workflo
                 />
               )}
             </> },
-            { key: 'stage', label: '失败阶段差异', children: <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>{stageCard('Start', comparison.data.failure_stage_difference.start)}{stageCard('End', comparison.data.failure_stage_difference.end)}</div> },
             {
               key: 'logs',
               label: `区间日志汇总（${intervalRecords.length} 个节点）`,
