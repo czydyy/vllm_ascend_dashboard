@@ -38,6 +38,7 @@ from tooling.ci_version_snapshot import (
     PARSER_VERSION,
     get_version_snapshot,
     parse_ci_version_snapshot,
+    version_snapshot_step_name,
 )
 
 logger = logging.getLogger(__name__)
@@ -902,9 +903,9 @@ class CICollector:
             # context and before an asynchronous analysis can be enqueued.
             await self._materialize_failure_run_artifacts(run_id, jobs)
 
-            # A single completed Job containing the Stream logs probe supplies
-            # the actual checkout for the run. Failure here is intentionally
-            # non-fatal so ordinary CI collection can still complete.
+            # A completed version-probe Job supplies the actual checkout for the
+            # run. Failure here is intentionally non-fatal so ordinary CI
+            # collection can still complete.
             await self._collect_run_version_snapshot(run_id, jobs)
 
             # 注意：不在这里 commit，由外层统一 commit
@@ -926,16 +927,18 @@ class CICollector:
             return existing
 
         candidates = [
-            job for job in jobs
-            if job.get("status") == "completed" and any(
-                "stream logs" in str(step.get("name", "")).lower()
-                for step in (job.get("steps") or [])
-            )
+            (job, version_snapshot_step_name(job.get("steps")))
+            for job in jobs
+            if job.get("status") == "completed"
         ]
-        for job in candidates:
+        for job, source_step in candidates:
+            if not source_step:
+                continue
             try:
                 logs = await self.github.get_job_logs(int(job["id"]))
-                snapshot = parse_ci_version_snapshot(logs, source_job_id=int(job["id"]))
+                snapshot = parse_ci_version_snapshot(
+                    logs, source_job_id=int(job["id"]), source_step=source_step
+                )
                 if not snapshot:
                     continue
                 snapshot["collected_at"] = datetime.now(UTC).isoformat()

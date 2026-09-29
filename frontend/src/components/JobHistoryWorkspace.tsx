@@ -91,7 +91,7 @@ function TimelineNode({
       {record.job_id === currentJobId && <Tag style={{ margin: '4px 0 0' }}>当前</Tag>}
       <div style={{ height: 30, marginTop: 6, overflow: 'hidden', position: 'relative' }}>
         {(selectedAsStart || selectedAsEnd) && (
-          <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#5735d2', fontSize: 13, fontWeight: 700, opacity: hovered ? 0 : 1, transform: hovered ? 'scale(0.88)' : 'scale(1)', transition: hovered ? 'opacity 120ms ease, transform 180ms ease' : 'opacity 360ms ease, transform 460ms cubic-bezier(0.22, 1, 0.36, 1)' }}>
+          <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#17133f', fontSize: 13, fontWeight: 700, opacity: hovered ? 0 : 1, transform: hovered ? 'scale(0.88)' : 'scale(1)', transition: hovered ? 'opacity 120ms ease, transform 180ms ease' : 'opacity 360ms ease, transform 460ms cubic-bezier(0.22, 1, 0.36, 1)' }}>
             {selectedAsStart ? 'Start' : 'End'}
           </div>
         )}
@@ -289,6 +289,7 @@ export function JobHistoryWorkspace({ job, workflowName }: { job: CIJob; workflo
 
   return (
     <Card
+      className="job-history-workspace"
       size="small"
       title={`Job 运行历史 · ${job.job_name}`}
       style={{
@@ -302,16 +303,6 @@ export function JobHistoryWorkspace({ job, workflowName }: { job: CIJob; workflo
         contain: 'inline-size',
       }}
     >
-      <Text type="secondary">以首页“今日 CI 详情”中的 Workflow/Job 集合作为范围，向历史回溯并展示每天对应的正式运行；不是只展示今天的 Run。选择较早记录为 Start、较新记录为 End。</Text>
-      {(start || end) && (
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, margin: '10px 0' }}>
-          {[{ label: 'Start', item: start }, { label: 'End', item: end }].map(({ label, item }) => (
-            <div key={label} style={{ border: '1px solid #8c8c8c', padding: '7px 10px', background: '#fafafa' }}>
-              <strong style={{ marginRight: 10 }}>{label}</strong>{item ? formatTimezone(item.started_at) : '未选择'}
-            </div>
-          ))}
-        </div>
-      )}
       {intervalInvalid && <Alert type="warning" showIcon message="Start 必须早于 End，请重新选择边界。" style={{ marginTop: 10 }} />}
       {isError && <Alert type="error" showIcon message="历史记录加载失败" style={{ marginTop: 10 }} />}
       {!isLoading && !isError && !data.some(item => item.job_id === job.job_id) && (
@@ -351,8 +342,8 @@ export function JobHistoryWorkspace({ job, workflowName }: { job: CIJob; workflo
                   top: 52,
                   height: 3,
                   borderRadius: 2,
-                  background: 'linear-gradient(90deg, #a995f4 0%, #7655e8 45%, #4f2bd6 100%)',
-                  boxShadow: '0 3px 7px rgba(79, 43, 214, 0.32)',
+                  background: '#17133f',
+                  boxShadow: '0 3px 7px rgba(23, 19, 63, 0.28)',
                   zIndex: 1,
                 }}
               />
