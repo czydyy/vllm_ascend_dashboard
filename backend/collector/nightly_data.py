@@ -13,7 +13,7 @@ import logging
 import re
 from datetime import UTC, date, datetime, timedelta, timezone
 
-from sqlalchemy import delete, or_, select
+from sqlalchemy import delete, or_, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from collector.ci import CICollector
@@ -70,7 +70,23 @@ class NightlyDataCollector:
         """Run both stages in dependency order and return row counts."""
 
         snapshot_count = await self.snapshot_configs()
-        failure_count = await self.populate_daily_failure_records()
+        # ``ci_sync`` performs an opportunistic materialisation while the
+        # scheduler also queues ``nightly_data_sync``.  They may overlap in
+        # separate collector sessions and update the same daily record. A
+        # database advisory lock works across processes and lets the second
+        # invocation safely defer to the next scheduled run instead of
+        # waiting until InnoDB's row-lock timeout.
+        lock_result = await self.db.execute(
+            text("SELECT GET_LOCK('daily_failure_materialization', 0)")
+        )
+        if lock_result.scalar_one() != 1:
+            logger.info("Skipped daily failure materialization; another sync holds the lock")
+            failure_count = 0
+        else:
+            try:
+                failure_count = await self.populate_daily_failure_records()
+            finally:
+                await self.db.execute(text("SELECT RELEASE_LOCK('daily_failure_materialization')"))
         return {
             "nightly_test_cases": snapshot_count,
             "daily_failure_records": failure_count,

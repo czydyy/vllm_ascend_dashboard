@@ -37,6 +37,7 @@ from api.v1 import (
     logs,
     model_sync_configs,
     models,
+    npu_occupancy,
     performance,
     pr_pipeline,
     project_dashboard,
@@ -513,6 +514,7 @@ def create_app() -> FastAPI:
     app.include_router(project_dashboard.router, prefix="/api/v1/project-dashboard", tags=["项目看板"])
     app.include_router(resource_dashboard.router, prefix="/api/v1/resource-dashboard", tags=["资源看板"])
     app.include_router(resource_metrics.router, prefix="/api/v1/resource-dashboard", tags=["资源看板"])
+    app.include_router(npu_occupancy.router, prefix="/api/v1/npu-occupancy", tags=["NPU 卡占用"])
     app.include_router(daily_report.router, prefix="/api/v1", tags=["每日运行报告"])
     app.include_router(stats.router, prefix="/api/v1/stats", tags=["统计信息"])
     app.include_router(issue_diagnosis.router, prefix="/api/v1/issue-diagnosis", tags=["问题定位"])

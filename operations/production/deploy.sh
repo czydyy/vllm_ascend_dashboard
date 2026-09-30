@@ -112,12 +112,16 @@ restore_database() {
     [[ -s "$backup_file" ]] || die "restore backup is missing: $backup_file"
     compose exec -T mysql sh -c \
         'exec mysql -uroot -p"$MYSQL_ROOT_PASSWORD" -e "DROP DATABASE IF EXISTS \`$1\`; CREATE DATABASE \`$1\` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci"' sh "$DATABASE_NAME"
+    # A backup can contain the source server's GTID_PURGED statement.  It is
+    # valid for cloning a fresh server but cannot be applied back to the live
+    # MySQL instance during rollback (error 3546).  The database contents are
+    # restored without changing the server's global GTID history.
     if [[ "$backup_file" == *.zst ]]; then
-        zstd -dc "$backup_file" | compose exec -T mysql sh -c \
+        zstd -dc "$backup_file" | sed '/^SET @@GLOBAL.GTID_PURGED=/d' | compose exec -T mysql sh -c \
             'exec mysql -uroot -p"$MYSQL_ROOT_PASSWORD" "$1"' sh "$DATABASE_NAME"
     else
-        compose exec -T mysql sh -c \
-            'exec mysql -uroot -p"$MYSQL_ROOT_PASSWORD" "$1"' sh "$DATABASE_NAME" < "$backup_file"
+        sed '/^SET @@GLOBAL.GTID_PURGED=/d' "$backup_file" | compose exec -T mysql sh -c \
+            'exec mysql -uroot -p"$MYSQL_ROOT_PASSWORD" "$1"' sh "$DATABASE_NAME"
     fi
 }
 
