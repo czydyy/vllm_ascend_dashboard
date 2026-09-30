@@ -1115,13 +1115,6 @@ from .resource_metrics import (
     ResourceMetricsConfigResponse,
     ResourceMetricsConfigUpdate,
 )
-from .npu_occupancy import (
-    NpuOccupancyAnalysisResponse,
-    NpuOccupancyDetailsResponse,
-    NpuOccupancyOption,
-    NpuOccupancyOptionsResponse,
-    NpuOccupancyTrendResponse,
-)
 from .test_board import (
     FailureAnnotationRequest,
     FailureCategoryBreakdown,

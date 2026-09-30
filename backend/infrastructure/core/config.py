@@ -47,15 +47,6 @@ class Settings(BaseSettings):
     RESOURCE_METRICS_REMOTE_PASSWORD: str = ""
     RESOURCE_METRICS_REMOTE_TIMEOUT_SECONDS: int = 60
 
-    # Read-through NPU occupancy trend API.  Step 2 deliberately does not
-    # persist or schedule this source; requests are bounded by the window cap.
-    NPU_OCCUPANCY_UPSTREAM_URL: str = "https://pod-history-api.test.osinfra.cn/api/v1/envs/history"
-    NPU_OCCUPANCY_TIMEOUT_SECONDS: int = 180
-    NPU_OCCUPANCY_VERIFY_TLS: bool = True
-    NPU_OCCUPANCY_MAX_WINDOW_SECONDS: int = 2_592_000  # 30 days
-    NPU_OCCUPANCY_SYNC_INTERVAL_MINUTES: int = 60
-    NPU_OCCUPANCY_SYNC_LOOKBACK_HOURS: int = 6
-
     # CORS 配置
     # 生产环境应明确指定允许的域名，不要使用 "*"
     CORS_ORIGINS: list[str] = [
