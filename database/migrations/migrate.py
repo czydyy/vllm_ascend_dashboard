@@ -24,7 +24,6 @@ sys.path.insert(0, str(application_root))
 
 from database.bootstrap import create_tables_with_latest_schema
 from database.migrations.mysql_schema import migrate as migrate_mysql_schema
-from database.migrations.npu_occupancy import run as migrate_npu_occupancy
 from database.migrations.process_runtime import run as migrate_process_runtime
 from database.migrations.service_permissions import run as migrate_service_permissions
 from database.migrations.task_queue import run as migrate_phase_a
@@ -50,7 +49,6 @@ async def migrate() -> None:
     permission_result = await migrate_service_permissions()
     await migrate_phase_a()
     await migrate_process_runtime()
-    await migrate_npu_occupancy()
     test_board_result = await migrate_test_board_data()
     users_after = await _user_count()
     if users_after != users_before:
