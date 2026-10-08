@@ -24,6 +24,10 @@ const PRESETS = [
 interface CIBuildTimeRangeProps {
   value: CIBuildTimeRangeValue
   onApply: (value: CIBuildTimeRangeValue) => void
+  maxDays?: number
+  showLabel?: boolean
+  width?: number
+  buttonClassName?: string
 }
 
 function createDefaultBuildTimeRange(): CIBuildTimeRangeValue {
@@ -31,7 +35,14 @@ function createDefaultBuildTimeRange(): CIBuildTimeRangeValue {
   return { start: end.subtract(13, 'day').startOf('day'), end, preset: '14d' }
 }
 
-function CIBuildTimeRange({ value, onApply }: CIBuildTimeRangeProps) {
+function CIBuildTimeRange({
+  value,
+  onApply,
+  maxDays,
+  showLabel = true,
+  width = 260,
+  buttonClassName,
+}: CIBuildTimeRangeProps) {
   const [open, setOpen] = useState(false)
   const [draft, setDraft] = useState(value)
 
@@ -43,7 +54,7 @@ function CIBuildTimeRange({ value, onApply }: CIBuildTimeRangeProps) {
   const content = (
     <div className="ci-time-range-panel">
       <Space size={[8, 8]} wrap className="ci-time-range-presets">
-        {PRESETS.map((preset) => (
+        {PRESETS.filter((preset) => !maxDays || preset.unit === 'hour' || preset.amount <= maxDays).map((preset) => (
           <Button key={preset.label} size="small"
             type={draft.preset === preset.label ? 'primary' : 'default'}
             onClick={() => selectPreset(preset)}>
@@ -93,12 +104,12 @@ function CIBuildTimeRange({ value, onApply }: CIBuildTimeRangeProps) {
   )
 
   return (
-    <div style={{ width: 260 }}>
-      <Text type="secondary" strong style={{ fontSize: 12 }}>Time Range</Text>
+    <div style={{ width }}>
+      {showLabel ? <Text type="secondary" strong style={{ fontSize: 12 }}>Time Range</Text> : null}
       <Popover open={open} trigger="click" placement="bottomRight" content={content}
         overlayClassName="ci-time-range-popover"
         onOpenChange={(nextOpen) => { setOpen(nextOpen); if (nextOpen) setDraft(value) }}>
-        <Button block style={{ textAlign: 'left' }}>
+        <Button block className={buttonClassName} style={{ textAlign: 'left' }}>
           {value.preset?.endsWith('h')
             ? `Last ${value.preset}`
             : `${value.start.format('YYYY-MM-DD')} — ${value.end.format('YYYY-MM-DD')}`}

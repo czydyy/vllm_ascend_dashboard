@@ -103,6 +103,18 @@ class DataSyncScheduler:
         except Exception as e:
             logger.error(f"Failed to add CI data sync job: {e}", exc_info=True)
 
+        try:
+            self.scheduler.add_job(
+                self._sync_npu_occupancy_job,
+                trigger=IntervalTrigger(minutes=settings.NPU_OCCUPANCY_SYNC_INTERVAL_MINUTES),
+                id="npu_occupancy_sync",
+                name="NPU Occupancy Raw Env Sync",
+                replace_existing=True,
+            )
+            logger.info("NPU occupancy sync scheduled every %s minutes", settings.NPU_OCCUPANCY_SYNC_INTERVAL_MINUTES)
+        except Exception as e:
+            logger.error("Failed to add NPU occupancy sync job: %s", e, exc_info=True)
+
         # Repository snapshots are refreshed centrally once per day. Analysis
         # tasks consume this persistent snapshot and never pull on demand.
         settings.PROJECT_DASHBOARD_CACHE_INTERVAL_MINUTES = 1440
@@ -672,6 +684,14 @@ class DataSyncScheduler:
             repo=settings.GITHUB_REPO,
         )
         self._initialized = True
+
+    async def _sync_npu_occupancy_job(self) -> None:
+        from resource_dashboard.npu_occupancy_repository import NpuOccupancyRepository
+
+        end = datetime.now(UTC)
+        start = end - timedelta(hours=settings.NPU_OCCUPANCY_SYNC_LOOKBACK_HOURS)
+        result = await NpuOccupancyRepository().sync(start, end)
+        logger.info("NPU occupancy sync result: %s", result)
 
     async def _sync_nightly_data_job(self) -> None:
         """Queue Nightly YAML snapshot and failure materialization."""
