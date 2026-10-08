@@ -28,7 +28,7 @@
 bash operations/production/deploy.sh
 ```
 
-该脚本自动执行以下 9 个步骤，任何一步失败都会中止或自动回滚：
+该脚本自动执行以下 9 个步骤。默认部署在任何一步失败时都会保留现场并安全退出；数据库恢复只能通过显式恢复命令触发。
 
 ```
 ┌─────────────────────────────────────────────────┐
@@ -40,13 +40,13 @@ bash operations/production/deploy.sh
 │                                                  │
 │  Step 3  拉取 upstream/main（可 --no-pull）        │
 │  Step 4  拉取不可变镜像（可 --no-pull）             │
-│  Step 5  执行 MySQL migration（--fast 跳过）        │
+│  Step 5  停止写入服务、检查 schema lock、执行迁移   │
 │  Step 6  更新 Docker Compose 服务                  │
 │    └─ --fast 只更新 backend/frontend/scheduler/collector │
 │                                                  │
 │  Step 7  健康检查                                  │
 │  Step 8  admin 登录、用户数和表数校验              │
-│    └─ 失败 → 自动回滚                              │
+│    └─ 失败 → 保留现场并退出                        │
 │  Step 9  输出部署状态和备份路径                    │
 └─────────────────────────────────────────────────┘
 ```
@@ -67,8 +67,8 @@ bash operations/production/deploy.sh --fast --no-pull
 # 快速部署并拉取 upstream/main 和新镜像
 bash operations/production/deploy.sh --fast
 
-# 一键回滚到最近一次备份
-bash operations/production/deploy.sh --rollback
+# 仅在明确需要恢复已验证备份时使用（会要求输入 RECOVER）
+bash operations/production/deploy.sh --recover-failed-migration
 ```
 
 ### 快速部署的边界
@@ -81,7 +81,7 @@ bash operations/production/deploy.sh --rollback
 
 - 跳过 MySQL migration；拉取代码时检测到 `database/`、持久化模型或迁移脚本变化会拒绝继续。
 - 不重启 MySQL、LiteLLM，只更新四个业务容器。
-- 失败回滚只恢复上一版应用镜像，不恢复数据库，避免用旧备份覆盖当天数据。
+- 失败时保留现场并安全退出，不自动恢复数据库或替换应用镜像。
 - 需要数据库结构变更、配置数据迁移或重要版本升级时，必须使用标准模式，让脚本创建并验证新备份。
 
 若镜像已经在生产机上构建完成，使用 `--fast --no-pull` 可同时跳过远程镜像拉取；否则使用
@@ -139,32 +139,28 @@ tail -50 /var/log/dashboard_backup.log
 
 ---
 
-## 5. 回滚方案
+## 5. 失败迁移受控恢复
 
-### 自动回滚
-
-`deploy.sh` 在以下情况会自动回滚：
-- 数据库迁移后用户数减少
-- 服务重启后 30 秒内未响应
-- 部署后验证用户数少于部署前
-
-### 手动回滚
+默认部署失败后不得手工删除 MySQL 数据卷、直接修改表结构，或执行未验证的恢复。先保留错误日志并确认最近的恢复验证备份：
 
 ```bash
-# 方式一：使用部署脚本回滚
-bash operations/production/deploy.sh --rollback
-
-# 方式二：手动恢复
-LATEST=$(ls -t /root/vllm_ascend_dashboard/backups/dashboard_*.db | head -1)
-systemctl stop dashboard-backend
-cp "$LATEST" MySQL 数据由 Docker `mysql_data` volume 管理，不直接操作宿主机文件
-systemctl start dashboard-backend
-
-# 方式三：Git 代码回滚 + 数据库恢复
-cd /root/vllm_ascend_dashboard
-git checkout <上一个稳定commit>
-bash operations/production/deploy.sh --no-pull
+bash operations/production/backup.sh --check-latest
 ```
+
+若明确决定将数据库恢复到该备份时点，执行：
+
+```bash
+bash operations/production/deploy.sh --recover-failed-migration
+```
+
+脚本会显示备份用户数和表数，并要求输入 `RECOVER`。CI 或无人值守环境必须显式提供确认变量：
+
+```bash
+DASHBOARD_CONFIRM_RECOVER_FAILED_MIGRATION=YES \
+  bash operations/production/deploy.sh --recover-failed-migration
+```
+
+受控恢复会停止 backend、scheduler、collector，等待 schema metadata lock 释放；仅终止可识别为本项目容器的残留锁持有者，未知连接只报告不终止。随后重建目标数据库，导入最近的已验证备份，并在导入前过滤 `SET @@GLOBAL.GTID_PURGED`，避免对既有 MySQL 实例重复设置 GTID。恢复后必须通过健康检查、用户数和表数校验。
 
 ---
 

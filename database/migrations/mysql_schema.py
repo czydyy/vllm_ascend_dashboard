@@ -7,6 +7,7 @@ import asyncio
 import logging
 import re
 import sys
+from dataclasses import dataclass
 from pathlib import Path
 
 from sqlalchemy import inspect, text
@@ -17,7 +18,7 @@ if not application_root.is_dir():
     application_root = repository_root
 sys.path.insert(0, str(application_root))
 
-from infrastructure.db.base import SessionLocal, engine
+from infrastructure.db.base import SessionLocal, engine  # noqa: E402
 
 logger = logging.getLogger("mysql_schema_migration")
 logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
@@ -135,11 +136,101 @@ CREATE_TABLE_MIGRATIONS = [
 ]
 
 
-async def _inspection(db, table: str) -> tuple[set[str], set[str]]:
+_IDENTIFIER = re.compile(r"^[A-Za-z0-9_]+$")
+_FORWARDING_VIEW_SOURCE = re.compile(
+    r"\bFROM\s+`(?P<schema>[A-Za-z0-9_]+)`\.`(?P<table>[A-Za-z0-9_]+)`",
+    re.IGNORECASE,
+)
+
+
+@dataclass(frozen=True)
+class _TableTarget:
+    logical_table: str
+    physical_schema: str | None
+    physical_table: str
+    is_view: bool
+
+
+def _quoted_identifier(identifier: str) -> str:
+    if not _IDENTIFIER.fullmatch(identifier):
+        raise RuntimeError(f"Unsafe MySQL identifier: {identifier!r}")
+    return f"`{identifier}`"
+
+
+async def _current_schema(db) -> str:
+    schema = (await db.execute(text("SELECT DATABASE()"))).scalar_one()
+    if not isinstance(schema, str) or not _IDENTIFIER.fullmatch(schema):
+        raise RuntimeError(f"Unsafe current MySQL schema: {schema!r}")
+    return schema
+
+
+async def _object_type(db, schema: str, table: str) -> str | None:
+    return (await db.execute(text("""
+        SELECT TABLE_TYPE
+        FROM information_schema.tables
+        WHERE table_schema = :schema AND table_name = :table
+    """), {"schema": schema, "table": table})).scalar_one_or_none()
+
+
+async def _resolve_table_target(db, table: str) -> _TableTarget:
+    """Resolve a logical table or a simple cross-schema forwarding view.
+
+    Production keeps a compatibility schema where selected control-plane
+    tables are exposed as views.  Schema migrations must change the owning
+    base table rather than issuing ALTER TABLE against the compatibility view.
+    """
+    logical_schema = await _current_schema(db)
+    object_type = await _object_type(db, logical_schema, table)
+    if object_type == "BASE TABLE":
+        return _TableTarget(table, None, table, False)
+    if object_type != "VIEW":
+        raise RuntimeError(
+            f"Schema migration requires `{table}` to exist; found {object_type or 'missing'}."
+        )
+
+    definition = (await db.execute(text("""
+        SELECT VIEW_DEFINITION
+        FROM information_schema.views
+        WHERE table_schema = :schema AND table_name = :table
+    """), {"schema": logical_schema, "table": table})).scalar_one_or_none()
+    source = _FORWARDING_VIEW_SOURCE.search(definition or "")
+    if source is None:
+        raise RuntimeError(
+            f"Schema migration cannot resolve base table for view `{table}`. "
+            "Only simple cross-schema forwarding views are supported."
+        )
+
+    physical_schema = source.group("schema")
+    physical_table = source.group("table")
+    physical_type = await _object_type(db, physical_schema, physical_table)
+    if physical_type != "BASE TABLE":
+        raise RuntimeError(
+            f"Schema migration resolved `{table}` to `{physical_schema}`.`{physical_table}`, "
+            f"but found {physical_type or 'missing'} instead of BASE TABLE."
+        )
+    return _TableTarget(table, physical_schema, physical_table, True)
+
+
+async def _refresh_forwarding_view(db, target: _TableTarget) -> None:
+    """Expose newly added physical columns through a simple compatibility view."""
+    if not target.is_view or target.physical_schema is None:
+        return
+    logical_schema = await _current_schema(db)
+    await db.execute(text(
+        "CREATE OR REPLACE VIEW "
+        f"{_quoted_identifier(logical_schema)}.{_quoted_identifier(target.logical_table)} AS "
+        "SELECT * FROM "
+        f"{_quoted_identifier(target.physical_schema)}.{_quoted_identifier(target.physical_table)}"
+    ))
+
+
+async def _inspection(
+    db, table: str, schema: str | None = None
+) -> tuple[set[str], set[str]]:
     def inspect_schema(sync_session):
         inspector = inspect(sync_session.connection())
-        columns = {item["name"] for item in inspector.get_columns(table)}
-        indexes = {item["name"] for item in inspector.get_indexes(table)}
+        columns = {item["name"] for item in inspector.get_columns(table, schema=schema)}
+        indexes = {item["name"] for item in inspector.get_indexes(table, schema=schema)}
         return columns, indexes
 
     return await db.run_sync(inspect_schema)
@@ -160,20 +251,42 @@ async def migrate() -> None:
             user_count_before = int((await db.execute(text("SELECT COUNT(*) FROM users"))).scalar_one())
             added: list[str] = []
             for table, definitions in TABLE_COLUMN_MIGRATIONS.items():
-                columns, indexes = await _inspection(db, table)
+                target = await _resolve_table_target(db, table)
+                columns, indexes = await _inspection(
+                    db, target.physical_table, target.physical_schema
+                )
+                added_to_target = False
                 for name, definition in definitions.items():
                     if name not in columns:
                         logger.info("Adding %s.%s", table, name)
+                        physical_name = ".".join(
+                            part for part in (
+                                _quoted_identifier(target.physical_schema)
+                                if target.physical_schema else None,
+                                _quoted_identifier(target.physical_table),
+                            ) if part is not None
+                        )
                         await db.execute(text(
-                            f"ALTER TABLE `{table}` ADD COLUMN `{name}` {definition}"
+                            f"ALTER TABLE {physical_name} ADD COLUMN {_quoted_identifier(name)} {definition}"
                         ))
                         added.append(f"{table}.{name}")
+                        added_to_target = True
                 for index_name, column_name in INDEX_MIGRATIONS.get(table, {}).items():
                     if index_name not in indexes:
                         logger.info("Creating index %s", index_name)
+                        physical_name = ".".join(
+                            part for part in (
+                                _quoted_identifier(target.physical_schema)
+                                if target.physical_schema else None,
+                                _quoted_identifier(target.physical_table),
+                            ) if part is not None
+                        )
                         await db.execute(text(
-                            f"CREATE INDEX `{index_name}` ON `{table}` (`{column_name}`)"
+                            f"CREATE INDEX {_quoted_identifier(index_name)} ON {physical_name} "
+                            f"({_quoted_identifier(column_name)})"
                         ))
+                if added_to_target:
+                    await _refresh_forwarding_view(db, target)
 
             if any(item in added for item in (
                 "test_cases.lifetime_runs", "test_cases.lifetime_failures"

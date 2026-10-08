@@ -165,6 +165,14 @@ docker compose --env-file .env.local -f deploy/compose/dev/compose.yml exec -T b
 
 ## 📝 相关文档
 
+## 生产部署与失败迁移恢复
+
+数据库迁移失败后如需恢复，使用：
+
+```bash
+bash operations/production/deploy.sh --recover-failed-migration
+```
+
 - [需求文档](docs/requirements.md)
 - [技术方案设计](docs/technical_design.md)
 
