@@ -25,8 +25,26 @@ def test_deploy_script_enforces_backup_migration_health_and_login_order():
     assert positions == sorted(positions)
     assert "DEPLOY_ADMIN_USERNAME" in script
     assert "DEPLOY_ADMIN_PASSWORD" in script
+    assert "SET @@GLOBAL.GTID_PURGED" in script
+    assert "stream_backup_without_gtid" in script
+    assert "--recover-failed-migration" in script
+    assert "DASHBOARD_CONFIRM_RECOVER_FAILED_MIGRATION" in script
+    assert "migration failed; database was not restored automatically" in script
     assert "systemctl" not in script
     assert "sqlite" not in script.lower()
+
+
+def test_failed_migration_recovery_is_explicit_and_uses_only_verified_backups():
+    script = (ROOT / "operations" / "production" / "deploy.sh").read_text(encoding="utf-8")
+
+    assert "latest_verified_backup" in script
+    assert 'bash "$SCRIPT_DIR/backup.sh" --check-latest' in script
+    assert "restore_verified=true" in script
+    assert "stop_database_writers" in script
+    assert "wait_for_schema_lock_drain" in script
+    assert "terminate_owned_schema_lock_holders" in script
+    assert "leaving non-dashboard schema-lock holder untouched" in script
+    assert "stream_backup_without_gtid \"$backup_file\"" in script
 
 
 def test_application_startup_does_not_alter_existing_schema():
@@ -91,5 +109,4 @@ def test_ci_publishes_versioned_images_with_supply_chain_metadata():
     assert "uv run --no-sync pip-audit --strict" in workflow
     assert "pnpm audit --prod --audit-level=high" in workflow
     assert "skip_quality:" in workflow
-    assert "inputs.skip_quality == true" in workflow
-    assert "always()" in workflow
+    assert "if: github.event_name == 'pull_request'" in workflow

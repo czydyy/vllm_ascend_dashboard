@@ -209,3 +209,6 @@ docs/failure-analysis-agent-design.md
 
 # dataset_backup
 backups/
+
+# Production schema-only contract snapshots are local test fixtures.
+*_schema_contract.sql

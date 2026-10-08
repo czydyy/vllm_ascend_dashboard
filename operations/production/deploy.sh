@@ -12,22 +12,23 @@ FRONTEND_PORT="${FRONTEND_PORT:-3000}"
 MAX_WAIT=120
 DO_PULL=true
 DRY_RUN=false
-FORCE_ROLLBACK=false
+RECOVER_FAILED_MIGRATION=false
 FAST=false
 FAST_BACKUP_MAX_AGE_HOURS="${DASHBOARD_FAST_BACKUP_MAX_AGE_HOURS:-24}"
+LOCK_DRAIN_SECONDS="${DASHBOARD_SCHEMA_LOCK_DRAIN_SECONDS:-30}"
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
         --no-pull) DO_PULL=false; shift ;;
         --dry-run) DRY_RUN=true; shift ;;
-        --rollback) FORCE_ROLLBACK=true; shift ;;
+        --recover-failed-migration) RECOVER_FAILED_MIGRATION=true; shift ;;
         --fast) FAST=true; shift ;;
         *) echo "Unknown argument: $1" >&2; exit 2 ;;
     esac
 done
 
-if $FAST && $FORCE_ROLLBACK; then
-    echo "[ERROR] --fast cannot be combined with --rollback" >&2
+if $FAST && $RECOVER_FAILED_MIGRATION; then
+    echo "[ERROR] --fast cannot be combined with --recover-failed-migration" >&2
     exit 2
 fi
 
@@ -71,6 +72,7 @@ validate_external_volumes() {
     done
 }
 service_container() { compose ps -q "$1"; }
+service_container_any() { compose ps -q --all "$1"; }
 service_image() {
     local container
     container="$(service_container "$1")"
@@ -90,6 +92,112 @@ mysql_root() {
 get_user_count() { mysql_root 'SELECT COUNT(*) FROM users'; }
 get_table_count() { mysql_root 'SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = DATABASE()'; }
 get_user_list() { mysql_root 'SELECT id, username, role FROM users ORDER BY id'; }
+
+stream_backup_without_gtid() {
+    local backup_file="$1"
+    if [[ "$backup_file" == *.zst ]]; then
+        zstd -dc "$backup_file"
+    else
+        cat "$backup_file"
+    fi | sed '/^SET @@GLOBAL.GTID_PURGED=/d'
+}
+
+latest_verified_backup() {
+    local output
+    output="$(bash "$SCRIPT_DIR/backup.sh" --check-latest 2>&1)" || die "no verified backup is available: $output"
+    printf '%s\n' "$output" | tail -1
+}
+
+backup_metadata_value() {
+    local backup_file="$1" key="$2"
+    awk -F= -v key="$key" '$1 == key { print $2; exit }' "$backup_file.meta"
+}
+
+schema_lock_rows() {
+    mysql_root "
+        SELECT DISTINCT p.ID, p.USER, p.HOST, p.TIME, LEFT(p.INFO, 160)
+        FROM performance_schema.metadata_locks AS ml
+        JOIN performance_schema.threads AS th ON th.THREAD_ID = ml.OWNER_THREAD_ID
+        JOIN information_schema.PROCESSLIST AS p ON p.ID = th.PROCESSLIST_ID
+        WHERE ml.OBJECT_SCHEMA = '$DATABASE_NAME'
+          AND ml.LOCK_STATUS = 'GRANTED'
+          AND p.ID <> CONNECTION_ID()
+        ORDER BY p.TIME DESC"
+}
+
+show_schema_lock_diagnostics() {
+    local rows
+    rows="$(schema_lock_rows)" || die "unable to inspect schema metadata locks"
+    if [[ -n "$rows" ]]; then
+        warn "schema metadata locks are still held for database $DATABASE_NAME:"
+        echo "$rows" | sed 's/^/  /'
+        return 1
+    fi
+    return 0
+}
+
+wait_for_schema_lock_drain() {
+    local elapsed=0
+    [[ "$LOCK_DRAIN_SECONDS" =~ ^[0-9]+$ ]] || die "DASHBOARD_SCHEMA_LOCK_DRAIN_SECONDS must be a non-negative integer"
+    while (( elapsed <= LOCK_DRAIN_SECONDS )); do
+        if show_schema_lock_diagnostics; then
+            return 0
+        fi
+        sleep 2
+        elapsed=$((elapsed + 2))
+    done
+    return 1
+}
+
+stop_database_writers() {
+    step "Stop database writers"
+    compose stop backend scheduler collector || die "failed to stop database writer services"
+    ok "backend, scheduler, and collector stopped"
+}
+
+database_writer_ips() {
+    local service container
+    for service in backend scheduler collector; do
+        container="$(service_container_any "$service")"
+        [[ -n "$container" ]] || continue
+        docker inspect --format '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{"\n"}}{{end}}' "$container"
+    done | awk 'NF && !seen[$0]++'
+}
+
+is_dashboard_writer_host() {
+    local host="$1" ip candidate
+    candidate="${host%%:*}"
+    for ip in "${@:2}"; do
+        [[ "$candidate" == "$ip" ]] && return 0
+    done
+    return 1
+}
+
+terminate_owned_schema_lock_holders() {
+    local rows pid _user host _time _statement
+    local -a writer_ips=("$@")
+    (( ${#writer_ips[@]} > 0 )) || return 0
+
+    rows="$(schema_lock_rows)" || die "unable to inspect schema metadata locks"
+    [[ -n "$rows" ]] || return 0
+    while IFS=$'\t' read -r pid _user host _time _statement; do
+        [[ "$pid" =~ ^[0-9]+$ ]] || continue
+        if is_dashboard_writer_host "$host" "${writer_ips[@]}"; then
+            warn "terminating stale dashboard schema-lock holder: id=$pid host=$host"
+            mysql_root "KILL $pid" || die "failed to terminate dashboard schema-lock holder $pid"
+        else
+            warn "leaving non-dashboard schema-lock holder untouched: id=$pid user=$_user host=$host"
+        fi
+    done <<< "$rows"
+}
+
+confirm_failed_migration_recovery() {
+    [[ "${DASHBOARD_CONFIRM_RECOVER_FAILED_MIGRATION:-}" == "YES" ]] && return 0
+    [[ -t 0 ]] || die "set DASHBOARD_CONFIRM_RECOVER_FAILED_MIGRATION=YES for non-interactive recovery"
+    echo "[WARN] Recovery will replace $DATABASE_NAME with the selected verified backup."
+    read -r -p "Type RECOVER to continue: " confirmation
+    [[ "$confirmation" == "RECOVER" ]] || die "failed-migration recovery cancelled"
+}
 
 wait_for_health() {
     local elapsed=0
@@ -112,37 +220,42 @@ restore_database() {
     [[ -s "$backup_file" ]] || die "restore backup is missing: $backup_file"
     compose exec -T mysql sh -c \
         'exec mysql -uroot -p"$MYSQL_ROOT_PASSWORD" -e "DROP DATABASE IF EXISTS \`$1\`; CREATE DATABASE \`$1\` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci"' sh "$DATABASE_NAME"
-    if [[ "$backup_file" == *.zst ]]; then
-        zstd -dc "$backup_file" | compose exec -T mysql sh -c \
-            'exec mysql -uroot -p"$MYSQL_ROOT_PASSWORD" "$1"' sh "$DATABASE_NAME"
-    else
-        compose exec -T mysql sh -c \
-            'exec mysql -uroot -p"$MYSQL_ROOT_PASSWORD" "$1"' sh "$DATABASE_NAME" < "$backup_file"
-    fi
+    # Every restore targets an already-running MySQL instance.  Strip the
+    # bootstrap-only GTID_PURGED statement before importing either .sql or .zst.
+    stream_backup_without_gtid "$backup_file" | compose exec -T mysql sh -c \
+        'exec mysql -uroot -p"$MYSQL_ROOT_PASSWORD" "$1"' sh "$DATABASE_NAME"
 }
 
-rollback() {
+recover_failed_migration() {
     local backup_file="$1"
-    step "ROLLBACK"
-    compose stop scheduler collector backend frontend || true
-    if $FAST; then
-        warn "fast rollback: database was not changed and will not be restored"
-        DASHBOARD_BACKEND_IMAGE="$PRE_BACKEND_IMAGE" \
-        DASHBOARD_FRONTEND_IMAGE="$PRE_FRONTEND_IMAGE" \
-            compose up -d backend frontend scheduler collector
-    else
-        restore_database "$backup_file"
-        DASHBOARD_BACKEND_IMAGE="$PRE_BACKEND_IMAGE" \
-        DASHBOARD_FRONTEND_IMAGE="$PRE_FRONTEND_IMAGE" \
-        DASHBOARD_LITELLM_IMAGE="$PRE_LITELLM_IMAGE" \
-            compose up -d mysql litellm backend frontend scheduler collector
+    local backup_users backup_tables post_users post_tables
+    local -a writer_ips=()
+    backup_users="$(backup_metadata_value "$backup_file" users)"
+    backup_tables="$(backup_metadata_value "$backup_file" tables)"
+    [[ "$backup_users" =~ ^[1-9][0-9]*$ && "$backup_tables" =~ ^[1-9][0-9]*$ ]] \
+        || die "selected backup metadata is incomplete: $backup_file.meta"
+
+    step "FAILED MIGRATION RECOVERY"
+    echo "[RECOVERY] verified backup: $backup_file"
+    echo "[RECOVERY] backup metadata: users=$backup_users tables=$backup_tables"
+    confirm_failed_migration_recovery
+    mapfile -t writer_ips < <(database_writer_ips)
+    stop_database_writers
+    terminate_owned_schema_lock_holders "${writer_ips[@]}"
+    if ! wait_for_schema_lock_drain; then
+        die "schema metadata locks remain after writer shutdown; no database was replaced"
     fi
-    wait_for_health || die "rollback completed but services are unhealthy"
-    if $FAST; then
-        ok "rollback restored previous application images; database left untouched"
-    else
-        ok "rollback restored database and previous images; users=$(get_user_count)"
-    fi
+
+    restore_database "$backup_file"
+    post_users="$(get_user_count)"
+    post_tables="$(get_table_count)"
+    (( post_users >= backup_users && post_tables >= backup_tables )) \
+        || die "restored database validation failed: users=$post_users/$backup_users tables=$post_tables/$backup_tables"
+
+    compose up -d mysql litellm backend frontend scheduler collector
+    wait_for_health || die "database restored but services are unhealthy"
+    ok "recovery complete: users=$post_users tables=$post_tables"
+    get_user_list | sed 's/^/  /'
 }
 
 command -v docker >/dev/null 2>&1 || die "docker is not installed"
@@ -161,10 +274,11 @@ mysql_container="$(service_container mysql)"
 DATABASE_NAME="$(compose exec -T mysql sh -c 'printf %s "$MYSQL_DATABASE"')"
 [[ "$DATABASE_NAME" =~ ^[a-zA-Z0-9_]+$ ]] || die "unsafe MySQL database name"
 
-if $FORCE_ROLLBACK; then
-    latest_backup="$(find "$BACKUP_DIR" -maxdepth 1 -type f \( -name 'vllm_dashboard_*.sql' -o -name 'vllm_dashboard_*.sql.zst' \) -printf '%T@ %p\n' 2>/dev/null | sort -nr | head -1 | cut -d' ' -f2-)"
-    [[ -n "$latest_backup" ]] || die "no MySQL backup is available"
-    rollback "$latest_backup"
+if $RECOVER_FAILED_MIGRATION; then
+    latest_backup="$(latest_verified_backup)"
+    [[ -s "$latest_backup" && -s "$latest_backup.meta" ]] || die "verified recovery backup artifacts are missing"
+    grep -q '^restore_verified=true$' "$latest_backup.meta" || die "selected recovery backup is not restore-verified"
+    recover_failed_migration "$latest_backup"
     exit 0
 fi
 
@@ -192,9 +306,6 @@ pre_users="$(get_user_count)"
 pre_tables="$(get_table_count)"
 pre_git_full="$(git -C "$PROJECT_ROOT" rev-parse HEAD)"
 pre_git="$(git -C "$PROJECT_ROOT" rev-parse --short HEAD)"
-PRE_BACKEND_IMAGE="$(service_image backend)" || die "backend image cannot be determined"
-PRE_FRONTEND_IMAGE="$(service_image frontend)" || die "frontend image cannot be determined"
-PRE_LITELLM_IMAGE="$(service_image litellm)" || die "LiteLLM image cannot be determined"
 (( pre_users > 0 && pre_tables > 0 )) || die "invalid pre-deployment database state"
 if $FAST; then
     service_is_healthy mysql || die "fast mode requires a healthy MySQL container"
@@ -260,17 +371,19 @@ step "5/9 Run explicit MySQL migration"
 if $FAST; then
     warn "fast mode: database migrations skipped (use the standard mode for schema changes)"
 else
+    stop_database_writers
+    if ! wait_for_schema_lock_drain; then
+        die "schema metadata locks remain; deployment stopped before migration without restoring the database"
+    fi
     if ! bash "$MIGRATE_SCRIPT"; then
-        warn "migration failed; restoring verified database backup"
-        restore_database "$backup_file"
-        die "migration failed and database was restored"
+        warn "migration failed; database was not restored automatically"
+        die "inspect the migration error, then run '$0 --recover-failed-migration' only if an explicit restore is required"
     fi
 
     post_migration_users="$(get_user_count)"
     post_migration_tables="$(get_table_count)"
     if (( post_migration_users < pre_users || post_migration_tables < pre_tables )); then
-        restore_database "$backup_file"
-        die "database counts decreased during migration; backup restored"
+        die "database counts decreased during migration; database was not restored automatically"
     fi
     ok "migration verified: users=$post_migration_users tables=$post_migration_tables"
 fi
@@ -287,14 +400,12 @@ else
     start_services=(mysql litellm backend frontend scheduler collector)
 fi
 if ! compose up -d "${start_services[@]}"; then
-    rollback "$backup_file"
-    die "container startup failed; rollback completed"
+    die "container startup failed; database was not restored automatically"
 fi
 
 step "7/9 Health checks"
 if ! wait_for_health; then
-    rollback "$backup_file"
-    die "services failed health checks; rollback completed"
+    die "services failed health checks; database was not restored automatically"
 fi
 curl -fsS "http://127.0.0.1:${FRONTEND_PORT}/api/v1/daily-report/latest" >/dev/null 2>&1 \
     && warn "daily report endpoint unexpectedly allowed anonymous access" || true
@@ -303,14 +414,13 @@ ok "frontend and backend containers are healthy"
 step "8/9 Login and database preservation"
 login_payload="$(DEPLOY_ADMIN_USERNAME="$DEPLOY_ADMIN_USERNAME" DEPLOY_ADMIN_PASSWORD="$DEPLOY_ADMIN_PASSWORD" python3 -c 'import json,os; print(json.dumps({"username":os.environ["DEPLOY_ADMIN_USERNAME"],"password":os.environ["DEPLOY_ADMIN_PASSWORD"]}))')"
 login_response="$(curl -fsS -X POST "http://127.0.0.1:${FRONTEND_PORT}/api/v1/auth/login" -H 'Content-Type: application/json' --data-binary "$login_payload")" \
-    || { rollback "$backup_file"; die "admin login failed; rollback completed"; }
+    || die "admin login failed; database was not restored automatically"
 echo "$login_response" | grep -q 'access_token' \
-    || { rollback "$backup_file"; die "admin login response is invalid; rollback completed"; }
+    || die "admin login response is invalid; database was not restored automatically"
 post_users="$(get_user_count)"
 post_tables="$(get_table_count)"
 if (( post_users < pre_users || post_tables < pre_tables )); then
-    rollback "$backup_file"
-    die "post-deployment database counts decreased; rollback completed"
+    die "post-deployment database counts decreased; database was not restored automatically"
 fi
 ok "login passed; users=$pre_users->$post_users tables=$pre_tables->$post_tables"
 get_user_list | sed 's/^/  /'
