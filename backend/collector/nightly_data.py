@@ -13,7 +13,7 @@ import logging
 import re
 from datetime import UTC, date, datetime, timedelta, timezone
 
-from sqlalchemy import delete, or_, select, text
+from sqlalchemy import delete, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from collector.ci import CICollector
@@ -70,23 +70,7 @@ class NightlyDataCollector:
         """Run both stages in dependency order and return row counts."""
 
         snapshot_count = await self.snapshot_configs()
-        # ``ci_sync`` performs an opportunistic materialisation while the
-        # scheduler also queues ``nightly_data_sync``.  They may overlap in
-        # separate collector sessions and update the same daily record. A
-        # database advisory lock works across processes and lets the second
-        # invocation safely defer to the next scheduled run instead of
-        # waiting until InnoDB's row-lock timeout.
-        lock_result = await self.db.execute(
-            text("SELECT GET_LOCK('daily_failure_materialization', 0)")
-        )
-        if lock_result.scalar_one() != 1:
-            logger.info("Skipped daily failure materialization; another sync holds the lock")
-            failure_count = 0
-        else:
-            try:
-                failure_count = await self.populate_daily_failure_records()
-            finally:
-                await self.db.execute(text("SELECT RELEASE_LOCK('daily_failure_materialization')"))
+        failure_count = await self.populate_daily_failure_records()
         return {
             "nightly_test_cases": snapshot_count,
             "daily_failure_records": failure_count,
@@ -177,9 +161,10 @@ class NightlyDataCollector:
 
         # A Nightly workflow is one reporting batch.  Prefer its final
         # workflow timestamp so every job in a run crossing midnight lands
-        # on the same reporting day.  The job timestamp remains a fallback
-        # for partially collected workflow data.
+        # on the same reporting day. Only jobs belonging to a persisted
+        # Workflow run can enter the daily failure tracker.
         workflow_completed_at: dict[int, datetime | None] = {}
+        workflow_names: dict[int, str] = {}
         workflow_attempt: dict[int, int | None] = {}
         workflow_branch: dict[int, str | None] = {}
         workflow_event: dict[int, str | None] = {}
@@ -188,17 +173,24 @@ class NightlyDataCollector:
             workflow_result = await self.db.execute(
                 select(
                     CIResult.run_id,
+                    CIResult.workflow_name,
                     CIResult.completed_at,
                     CIResult.branch,
                     CIResult.data,
                     CIResult.event,
                 ).where(CIResult.run_id.in_(run_ids))
             )
-            for run_id, completed_at, branch, run_data, event in workflow_result.all():
+            for run_id, workflow_name, completed_at, branch, run_data, event in workflow_result.all():
+                workflow_names[run_id] = workflow_name
                 workflow_completed_at[run_id] = completed_at
                 workflow_branch[run_id] = branch
                 workflow_attempt[run_id] = extract_run_attempt(run_data)
                 workflow_event[run_id] = event
+
+        tracked_jobs = [
+            job for job in tracked_jobs
+            if workflow_names.get(job.run_id) == job.workflow_name
+        ]
 
         # A GitHub re-run keeps the same workflow run ID but creates a new set
         # of jobs. Only jobs from the final attempt are valid for the daily

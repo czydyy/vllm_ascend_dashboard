@@ -29,15 +29,6 @@ def test_deploy_script_enforces_backup_migration_health_and_login_order():
     assert "sqlite" not in script.lower()
 
 
-def test_deploy_rollback_strips_source_gtid_purged_statement():
-    script = (ROOT / "operations" / "production" / "deploy.sh").read_text(encoding="utf-8")
-    restore_body = script[script.index("restore_database() {"):script.index("rollback() {")]
-
-    # Restoring a dump into the same GTID-enabled server must not attempt to
-    # overwrite its global GTID set (MySQL error 3546).
-    assert "sed '/^SET @@GLOBAL.GTID_PURGED=/d'" in restore_body
-
-
 def test_application_startup_does_not_alter_existing_schema():
     main_source = (ROOT / "backend" / "api" / "main.py").read_text(encoding="utf-8")
     assert "ALTER TABLE" not in main_source

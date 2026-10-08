@@ -47,15 +47,6 @@ class Settings(BaseSettings):
     RESOURCE_METRICS_REMOTE_PASSWORD: str = ""
     RESOURCE_METRICS_REMOTE_TIMEOUT_SECONDS: int = 60
 
-    # Read-through NPU occupancy trend API.  Step 2 deliberately does not
-    # persist or schedule this source; requests are bounded by the window cap.
-    NPU_OCCUPANCY_UPSTREAM_URL: str = "https://pod-history-api.test.osinfra.cn/api/v1/envs/history"
-    NPU_OCCUPANCY_TIMEOUT_SECONDS: int = 180
-    NPU_OCCUPANCY_VERIFY_TLS: bool = True
-    NPU_OCCUPANCY_MAX_WINDOW_SECONDS: int = 2_592_000  # 30 days
-    NPU_OCCUPANCY_SYNC_INTERVAL_MINUTES: int = 60
-    NPU_OCCUPANCY_SYNC_LOOKBACK_HOURS: int = 6
-
     # CORS 配置
     # 生产环境应明确指定允许的域名，不要使用 "*"
     CORS_ORIGINS: list[str] = [
@@ -87,10 +78,10 @@ class Settings(BaseSettings):
     CI_SYNC_MAX_RUNS_PER_WORKFLOW: int = 100  # 每个 workflow 最多采集多少条记录
     CI_SYNC_FORCE_FULL_REFRESH: bool = False  # 是否强制全量覆盖刷新
     # Failure analysis invokes log retrieval and an LLM. Keep automatic
-    # fan-out deliberately small on the production collector; deferred
-    # records remain queryable and are picked up by a later sync.
+    # Queueing is unbounded; this caps concurrently leased analysis tasks
+    # across all Collector processes.
     CI_AUTO_FAILURE_ANALYSIS_ENABLED: bool = True
-    CI_AUTO_FAILURE_ANALYSIS_MAX_PER_SYNC: int = 2
+    CI_AUTO_FAILURE_ANALYSIS_MAX_CONCURRENT: int = 3
     NIGHTLY_DATA_SYNC_INTERVAL_MINUTES: int = 120
     DATA_RETENTION_DAYS: int = 365
 

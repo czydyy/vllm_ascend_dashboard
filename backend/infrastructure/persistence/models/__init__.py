@@ -37,7 +37,6 @@ __all__ = [
     "TestCase", "TestRun", "TestSuiteSnapshot", "FailureAnnotation",
     "AppLog", "AnalysisMemory", "AnalysisEmbedding",
     "SchedulerHeartbeat",
-    "NpuOccupancyRawEnv", "NpuOccupancySyncState",
 ]
 
 
@@ -225,8 +224,10 @@ class WorkflowConfig(Base):
     description = Column(String(500))  # 描述信息
     enabled = Column(Boolean, default=True)  # 是否启用
     display_order = Column(Integer, default=0)  # 显示顺序
-    stats_start_hour = Column(Integer, nullable=True)  # 统计时间窗口起始小时（0-23），默认21
-    stats_end_hour = Column(Integer, nullable=True)  # 统计时间窗口结束小时（0-23），默认3
+    stats_start_hour = Column(Integer, nullable=True)  # 统计及失败物化时间窗口起始小时（0-23）
+    stats_end_hour = Column(Integer, nullable=True)  # 统计及失败物化时间窗口结束小时（0-23）
+    materialize_name_regex = Column(String(500), nullable=True)  # 采集前匹配 GitHub 原始 Workflow 名称
+    auto_failure_analysis_enabled = Column(Boolean, nullable=False, default=True)  # 是否自动分析该 Workflow 的失败 Job
 
     # 新增字段：同步状态跟踪（用于前端显示）
     last_sync_at = Column(TIMESTAMP)  # 上次同步时间（包括手动和自动）
@@ -896,32 +897,3 @@ class SchedulerHeartbeat(Base):
     jobs = Column(JSON)  # {job_id: {"name": str, "next_run": iso_str|null}, ...}
     pid = Column(Integer)  # 写入进程 PID，便于调试
     updated_at = Column(TIMESTAMP, default=lambda: datetime.now(UTC), onupdate=lambda: datetime.now(UTC))
-
-
-class NpuOccupancyRawEnv(Base):
-    """Idempotent raw pod-history-api environment record."""
-    __tablename__ = "npu_occupancy_raw_envs"
-
-    id = Column(BigInteger, primary_key=True, autoincrement=True)
-    env_id = Column(String(255), nullable=False)
-    source_updated_at = Column(TIMESTAMP, nullable=False)
-    payload = Column(JSON, nullable=False)
-    created_at = Column(TIMESTAMP, default=lambda: datetime.now(UTC), nullable=False)
-    updated_at = Column(TIMESTAMP, default=lambda: datetime.now(UTC), onupdate=lambda: datetime.now(UTC), nullable=False)
-
-    __table_args__ = (
-        UniqueConstraint("env_id", "source_updated_at", name="uq_npu_occupancy_env_revision"),
-    )
-
-
-class NpuOccupancySyncState(Base):
-    """Single durable watermark for all-or-nothing occupancy synchronisation."""
-    __tablename__ = "npu_occupancy_sync_state"
-
-    id = Column(Integer, primary_key=True, autoincrement=False)
-    status = Column(String(20), nullable=False, default="idle")
-    last_successful_sync = Column(TIMESTAMP, nullable=True)
-    last_snapshot_at = Column(TIMESTAMP, nullable=True)
-    active_task_id = Column(String(64), nullable=True)
-    error_message = Column(Text, nullable=True)
-    updated_at = Column(TIMESTAMP, default=lambda: datetime.now(UTC), onupdate=lambda: datetime.now(UTC), nullable=False)

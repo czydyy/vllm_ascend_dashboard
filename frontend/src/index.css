@@ -358,6 +358,30 @@ html { scroll-behavior: smooth; }
   box-shadow: 0 0 0 2px rgba(23, 19, 63, 0.1);
 }
 
+/* Keep the Job-history comparison workspace aligned with the dashboard's
+ * restrained dark-purple action color instead of the global bright primary. */
+.job-history-workspace .ant-btn-primary {
+  background: #17133f;
+  border-color: #17133f;
+  box-shadow: 0 6px 14px rgba(23, 19, 63, 0.24);
+}
+
+.job-history-workspace .ant-btn-primary:hover,
+.job-history-workspace .ant-btn-primary:focus {
+  background: #27225a !important;
+  border-color: #27225a !important;
+}
+
+.job-history-workspace .ant-btn-link,
+.job-history-workspace a {
+  color: #17133f;
+}
+
+.job-history-workspace .ant-btn-link:hover,
+.job-history-workspace a:hover {
+  color: #27225a;
+}
+
 .ant-modal .ant-modal-content,
 .ant-drawer .ant-drawer-content {
   border: 1px solid rgba(223, 230, 239, 0.8);

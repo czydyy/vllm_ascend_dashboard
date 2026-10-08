@@ -1,4 +1,8 @@
-from tooling.ci_version_snapshot import get_version_snapshot, parse_ci_version_snapshot
+from tooling.ci_version_snapshot import (
+    get_version_snapshot,
+    parse_ci_version_snapshot,
+    version_snapshot_step_name,
+)
 
 
 def test_parse_stream_logs_git_blocks_and_package_versions():
@@ -24,6 +28,19 @@ Message: Fallback to gate forward (#16521)
     assert snapshot["vllm_version"] == "0.28.0+empty"
     assert snapshot["vllm_ascend_commit"] == "90b5dd80d0180c4ddfe6d46a252d93d632b3c16b"
     assert snapshot["vllm_ascend_commit_date"] == "2026-09-14T21:26:49+08:00"
+
+
+def test_show_version_step_is_preferred_over_legacy_stream_logs():
+    assert version_snapshot_step_name([
+        {"name": "Stream logs"},
+        {"name": "Show VLLM and VLLM-Ascend version"},
+    ]) == "Show VLLM and VLLM-Ascend version"
+    snapshot = parse_ci_version_snapshot(
+        "vllm 0.28.0 /workspace",
+        source_step="Show VLLM and VLLM-Ascend version",
+    )
+    assert snapshot is not None
+    assert snapshot["source_step"] == "Show VLLM and VLLM-Ascend version"
 
 
 def test_snapshot_does_not_fall_back_to_workflow_head_sha():

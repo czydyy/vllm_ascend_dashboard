@@ -54,7 +54,11 @@ from infrastructure.persistence.run_attempts import (
     is_current_run_attempt,
 )
 from tooling.ci_filters import build_workflow_time_filter
-from tooling.ci_version_snapshot import get_version_snapshot, parse_ci_version_snapshot
+from tooling.ci_version_snapshot import (
+    get_version_snapshot,
+    parse_ci_version_snapshot,
+    version_snapshot_step_name,
+)
 from tooling.model_fo_mapping import (
     load_model_fo_mappings,
     lookup_model_fo,
@@ -679,8 +683,6 @@ async def trigger_sync(
     force_full_refresh: bool = Query(default=False),
 ):
     """Enqueue a durable CI sync task for a Collector worker."""
-    from uuid import uuid4
-
     from infrastructure.db.base import SessionLocal
     from infrastructure.tasks.task_manager import TaskManager
 
@@ -693,7 +695,7 @@ async def trigger_sync(
                 "max_runs": max_runs_per_workflow,
                 "force_full_refresh": force_full_refresh,
             },
-            f"ci_sync:manual:{uuid4()}",
+            "ci_sync:active",
             required_capability="python",
             priority=10,
         )
@@ -1024,13 +1026,14 @@ async def refresh_run_version_snapshot(run_id: int, current_user: CurrentAdminUs
     if not run:
         raise HTTPException(status_code=404, detail=f"Run {run_id} not found")
     jobs_result = await db.execute(select(CIJob).where(CIJob.run_id == run_id))
-    candidates = []
+    candidates: list[tuple[CIJob, str]] = []
     for job in jobs_result.scalars().all():
         steps = _json_list(job.steps_data)
-        if any("stream logs" in str(step.get("name", "")).lower() for step in steps if isinstance(step, dict)):
-            candidates.append(job)
+        source_step = version_snapshot_step_name(steps)
+        if source_step:
+            candidates.append((job, source_step))
     if not candidates:
-        raise HTTPException(status_code=404, detail="No completed Job with a Stream logs step")
+        raise HTTPException(status_code=404, detail="No Job with a version-reporting step")
     if not settings.GITHUB_TOKEN:
         raise HTTPException(status_code=503, detail="GitHub Token is not configured")
 
@@ -1040,10 +1043,12 @@ async def refresh_run_version_snapshot(run_id: int, current_user: CurrentAdminUs
         owner=settings.GITHUB_OWNER,
         repo=settings.GITHUB_REPO,
     ) as client:
-        for job in candidates:
+        for job, source_step in candidates:
             try:
                 snapshot = parse_ci_version_snapshot(
-                    await client.get_job_logs(job.job_id), source_job_id=job.job_id
+                    await client.get_job_logs(job.job_id),
+                    source_job_id=job.job_id,
+                    source_step=source_step,
                 )
             except Exception as exc:
                 logger.warning("Version snapshot refresh failed for job %s: %s", job.job_id, exc)
@@ -1055,7 +1060,7 @@ async def refresh_run_version_snapshot(run_id: int, current_user: CurrentAdminUs
                 run.data = json.dumps(payload)
                 await db.commit()
                 return snapshot
-    raise HTTPException(status_code=422, detail="Version information was not found in available Stream logs")
+    raise HTTPException(status_code=422, detail="Version information was not found in available version-reporting logs")
 
 
 @router.get("/job-comparison")
@@ -2196,11 +2201,11 @@ async def analyze_batch(
     from failure_analysis.failure_analysis import FailureAnalysisService
     service = FailureAnalysisService()
     try:
-        results = await service.analyze_batch(days_back=days_back, db=db)
+        queued_job_ids = await service.analyze_batch(days_back=days_back, db=db)
         return {
             "success": True,
-            "message": f"分析完成，共处理 {len(results)} 个失败Job",
-            "count": len(results),
+            "message": f"已排队 {len(queued_job_ids)} 个失败 Job，后台最多同时分析 3 个",
+            "count": len(queued_job_ids),
         }
     except Exception as e:
         logger.error(f"Failed to analyze batch: {e}")

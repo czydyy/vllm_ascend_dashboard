@@ -112,16 +112,12 @@ restore_database() {
     [[ -s "$backup_file" ]] || die "restore backup is missing: $backup_file"
     compose exec -T mysql sh -c \
         'exec mysql -uroot -p"$MYSQL_ROOT_PASSWORD" -e "DROP DATABASE IF EXISTS \`$1\`; CREATE DATABASE \`$1\` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci"' sh "$DATABASE_NAME"
-    # A backup can contain the source server's GTID_PURGED statement.  It is
-    # valid for cloning a fresh server but cannot be applied back to the live
-    # MySQL instance during rollback (error 3546).  The database contents are
-    # restored without changing the server's global GTID history.
     if [[ "$backup_file" == *.zst ]]; then
-        zstd -dc "$backup_file" | sed '/^SET @@GLOBAL.GTID_PURGED=/d' | compose exec -T mysql sh -c \
+        zstd -dc "$backup_file" | compose exec -T mysql sh -c \
             'exec mysql -uroot -p"$MYSQL_ROOT_PASSWORD" "$1"' sh "$DATABASE_NAME"
     else
-        sed '/^SET @@GLOBAL.GTID_PURGED=/d' "$backup_file" | compose exec -T mysql sh -c \
-            'exec mysql -uroot -p"$MYSQL_ROOT_PASSWORD" "$1"' sh "$DATABASE_NAME"
+        compose exec -T mysql sh -c \
+            'exec mysql -uroot -p"$MYSQL_ROOT_PASSWORD" "$1"' sh "$DATABASE_NAME" < "$backup_file"
     fi
 }
 
@@ -228,8 +224,12 @@ fi
 new_git_full="$(git -C "$PROJECT_ROOT" rev-parse HEAD)"
 new_git="$(git -C "$PROJECT_ROOT" rev-parse --short HEAD)"
 if $FAST && [[ "$pre_git_full" != "$new_git_full" ]]; then
+    # Demo seed data is never used by the production migration or runtime.
+    # It is safe to ship with an application-only release, unlike every
+    # other change under database/ (including migrations and bootstrap code).
     database_changes="$(git -C "$PROJECT_ROOT" diff --name-only "$pre_git_full" "$new_git_full" -- \
-        database/ backend/infrastructure/persistence/ operations/production/migrate.sh)"
+        database/ backend/infrastructure/persistence/ operations/production/migrate.sh | \
+        sed '/^database\/seed_local_demo\.py$/d')"
     if [[ -n "$database_changes" ]]; then
         echo "[ERROR] fast mode detected database-related changes; rerun without --fast:" >&2
         echo "$database_changes" >&2
