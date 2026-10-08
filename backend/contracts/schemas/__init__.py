@@ -1076,6 +1076,13 @@ from .nightly_gantt import (
     NightlyGanttResponse,
     NightlyGanttRunMeta,
 )
+from .npu_occupancy import (
+    NpuOccupancyAnalysisResponse,
+    NpuOccupancyDetailsResponse,
+    NpuOccupancyOption,
+    NpuOccupancyOptionsResponse,
+    NpuOccupancyTrendResponse,
+)
 from .pr_pipeline import (
     PRPipelineContributor,
     PRPipelineHistoricalSyncRequest,
@@ -1114,13 +1121,6 @@ from .resource_metrics import (
     NpuMetricsResponse,
     ResourceMetricsConfigResponse,
     ResourceMetricsConfigUpdate,
-)
-from .npu_occupancy import (
-    NpuOccupancyAnalysisResponse,
-    NpuOccupancyDetailsResponse,
-    NpuOccupancyOption,
-    NpuOccupancyOptionsResponse,
-    NpuOccupancyTrendResponse,
 )
 from .test_board import (
     FailureAnnotationRequest,

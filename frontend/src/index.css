@@ -127,9 +127,23 @@ html { scroll-behavior: smooth; }
 .npu-occupancy-expand:hover .npu-occupancy-expand-dot { opacity: 0; transform: scale(.4); }
 .npu-occupancy-expand:hover .npu-occupancy-expand-arrow { opacity: 1; transform: translateY(0); }
 .npu-occupancy-expand.is-expanded { color: #211b52; }
-.npu-occupancy-range-button.ant-btn, .npu-occupancy-refresh-button.ant-btn { height: 42px; border: 0; border-radius: 10px; color: #fff; background: linear-gradient(135deg, #17133f, #30276d); box-shadow: 0 7px 16px rgba(35, 28, 82, .18); font-weight: 600; }
+.npu-occupancy-drawer-search { width: 100%; }
+.npu-occupancy-drawer-group-tabs { position: relative; display: flex; width: fit-content; border-bottom: 1px solid #e4e6ed; }
+.npu-occupancy-drawer-group-tabs button { position: relative; z-index: 1; min-width: 116px; padding: 7px 14px 10px; border: 0; background: transparent; color: #9195a3; font-size: 15px; cursor: pointer; transition: color .22s ease; }
+.npu-occupancy-drawer-group-tabs button.is-active { color: #211950; font-weight: 600; }
+.npu-occupancy-drawer-group-tabs > span { position: absolute; bottom: -1px; left: 0; width: 50%; height: 3px; background: #211950; transition: transform .28s cubic-bezier(.2, .8, .2, 1); }
+.npu-occupancy-drawer-group-tabs[data-view='project'] > span { transform: translateX(100%); }
+.npu-occupancy-drawer-head, .npu-occupancy-drawer-row { display: grid; grid-template-columns: minmax(0, 1fr) 96px 84px 28px; gap: 16px; align-items: center; }
+.npu-occupancy-drawer-head { padding-bottom: 10px; border-bottom: 1px solid #edf0f5; font-size: 13px; }
+.npu-occupancy-drawer-group { padding: 2px 0; border-bottom: 1px solid #edf0f5; }
+.npu-occupancy-drawer-row { min-height: 52px; }
+.npu-occupancy-drawer-tasks { margin: 0 0 8px 14px; padding-left: 14px; border-left: 2px solid #eceaf5; }
+.npu-occupancy-drawer-task { display: grid; grid-template-columns: minmax(0, 1fr) 72px minmax(150px, .7fr) 70px; gap: 12px; align-items: center; padding: 8px 0; font-size: 13px; }
+.npu-occupancy-range-button.ant-btn, .npu-occupancy-refresh-button.ant-btn { position: relative; isolation: isolate; overflow: hidden; height: 42px; border: 0; border-radius: 10px; color: #fff; background: #211950; box-shadow: 0 7px 16px rgba(33, 25, 80, .18); font-weight: 600; }
 .npu-occupancy-range-button.ant-btn { min-width: 132px; text-align: center !important; }
-.npu-occupancy-range-button.ant-btn:hover, .npu-occupancy-refresh-button.ant-btn:hover, .npu-occupancy-range-button.ant-btn:focus, .npu-occupancy-refresh-button.ant-btn:focus { color: #fff !important; background: linear-gradient(135deg, #211a56, #3a2f82) !important; }
+.npu-occupancy-range-button.ant-btn::after, .npu-occupancy-refresh-button.ant-btn::after { position: absolute; top: -35%; left: -42%; z-index: 0; width: 34%; height: 170%; content: ''; pointer-events: none; opacity: 0; background: linear-gradient(90deg, transparent, rgba(255, 255, 255, .38), transparent); transform: skewX(-20deg) translateX(-140%); }
+.npu-occupancy-range-button.ant-btn:hover, .npu-occupancy-refresh-button.ant-btn:hover, .npu-occupancy-range-button.ant-btn:focus, .npu-occupancy-refresh-button.ant-btn:focus { color: #fff !important; background: #211950 !important; }
+.npu-occupancy-range-button.ant-btn:hover::after, .npu-occupancy-refresh-button.ant-btn:hover::after { opacity: 1; transform: skewX(-20deg) translateX(520%); transition: transform .62s ease, opacity .12s ease; }
 .npu-occupancy-timeline { font-size: 12px; }
 .npu-occupancy-timeline-axis { display: grid; grid-template-columns: 180px repeat(4, 1fr); color: #737889; border-bottom: 1px solid #dfe3ea; padding-bottom: 8px; }
 .npu-occupancy-timeline-axis span:not(:first-child) { text-align: right; }
@@ -151,6 +165,9 @@ html { scroll-behavior: smooth; }
   .npu-occupancy-analysis-head, .npu-occupancy-analysis-row { grid-template-columns: minmax(160px, 1fr) 80px 80px 52px 24px; }
   .npu-occupancy-analysis-task { grid-template-columns: minmax(160px, 1fr) 70px 90px; }
   .npu-occupancy-analysis-task span:last-child { display: none; }
+  .npu-occupancy-drawer-head, .npu-occupancy-drawer-row { grid-template-columns: minmax(140px, 1fr) 68px 48px 24px; gap: 10px; }
+  .npu-occupancy-drawer-task { grid-template-columns: minmax(140px, 1fr) 58px 1fr; gap: 8px; }
+  .npu-occupancy-drawer-task > .ant-tag { display: none; }
   .npu-occupancy-timeline-lane { grid-template-columns: 120px minmax(160px, 1fr); }
   .npu-occupancy-timeline-axis { grid-template-columns: 120px repeat(4, 1fr); }
 }

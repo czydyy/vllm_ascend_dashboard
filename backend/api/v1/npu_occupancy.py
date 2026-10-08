@@ -1,10 +1,15 @@
-from datetime import datetime, timezone
-from typing import Annotated, Literal
+from datetime import UTC, datetime
+from typing import Literal
 
 from fastapi import APIRouter, HTTPException, Query
 
 from api.deps import CurrentUser
-from contracts.schemas.npu_occupancy import NpuOccupancyAnalysisResponse, NpuOccupancyDetailsResponse, NpuOccupancyOptionsResponse, NpuOccupancyTrendResponse
+from contracts.schemas.npu_occupancy import (
+    NpuOccupancyAnalysisResponse,
+    NpuOccupancyDetailsResponse,
+    NpuOccupancyOptionsResponse,
+    NpuOccupancyTrendResponse,
+)
 from infrastructure.core.config import settings
 from resource_dashboard.npu_occupancy_client import NpuOccupancyUpstreamError
 from resource_dashboard.npu_occupancy_repository import NpuOccupancyRepository
@@ -16,7 +21,7 @@ router = APIRouter()
 def _validate_window(start: datetime, end: datetime) -> tuple[datetime, datetime]:
     if start.tzinfo is None or end.tzinfo is None:
         raise HTTPException(status_code=422, detail="start and end must include a timezone")
-    start, end = start.astimezone(timezone.utc), end.astimezone(timezone.utc)
+    start, end = start.astimezone(UTC), end.astimezone(UTC)
     if end <= start:
         raise HTTPException(status_code=422, detail="end must be after start")
     if (end - start).total_seconds() > settings.NPU_OCCUPANCY_MAX_WINDOW_SECONDS:
@@ -73,7 +78,7 @@ async def get_details(
     start, end = _validate_window(start, end)
     if timestamp.tzinfo is None:
         raise HTTPException(status_code=422, detail="timestamp must include a timezone")
-    timestamp = timestamp.astimezone(timezone.utc)
+    timestamp = timestamp.astimezone(UTC)
     if not start <= timestamp <= end:
         raise HTTPException(status_code=422, detail="timestamp must be within start and end")
     envs, snapshot_at = await NpuOccupancyRepository().load_envs()

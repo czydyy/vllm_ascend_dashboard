@@ -5,7 +5,7 @@ import gzip
 import json
 import ssl
 import time
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from urllib.parse import urlencode
 from urllib.request import Request, urlopen
 
@@ -30,7 +30,7 @@ class NpuOccupancyClient:
     def _utc(value: datetime) -> str:
         if value.tzinfo is None:
             raise ValueError("timestamps must include a timezone")
-        return value.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+        return value.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
 
     def _context(self) -> ssl.SSLContext:
         return ssl.create_default_context() if self.verify_tls else ssl._create_unverified_context()

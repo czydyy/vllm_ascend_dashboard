@@ -1,6 +1,11 @@
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
-from resource_dashboard.npu_occupancy_service import NpuOccupancyService, normalize_records, npu_cards, parse_timestamp
+from resource_dashboard.npu_occupancy_service import (
+    NpuOccupancyService,
+    normalize_records,
+    npu_cards,
+    parse_timestamp,
+)
 
 
 def _env(*, env_id: str, cluster: str, status: str, created: str, expires: str | None, cards: int, project: str = "org/repo") -> dict:
@@ -22,7 +27,7 @@ class _Client:
 
 
 def test_normalization_matches_pipeline_card_and_interval_rules():
-    snapshot = datetime(2026, 9, 1, 10, 10, tzinfo=timezone.utc)
+    snapshot = datetime(2026, 9, 1, 10, 10, tzinfo=UTC)
     envs = [
         _env(env_id="active", cluster="gy-004", status="active", created="2026-09-01T10:00:00Z", expires=None, cards=8),
         _env(env_id="expired", cluster="gy-005", status="expired", created="2026-09-01T10:00:00Z", expires="2026-09-01T10:04:00Z", cards=4),
@@ -32,10 +37,10 @@ def test_normalization_matches_pipeline_card_and_interval_rules():
     records = normalize_records(envs, snapshot)
     assert [record.env_id for record in records] == ["active", "expired"]
     assert npu_cards(envs[0]) == 8
-    assert parse_timestamp("2026-09-01 10:00:00.86+00") == datetime(2026, 9, 1, 10, 0, 0, 860000, tzinfo=timezone.utc)
+    assert parse_timestamp("2026-09-01 10:00:00.86+00") == datetime(2026, 9, 1, 10, 0, 0, 860000, tzinfo=UTC)
 
     service = NpuOccupancyService(client=_Client(envs))
-    result = service.trend(dimension="pool", names=[], start=datetime(2026, 9, 1, 10, 0, tzinfo=timezone.utc), end=datetime(2026, 9, 1, 10, 6, tzinfo=timezone.utc))
+    result = service.trend(dimension="pool", names=[], start=datetime(2026, 9, 1, 10, 0, tzinfo=UTC), end=datetime(2026, 9, 1, 10, 6, tzinfo=UTC))
     assert [point["occupied_cards"] for point in result["series"]] == [12, 12, 8, 8]
     assert result["metrics"]["peak"] == 12
     assert result["metrics"]["latest"] == 8
@@ -48,7 +53,7 @@ def test_project_aliases_and_pool_selection_do_not_double_count():
         _env(env_id="two", cluster="gy-005", status="active", created="2026-09-01T10:00:00Z", expires=None, cards=4, project="org/repo"),
     ]
     service = NpuOccupancyService(client=_Client(envs))
-    start, end = datetime(2026, 9, 1, 10, 0, tzinfo=timezone.utc), datetime(2026, 9, 1, 10, 2, tzinfo=timezone.utc)
+    start, end = datetime(2026, 9, 1, 10, 0, tzinfo=UTC), datetime(2026, 9, 1, 10, 2, tzinfo=UTC)
     project = service.trend(dimension="project", names=["org-repo"], start=start, end=end)
     pools = service.trend(dimension="pool", names=["SGLang资源池-贵阳-A3", "vllm资源池-贵阳-A3"], start=start, end=end)
     assert project["series"][0]["occupied_cards"] == 12
@@ -62,8 +67,8 @@ def test_range_analysis_uses_the_whole_interval_not_one_snapshot():
         _env(env_id="short", cluster="gy-004", status="expired", created="2026-09-01T10:00:00Z", expires="2026-09-01T10:04:00Z", cards=4),
     ]
     service = NpuOccupancyService(client=_Client(envs))
-    start = datetime(2026, 9, 1, 10, 0, tzinfo=timezone.utc)
-    end = datetime(2026, 9, 1, 10, 6, tzinfo=timezone.utc)
+    start = datetime(2026, 9, 1, 10, 0, tzinfo=UTC)
+    end = datetime(2026, 9, 1, 10, 6, tzinfo=UTC)
 
     result = service.analysis(dimension="project", names=[], start=start, end=end)
 

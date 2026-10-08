@@ -24,6 +24,9 @@ export default function NpuOccupancyTrend() {
   const [analysisMode, setAnalysisMode] = useState<'table' | 'timeline'>('table')
   const [expandedGroups, setExpandedGroups] = useState<Set<string>>(() => new Set())
   const [analysisSearch, setAnalysisSearch] = useState('')
+  const [drawerExpandedGroups, setDrawerExpandedGroups] = useState<Set<string>>(() => new Set())
+  const [drawerSearch, setDrawerSearch] = useState('')
+  const [drawerGroupBy, setDrawerGroupBy] = useState<OccupancyView>('pool')
   const [timeRange, setTimeRange] = useState<CIBuildTimeRangeValue>(() => {
     const end = dayjs()
     return { start: end.subtract(1, 'hour'), end, preset: '1h' }
@@ -39,8 +42,8 @@ export default function NpuOccupancyTrend() {
   const refreshMutation = useMutation({ mutationFn: () => refreshOccupancySnapshot({ start: chartParams.start, end: chartParams.end }), onSuccess: () => { trendQuery.refetch(); analysisQuery.refetch() } })
   const trend = trendQuery.data
   const snapshotDetailsQuery = useQuery({
-    queryKey: ['npu-occupancy-details', drillTime, chartParams],
-    queryFn: () => getOccupancyDetails({ ...chartParams, timestamp: drillTime!, group_by: 'pool' }),
+    queryKey: ['npu-occupancy-details', drillTime, chartParams, drawerGroupBy],
+    queryFn: () => getOccupancyDetails({ ...chartParams, timestamp: drillTime!, group_by: drawerGroupBy }),
     enabled: Boolean(drillTime),
   })
   const [loadingSeconds, setLoadingSeconds] = useState(0)
@@ -55,6 +58,13 @@ export default function NpuOccupancyTrend() {
     const timer = window.setInterval(updateElapsed, 1000)
     return () => window.clearInterval(timer)
   }, [trendQuery.isFetching, chartParams])
+  useEffect(() => {
+    setDrawerSearch('')
+    setDrawerExpandedGroups(new Set())
+  }, [drillTime])
+  useEffect(() => {
+    setDrawerExpandedGroups(new Set())
+  }, [drawerGroupBy])
   const options = view === 'pool'
     ? (optionsQuery.data?.options ?? [])
     : (analysisQuery.data?.groups ?? []).map(group => ({ name: group.name, label: group.name, capacity: null, configured: true }))
@@ -67,6 +77,16 @@ export default function NpuOccupancyTrend() {
       return tasks.length ? [{ ...group, tasks }] : []
     })
   }, [analysisQuery.data?.groups, analysisSearch])
+  const drawerGroups = useMemo(() => {
+    const keyword = drawerSearch.trim().toLowerCase()
+    const groups = snapshotDetailsQuery.data?.groups ?? []
+    if (!keyword) return groups
+    return groups.flatMap(group => {
+      if (group.name.toLowerCase().includes(keyword)) return [group]
+      const tasks = group.tasks.filter(task => [task.project, task.workflow, task.node_ip, task.env_id, task.npu_list, task.status].some(value => value?.toLowerCase().includes(keyword)))
+      return tasks.length ? [{ ...group, tasks }] : []
+    })
+  }, [snapshotDetailsQuery.data?.groups, drawerSearch])
   const chartData = trend?.series.map(point => ({ ...point, label: dayjs(point.timestamp).format('MM-DD HH:mm') })) ?? []
   const capacity = trend?.metrics.capacity ?? null
   const estimatedProgress = Math.min(95, Math.max(5, Math.round(loadingSeconds / 90 * 100)))
@@ -80,6 +100,15 @@ export default function NpuOccupancyTrend() {
 
   const toggleGroup = (name: string) => {
     setExpandedGroups(current => {
+      const next = new Set(current)
+      if (next.has(name)) next.delete(name)
+      else next.add(name)
+      return next
+    })
+  }
+
+  const toggleDrawerGroup = (name: string) => {
+    setDrawerExpandedGroups(current => {
       const next = new Set(current)
       if (next.has(name)) next.delete(name)
       else next.add(name)
@@ -127,22 +156,29 @@ export default function NpuOccupancyTrend() {
       <Drawer width={820} title={`占用明细 · ${drillTime ? dayjs(drillTime).format('YYYY-MM-DD HH:mm') : ''}`} open={Boolean(drillTime)} onClose={() => setDrillTime(null)}>
         <Space direction="vertical" size="large" style={{ width: '100%' }}>
           {snapshotDetailsQuery.isLoading ? <Spin /> : snapshotDetailsQuery.isError ? <Alert type="error" showIcon message="明细加载失败" /> : <>
-            <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) 96px 84px', gap: 16, paddingBottom: 10, borderBottom: '1px solid #edf0f5' }}>
-              <Text type="secondary">{view === 'pool' ? '资源池' : '项目 / 社区'}</Text><Text type="secondary">占用</Text><Text type="secondary">任务数</Text>
+            <Input allowClear value={drawerSearch} onChange={event => setDrawerSearch(event.target.value)} placeholder="搜索资源池、项目、任务或节点" className="npu-occupancy-drawer-search" />
+            <div className="npu-occupancy-drawer-group-tabs" data-view={drawerGroupBy}>
+              <button type="button" className={drawerGroupBy === 'pool' ? 'is-active' : ''} onClick={() => setDrawerGroupBy('pool')}>按资源池</button>
+              <button type="button" className={drawerGroupBy === 'project' ? 'is-active' : ''} onClick={() => setDrawerGroupBy('project')}>按项目</button>
+              <span aria-hidden="true" />
             </div>
-            {snapshotDetailsQuery.data?.groups.map(group => <section key={group.name} style={{ borderBottom: '1px solid #edf0f5', padding: '14px 0 10px' }}>
-              <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) 96px 84px', gap: 16, alignItems: 'center' }}>
+            <div className="npu-occupancy-drawer-head">
+              <Text type="secondary">{drawerGroupBy === 'pool' ? '资源池' : '项目 / 社区'}</Text><Text type="secondary">占用</Text><Text type="secondary">任务数</Text>
+            </div>
+            {drawerGroups.length ? drawerGroups.map(group => { const expanded = drawerExpandedGroups.has(group.name); return <section key={group.name} className="npu-occupancy-drawer-group">
+              <div className="npu-occupancy-drawer-row">
                 <Text strong>{group.name}</Text><Text strong>{group.occupied_cards} 卡</Text><Text strong>{group.task_count}</Text>
+                <button type="button" className={`npu-occupancy-expand ${expanded ? 'is-expanded' : ''}`} aria-label={expanded ? '收起任务' : '展开任务'} onClick={() => toggleDrawerGroup(group.name)}><span className="npu-occupancy-expand-dot" /><span className="npu-occupancy-expand-arrow" /></button>
               </div>
-              <div style={{ marginTop: 10, paddingLeft: 14, borderLeft: '2px solid #eceaf5' }}>
-                {group.tasks.map(task => <div key={task.env_id} style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) 72px minmax(150px, .7fr) 70px', gap: 12, alignItems: 'center', padding: '8px 0', fontSize: 13 }}>
+              {expanded ? <div className="npu-occupancy-drawer-tasks">
+                {group.tasks.map(task => <div key={task.env_id} className="npu-occupancy-drawer-task">
                   <div><Text style={{ display: 'block', fontSize: 13 }}>{task.workflow}</Text><Text type="secondary" style={{ fontSize: 12 }}>Env：{task.env_id}</Text></div>
                   <Text style={{ fontSize: 13 }}>{task.cards} 卡</Text>
                   <Text type="secondary" style={{ fontSize: 12 }}>{task.node_ip || '-'} · NPU {task.npu_list || '-'}</Text>
                   <Tag color={task.status === 'active' ? 'green' : 'default'} style={{ width: 'fit-content', marginInlineEnd: 0 }}>{task.status}</Tag>
                 </div>)}
-              </div>
-            </section>)}
+              </div> : null}
+            </section> }) : <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="没有匹配的占用任务" />}
           </>}
         </Space>
       </Drawer>

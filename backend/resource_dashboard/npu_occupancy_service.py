@@ -4,10 +4,16 @@ from __future__ import annotations
 import re
 from collections import defaultdict
 from dataclasses import dataclass
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 from resource_dashboard.npu_occupancy_client import NpuOccupancyClient
-from resource_dashboard.npu_occupancy_config import POOL_BY_NAME, POOLS, configured_pool_options, is_excluded_cluster, resolve_pool
+from resource_dashboard.npu_occupancy_config import (
+    POOL_BY_NAME,
+    POOLS,
+    configured_pool_options,
+    is_excluded_cluster,
+    resolve_pool,
+)
 
 STEP_SECONDS = 120
 
@@ -43,7 +49,7 @@ def parse_timestamp(value: object) -> datetime | None:
             parsed = datetime.fromisoformat(re.sub(r"\.(\d+)", "", text))
         except ValueError:
             return None
-    return parsed.replace(tzinfo=timezone.utc) if parsed.tzinfo is None else parsed.astimezone(timezone.utc)
+    return parsed.replace(tzinfo=UTC) if parsed.tzinfo is None else parsed.astimezone(UTC)
 
 
 def npu_cards(env: dict) -> int:
@@ -117,7 +123,7 @@ def parse_names(names: str | None) -> list[str]:
 
 def _bucket_floor(value: datetime) -> datetime:
     epoch = int(value.timestamp())
-    return datetime.fromtimestamp(epoch - epoch % STEP_SECONDS, tz=timezone.utc)
+    return datetime.fromtimestamp(epoch - epoch % STEP_SECONDS, tz=UTC)
 
 
 class NpuOccupancyService:
@@ -131,9 +137,9 @@ class NpuOccupancyService:
 
     def _load(self, start: datetime, end: datetime) -> tuple[list[OccupancyRecord], datetime]:
         if self.envs is not None:
-            snapshot_at = self.snapshot_at or datetime.now(timezone.utc)
+            snapshot_at = self.snapshot_at or datetime.now(UTC)
             return normalize_records(self.envs, snapshot_at), snapshot_at
-        snapshot_at = datetime.now(timezone.utc)
+        snapshot_at = datetime.now(UTC)
         envs = self.client.fetch_window(start, end)
         return normalize_records(envs, snapshot_at), snapshot_at
 
