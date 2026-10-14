@@ -13,6 +13,7 @@
 
   "GLM-4.7.yaml": "游致远",
   "GLM-5.1-W8A8-PrefillMC2.yaml": "未知（陈家伟）",
+  "GLM-5.1-W8A8C8-128k-1k-90-50-PD.yaml": "艾松",
   "GLM5_1-W8A8-A2-dual-nodes.yaml": "张杨",
   "GLM5_1-W8A8-A3-dual-nodes.yaml": "张杨",
   "GLM5_1-W8A8-EP.yaml": "张杨",
@@ -28,6 +29,7 @@
   "Qwen3-30B-A3B-W4A8-llm-compressor.yaml": "董钰彬",
   "Qwen3-30B-A3B-W8A8.yaml": "董钰彬",
   "Qwen3-30B-QuaRot-eagle3.yaml": "董钰彬",
+  "qwen3-30b-acc.yaml": "董钰彬",
   "Qwen3-32B-Int8-A2.yaml": "董钰彬",
   "Qwen3-32B-Int8.yaml": "董钰彬",
   "Qwen3-32B-QuaRot-eagle3.yaml": "董钰彬",
@@ -50,7 +52,7 @@
   "MiniMax-M2.5-w8a8-QuaRot-A2.yaml": "蔡庆木",
   "MiniMax-M2.5-w8a8-QuaRot-A3.yaml": "未知（陈家伟）",
   "MiniMax-M3-BF16-A3.yaml": "未知（陈家伟）",
-  "MiniMax-M3-W8A8-A3.yaml": "未知（陈家伟）",
+  "MiniMax-M3-W8A8-A3.yaml": "赵瑞博",
 
   "Qwen3_6_27b_A5.yaml": "王蓓",
   "DeepSeek_V31_Terminus_w4a8_w8a8_A5.yaml": "李镕凡",
