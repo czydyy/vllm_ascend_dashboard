@@ -216,3 +216,7 @@ backups/
 
 # Production schema-only contract snapshots are local test fixtures.
 *_schema_contract.sql
+
+# Nightly report working dirs (one-shot scripts + node_modules) and generated xlsx deliverables
+.tmp-nightly-report-*/
+outputs/
