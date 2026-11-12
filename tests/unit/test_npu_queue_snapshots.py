@@ -1,8 +1,12 @@
 from datetime import UTC, datetime
 from types import SimpleNamespace
 
-from npu_queue.service import _minutes, _queue_delay_dates, _queue_delay_window
-from npu_queue.snapshots import current_counts, physical_queue_state_from_metrics
+from npu_queue.service import _ci_wait_state, _minutes, _queue_delay_dates, _queue_delay_window
+from npu_queue.snapshots import (
+    current_counts,
+    physical_queue_detail_from_metrics,
+    physical_queue_state_from_metrics,
+)
 
 
 def _fact(*, status: str, cards: int, started_at=None, completed_at=None):
@@ -56,11 +60,80 @@ def test_physical_queue_state_counts_only_kubernetes_pending_pods():
     assert [pod["name"] for pod in pending] == ["pending-a"]
 
 
+def test_physical_queue_state_can_filter_one_resource_pool():
+    metrics = [
+        SimpleNamespace(
+            cluster_id=1,
+            cluster_name="A3",
+            npu_used=32,
+            executing_pods_count=4,
+            top_pods_json=[{"name": "pending-a3", "phase": "Pending", "npu": 16}],
+        ),
+        SimpleNamespace(
+            cluster_id=2,
+            cluster_name="A5",
+            npu_used=8,
+            executing_pods_count=1,
+            top_pods_json=[{"name": "pending-a5", "phase": "Pending", "npu": 2}],
+        ),
+    ]
+
+    counts, pending = physical_queue_state_from_metrics(metrics, "A5")
+
+    assert counts == {
+        "waitingJobs": 1,
+        "waitingCards": 2,
+        "runningJobs": 1,
+        "runningCards": 8,
+    }
+    assert [pod["name"] for pod in pending] == ["pending-a5"]
+
+
+def test_physical_queue_detail_contains_only_selected_pool_pods():
+    metrics = [
+        SimpleNamespace(
+            cluster_id=1,
+            cluster_name="A3",
+            npu_used=24,
+            executing_pods_count=2,
+            top_pods_json=[
+                {"name": "pending-a3", "phase": "Pending", "npu": 16},
+                {"name": "running-a3", "phase": "Running", "npu": 8},
+            ],
+        ),
+        SimpleNamespace(
+            cluster_id=2,
+            cluster_name="A5",
+            npu_used=1,
+            executing_pods_count=1,
+            top_pods_json=[{"name": "running-a5", "phase": "Running", "npu": 1}],
+        ),
+    ]
+
+    counts, pods = physical_queue_detail_from_metrics(metrics, "A3")
+
+    assert counts["waitingCards"] == 16
+    assert counts["runningCards"] == 24
+    assert [pod["name"] for pod in pods] == ["pending-a3", "running-a3"]
+    assert {pod["cluster_name"] for pod in pods} == {"A3"}
+
+
 def test_queue_duration_accepts_mysql_naive_timestamps() -> None:
     assert _minutes(
         datetime(2026, 10, 10, 6, 0),
         datetime(2026, 10, 10, 6, 5, tzinfo=UTC),
     ) == 5
+
+
+def test_completed_run_ends_stale_queued_job_wait() -> None:
+    completed_at = datetime(2026, 10, 10, 7, 0, tzinfo=UTC)
+    current, ended_at = _ci_wait_state(
+        SimpleNamespace(status="queued", started_at=None, completed_at=None),
+        SimpleNamespace(status="completed", started_at=None, completed_at=completed_at),
+    )
+
+    assert current is False
+    assert ended_at == completed_at
 
 
 def test_queue_delay_window_uses_seven_beijing_calendar_dates():

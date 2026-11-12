@@ -10,6 +10,7 @@ from sqlalchemy import (
     Column,
     Date,
     DateTime,
+    Enum,
     Float,
     ForeignKey,
     Index,
@@ -21,11 +22,14 @@ from sqlalchemy import (
 from sqlalchemy.orm import backref, declarative_base, relationship
 from sqlalchemy.types import JSON
 
+# 创建基类
+Base = declarative_base()
+
 # 导出所有模型类，方便其他地方导入
 __all__ = [
     "Base", "User", "ModelConfig", "ModelReport", "CIResult", "CIJob",
     "DailyFailureRecord",
-    "WorkflowConfig", "PerformanceData", "JobOwner", "NightlyTestCase", "ModelFoMapping",
+    "WorkflowConfig", "PerformanceData", "JobOwner", "NightlyTestCase", "ModelFoMapping", "ModelFoMaster",
     "ModelSyncConfig", "ProjectDashboardConfig", "KubernetesClusterConfig",
     "DailyPR", "DailyIssue", "DailyCommit", "DailySummary", "LLMProviderConfig",
     "DailyReportHistory", "ResourceNpuMetrics", "JobFailureAnalysis",
@@ -40,11 +44,27 @@ __all__ = [
     "SchedulerHeartbeat",
     "NpuOccupancyRawEnv", "NpuOccupancySyncState",
     "CINpuJobFact", "CINpuQueueSnapshot", "CINpuSyncState",
+    "Contributor", "ContributorProfile", "ImageBuildPlan",
+    "ContributorSyncRecord",
+    "ContributorScoringVersion", "ContributorScoreSnapshot", "ContributorScoreUpdateAudit",
+    "ContributorAIReport",
+    "ReleaseWorkflow", "ReleaseBuildRun", "ReleaseBuildGroup",
+    "ReleaseThirdPartyVersion", "ReleaseThirdPartyBaseline",
+    "ReleaseAIEvaluation", "ReleaseAnalysisTask",
 ]
 
 
-# 创建基类
-Base = declarative_base()
+# 发布件管理模型（必须在 Base 创建之后导入，避免循环导入）
+from infrastructure.persistence.models.release_management import (
+    ReleaseAIEvaluation,
+    ReleaseAnalysisTask,
+    ReleaseBuildGroup,
+    ReleaseBuildRun,
+    ReleaseSyncSchedule,
+    ReleaseThirdPartyBaseline,
+    ReleaseThirdPartyVersion,
+    ReleaseWorkflow,
+)
 
 
 class User(Base):
@@ -379,6 +399,35 @@ class ModelFoMapping(Base):
     updated_at = Column(TIMESTAMP, default=lambda: datetime.now(UTC), onupdate=lambda: datetime.now(UTC))
 
 
+class ModelFoMaster(Base):
+    """模型-FO 映射主库。
+
+    由团队通过 Excel 批量导入维护，承载 Suite / 节点类型 / yaml / 模型 /
+    覆盖机型 / 模型FO 六元组。CI 模块（每日综合报告 / Job 详情 / 失败记录）
+    在 owner / model_fo 缺失时按本表 fallback 查询。
+
+    唯一约束：(suite, node_type, test_yaml)。model_name 允许重复
+    （同一模型可出现在多个 suite / 节点 / yaml 下）。
+    """
+    __tablename__ = "model_fo_master"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    suite = Column(String(50), nullable=False, index=True)
+    node_type = Column(String(50), nullable=False, index=True)
+    test_yaml = Column(String(300), nullable=False, index=True)
+    model_name = Column(String(200), nullable=False, index=True)
+    coverage_hardware = Column(String(200))
+    model_fo = Column(String(100), nullable=True)
+    enabled = Column(Boolean, nullable=False, default=True, index=True)
+    created_at = Column(TIMESTAMP, default=lambda: datetime.now(UTC))
+    updated_at = Column(TIMESTAMP, default=lambda: datetime.now(UTC), onupdate=lambda: datetime.now(UTC))
+
+    __table_args__ = (
+        UniqueConstraint("suite", "node_type", "test_yaml",
+                         name="uq_model_fo_master_suite_node_yaml"),
+    )
+
+
 class ModelSyncConfig(Base):
     """模型报告同步配置表"""
     __tablename__ = "model_sync_configs"
@@ -459,7 +508,14 @@ class ResourceNpuMetrics(Base):
     executing_pods_count = Column(Integer, default=0)
     pr_count = Column(Integer, default=0)
     top_pods_json = Column(JSON)
+    # Lifecycle snapshots are kept separately from ``top_pods_json`` so the
+    # existing current-resource and PR-demand readers remain active-only.
+    pod_timeline_json = Column(JSON)
     collected_at = Column(TIMESTAMP, default=lambda: datetime.now(UTC), index=True)
+
+    __table_args__ = (
+        Index("ix_resource_npu_metrics_cluster_collected", "cluster_id", "collected_at"),
+    )
 
 
 class ResourceNodeMetrics(Base):
@@ -484,6 +540,10 @@ class ResourceNodeMetrics(Base):
     npu_utilization = Column(Float, default=0)
     executing_pods_count = Column(Integer, default=0)
     collected_at = Column(TIMESTAMP, default=lambda: datetime.now(UTC), index=True)
+
+    __table_args__ = (
+        Index("ix_resource_node_metrics_cluster_collected", "cluster_id", "collected_at"),
+    )
 
 
 class AlertRule(Base):
@@ -974,12 +1034,19 @@ class NpuOccupancyRawEnv(Base):
     id = Column(BigInteger, primary_key=True, autoincrement=True)
     env_id = Column(String(255), nullable=False)
     source_updated_at = Column(TIMESTAMP, nullable=False)
+    pod_name = Column(String(255), nullable=True)
+    pool = Column(String(255), nullable=True)
+    effective_start_at = Column(TIMESTAMP, nullable=True)
+    effective_end_at = Column(TIMESTAMP, nullable=True)
     payload = Column(JSON, nullable=False)
     created_at = Column(TIMESTAMP, default=lambda: datetime.now(UTC), nullable=False)
     updated_at = Column(TIMESTAMP, default=lambda: datetime.now(UTC), onupdate=lambda: datetime.now(UTC), nullable=False)
 
     __table_args__ = (
-        UniqueConstraint("env_id", "source_updated_at", name="uq_npu_occupancy_env_revision"),
+        UniqueConstraint("env_id", name="uq_npu_occupancy_env_id"),
+        Index("ix_npu_occupancy_pod_name", "pod_name"),
+        Index("ix_npu_occupancy_pool_end_start", "pool", "effective_end_at", "effective_start_at"),
+        Index("ix_npu_occupancy_effective_end", "effective_end_at"),
     )
 
 
@@ -993,3 +1060,306 @@ class NpuOccupancySyncState(Base):
     active_task_id = Column(String(64), nullable=True)
     error_message = Column(Text, nullable=True)
     updated_at = Column(TIMESTAMP, default=lambda: datetime.now(UTC), onupdate=lambda: datetime.now(UTC), nullable=False)
+
+
+class Contributor(Base):
+    """贡献者主表"""
+    __tablename__ = "contributors"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    github_id = Column(BigInteger, nullable=False, unique=True, index=True)
+    login = Column(String(100), nullable=False, unique=True, index=True)
+    avatar_url = Column(String(500))
+    email = Column(String(200))
+    name = Column(String(200))
+    is_community = Column(Boolean, default=True, index=True)
+    role_types = Column(JSON)
+    company = Column(String(200))
+    employee_id = Column(String(100), nullable=True, index=True)
+    first_contribution_at = Column(TIMESTAMP)
+    last_contribution_at = Column(TIMESTAMP)
+    created_at = Column(TIMESTAMP, default=lambda: datetime.now(UTC))
+    updated_at = Column(TIMESTAMP, default=lambda: datetime.now(UTC), onupdate=lambda: datetime.now(UTC))
+
+
+class ContributorProfile(Base):
+    """贡献者画像宽表 — 每贡献者一行，承载 7 维原始指标 + 综合评分 + 四层分区。
+
+    由 collector 聚合 GitHub PR/commit/file/review 数据写入，scoring_engine 计算
+    total_score 与 tier。与 contributors(身份表) 以 login 关联。
+    """
+    __tablename__ = "contributor_profiles"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    repo_name = Column(String(200), nullable=True, index=True)
+    login = Column(String(100), nullable=False, index=True)
+    contributor_id = Column(Integer, ForeignKey("contributors.id", ondelete="SET NULL"), nullable=True)
+
+    # ── 7 维原始指标 ──
+    commit_count = Column(Integer, default=0)
+    code_files = Column(Integer, default=0)
+    doc_files = Column(Integer, default=0)
+    pr_merged = Column(Integer, default=0)
+    pr_open = Column(Integer, default=0)
+    pr_closed = Column(Integer, default=0)
+    active_days_90 = Column(Integer, default=0)
+    span_days = Column(Integer, default=0)
+
+    # ── Reviewer 角色指标 ──
+    review_count = Column(Integer, default=0)
+    approval_count = Column(Integer, default=0)
+    review_ratio = Column(Float, default=0.0)
+
+    # ── 评分与分区 ──
+    total_score = Column(Float, default=0.0)
+    tier = Column(String(20))
+    role = Column(String(20))
+    first_seen = Column(Date)
+    last_seen = Column(Date)
+
+    created_at = Column(TIMESTAMP, default=lambda: datetime.now(UTC))
+    updated_at = Column(TIMESTAMP, default=lambda: datetime.now(UTC), onupdate=lambda: datetime.now(UTC))
+
+    __table_args__ = (
+        UniqueConstraint("login", "repo_name", name="uq_contributor_profile_login_repo"),
+        Index("idx_profile_tier", "tier"),
+        Index("idx_profile_score", "total_score"),
+        Index("idx_profile_last_seen", "last_seen"),
+    )
+
+    def to_profile_dict(self) -> dict:
+        """转为 service/AI 报告使用的扁平 dict"""
+        return {
+            "login": self.login,
+            "repo_name": self.repo_name,
+            "contributor_id": self.contributor_id,
+            "commit_count": self.commit_count or 0,
+            "code_files": self.code_files or 0,
+            "doc_files": self.doc_files or 0,
+            "pr_merged": self.pr_merged or 0,
+            "pr_open": self.pr_open or 0,
+            "pr_closed": self.pr_closed or 0,
+            "pr_total": (self.pr_merged or 0) + (self.pr_open or 0) + (self.pr_closed or 0),
+            "pr_merge_rate": round((self.pr_merged or 0) / max(1, (self.pr_merged or 0) + (self.pr_open or 0) + (self.pr_closed or 0)), 4),
+            "active_days_90": self.active_days_90 or 0,
+            "span_days": self.span_days or 0,
+            "review_count": self.review_count or 0,
+            "approval_count": self.approval_count or 0,
+            "review_ratio": self.review_ratio or 0.0,
+            "total_score": self.total_score or 0.0,
+            "tier": self.tier,
+            "role": self.role,
+            "first_seen": str(self.first_seen) if self.first_seen else None,
+            "last_seen": str(self.last_seen) if self.last_seen else None,
+        }
+
+
+class ContributorBoardSettings(Base):
+    """贡献者看板设置表"""
+    __tablename__ = "contributor_board_settings"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    setting_key = Column(String(100), nullable=False, unique=True, index=True)
+    setting_value = Column(JSON, nullable=False)
+    description = Column(String(500), nullable=True)
+    created_at = Column(TIMESTAMP, default=lambda: datetime.now(UTC))
+    updated_at = Column(TIMESTAMP, default=lambda: datetime.now(UTC), onupdate=lambda: datetime.now(UTC))
+
+
+class ImageBuildPlan(Base):
+    """镜像构建计划记录表（每 pr_number + repo_name 一行）"""
+    __tablename__ = "image_build_plans"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    pr_number = Column(Integer, nullable=False, index=True)
+    commit_sha = Column(String(40), nullable=False)
+    commit_type = Column(String(20))
+    build_type = Column(String(50), nullable=False)
+    chips = Column(JSON)
+    os_list = Column(JSON)
+    cache_strategy = Column(String(50))
+    estimated_saving_percent = Column(Float, default=0)
+    actual_execution = Column(Boolean, default=False)
+    reasoning = Column(String(500))
+    files_changed = Column(JSON)
+    repo_name = Column(String(200), nullable=True, index=True)
+    created_at = Column(TIMESTAMP, default=lambda: datetime.now(UTC))
+
+    __table_args__ = (
+        UniqueConstraint("pr_number", "repo_name", name="uq_build_plan_pr_repo"),
+    )
+
+
+class ContributorSyncRecord(Base):
+    """收集器同步记录表"""
+    __tablename__ = "contributor_sync_records"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    repo_name = Column(String(200), nullable=True, index=True)
+    sync_type = Column(String(20), nullable=False, default="full")
+    status = Column(String(20), nullable=False, index=True)
+    since_date = Column(Date)
+    until_date = Column(Date, nullable=True)
+    contributors_synced = Column(Integer, default=0)
+    commits_classified = Column(Integer, default=0)
+    total_prs_scanned = Column(Integer, default=0)
+    build_plans_created = Column(Integer, default=0)
+    errors = Column(JSON)
+    duration_seconds = Column(Float, default=0)
+    synced_at = Column(TIMESTAMP)
+    progress_percent = Column(Float, default=0)
+    progress_message = Column(String(500))
+    trigger_source = Column(String(32), nullable=False, default="manual")
+    # 关联的 background_task_records.id（用于 cancel 时跨表取消）
+    background_task_id = Column(Integer, nullable=True, index=True)
+    started_at = Column(TIMESTAMP, nullable=True)
+    completed_at = Column(TIMESTAMP, nullable=True)
+    created_at = Column(TIMESTAMP, default=lambda: datetime.now(UTC))
+
+
+class ContributorSyncCheckpoint(Base):
+    """贡献者同步断点持久化（跨额度窗口续跑）。
+
+    每次全量同步被 rate limit 中断时，将已处理到的 PR number 和
+    聚合 profiles JSON 写入本表；服务重启或重新触发时从本表恢复，
+    跳过已完成的 PR，继续处理剩余的。
+
+    支持两种 checkpoint 类型（checkpoint_kind）：
+    - ``full_sync``：贡献者画像同步（sync_type=full/incremental）
+    - ``daily_backfill``：日度明细补录（sync_type=daily_backfill）
+    """
+    __tablename__ = "contributor_sync_checkpoints"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    repo_name = Column(String(200), nullable=False, index=True)
+    # checkpoint 类型：full_sync / daily_backfill
+    checkpoint_kind = Column(String(20), nullable=False, default="full_sync", index=True)
+    # 已处理到的最后 PR number（下次从这之后继续）
+    last_processed_pr = Column(Integer, nullable=False)
+    total_prs = Column(Integer, nullable=False, default=0)
+    # since/until 时间窗口（用于校验是否同一批同步）
+    since_date = Column(Date, nullable=False)
+    until_date = Column(Date, nullable=True)
+    # 聚合 profiles 快照（JSON），key=login, value=profile dict
+    profiles_snapshot = Column(JSON, nullable=True)
+    # 已处理完的 PR number 集合（JSON list），恢复时用于跳过
+    pr_numbers_done = Column(JSON, nullable=True)
+    # 同步结果中的计数
+    contributors_count = Column(Integer, default=0)
+    errors_count = Column(Integer, default=0)
+    # 中断原因（用于日志）
+    abort_reason = Column(String(500), nullable=True)
+    # 标记为 completed 或 aborted
+    status = Column(String(20), nullable=False, default="active", index=True)
+    last_updated = Column(TIMESTAMP, nullable=True)
+    updated_at = Column(TIMESTAMP, default=lambda: datetime.now(UTC), onupdate=lambda: datetime.now(UTC))
+
+
+class ContributorScoringVersion(Base):
+    """评分权重版本记录表"""
+    __tablename__ = "contributor_scoring_version"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    version = Column(String(30), nullable=False, comment="版本号: v1.0.0, v1.1.0...")
+    repo_name = Column(String(200), nullable=True, index=True)
+
+    weights = Column(JSON, nullable=False, comment="权重配置快照")
+
+    method = Column(Enum("manual", "auto", "ai", name="scoring_method_enum"), nullable=False, comment="权重确定方式")
+    status = Column(Enum("draft", "active", "archived", name="scoring_version_status"), nullable=False, default="draft", comment="版本状态")
+
+    data_summary = Column(JSON, nullable=True, comment="算权时数据分布摘要")
+
+    ai_prompt = Column(Text, nullable=True)
+    ai_response = Column(Text, nullable=True)
+    ai_model = Column(String(100), nullable=True)
+
+    confidence_score = Column(Float, nullable=True)
+    description = Column(Text, nullable=True)
+
+    created_at = Column(TIMESTAMP, default=lambda: datetime.now(UTC))
+    created_by = Column(String(100), nullable=True)
+    activated_at = Column(TIMESTAMP, default=lambda: datetime.now(UTC), nullable=True)
+    activated_by = Column(String(100), nullable=True)
+
+    __table_args__ = (
+        Index("idx_scoring_version_repo_status", "repo_name", "status"),
+    )
+
+
+class ContributorScoreSnapshot(Base):
+    """分数快照表"""
+    __tablename__ = "contributor_score_snapshot"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    version_id = Column(Integer, ForeignKey("contributor_scoring_version.id", ondelete="CASCADE"), nullable=False, index=True)
+    repo_name = Column(String(200), nullable=True, index=True)
+
+    snapshot_date = Column(Date, nullable=False, index=True)
+    period_start = Column(Date, nullable=True)
+    period_end = Column(Date, nullable=True)
+    contributor_count = Column(Integer, nullable=False, default=0)
+
+    statistics = Column(JSON, nullable=True)
+    scores = Column(JSON, nullable=False)
+
+    created_at = Column(TIMESTAMP, default=lambda: datetime.now(UTC))
+    created_by = Column(String(100), nullable=True)
+    description = Column(Text, nullable=True)
+
+
+class ContributorScoreUpdateAudit(Base):
+    """评分更新审计日志表"""
+    __tablename__ = "contributor_score_update_audit"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    action = Column(String(50), nullable=False, comment="操作类型")
+    version_id = Column(Integer, nullable=True)
+    snapshot_id = Column(Integer, nullable=True)
+    repo_name = Column(String(200), nullable=True, index=True)
+
+    details = Column(JSON, nullable=True)
+    summary = Column(Text, nullable=True)
+
+    weight_diff = Column(JSON, nullable=True)
+    max_weight_shift = Column(Float, nullable=True, comment="最大单项权重变化幅度(%)")
+
+    created_at = Column(TIMESTAMP, default=lambda: datetime.now(UTC))
+    created_by = Column(String(100), nullable=True)
+
+
+class ContributorAIReport(Base):
+    """AI 综合分析报告表"""
+    __tablename__ = "contributor_ai_reports"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    report_name = Column(String(300), nullable=False)
+    report_type = Column(String(50), nullable=True, comment="quarterly/monthly/custom/adhoc")
+    period_start = Column(Date, nullable=True)
+    period_end = Column(Date, nullable=True)
+    generated_at = Column(TIMESTAMP, default=lambda: datetime.now(UTC))
+    generated_by = Column(String(100), nullable=True)
+    generation_source = Column(String(20), nullable=True, comment="manual/scheduled/ai_auto")
+    weight_version_id = Column(Integer, ForeignKey("contributor_scoring_version.id"), nullable=True)
+    llm_model = Column(String(100), nullable=True)
+    executive_summary = Column(Text, nullable=True)
+    quadrant_analysis = Column(JSON, nullable=True)
+    individual_evaluations = Column(JSON, nullable=True)
+    recommendations = Column(JSON, nullable=True)
+    confidence_overall = Column(Float, nullable=True)
+    report_content = Column(Text, nullable=True)
+    # 结构化 5 维 + Top N + risk_level 的聚合 JSON，避免多次加列 migration
+    # 形如 {"team_health": {...}, "core_contributors": {...}, "new_contributors": {...},
+    #       "improvement_areas": {...}, "top_contributors": [...], "risk_level": "..."}
+    structured_analysis = Column(JSON, nullable=True)
+    report_file_url = Column(String(500), nullable=True)
+    schedule_cron = Column(String(100), nullable=True)
+    enabled = Column(Boolean, default=True)
+    repo_name = Column(String(200), nullable=True, index=True)
+    created_at = Column(TIMESTAMP, default=lambda: datetime.now(UTC))
+    updated_at = Column(TIMESTAMP, default=lambda: datetime.now(UTC), onupdate=lambda: datetime.now(UTC))
+
+    __table_args__ = (
+        Index("idx_ai_report_period", "period_start", "period_end"),
+        Index("idx_ai_report_created", "generated_at"),
+    )

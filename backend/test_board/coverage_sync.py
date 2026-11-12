@@ -16,7 +16,6 @@ import json
 import logging
 import os
 import re
-import shutil
 import tarfile
 import tempfile
 from collections import defaultdict
@@ -36,6 +35,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from infrastructure.clients.github_cache import get_github_cache
 from infrastructure.core.config import settings
 from infrastructure.persistence.models import ProjectDashboardConfig
+from infrastructure.storage.data_retention import remove_all_but_latest_date
 
 logger = logging.getLogger(__name__)
 
@@ -72,15 +72,9 @@ def _coverage_archive_path(signature: str, kind: str) -> Path:
 
 def _cleanup_coverage_archives() -> None:
     root = _coverage_archive_path("placeholder", "placeholder").parents[3]
-    cutoff = datetime.now(UTC).date().toordinal() - max(1, settings.COVERAGE_ARCHIVE_RETENTION_DAYS)
-    if not root.exists():
-        return
-    for child in root.iterdir():
-        try:
-            if datetime.strptime(child.name, "%Y-%m-%d").date().toordinal() < cutoff:
-                shutil.rmtree(child, ignore_errors=True)
-        except ValueError:
-            continue
+    removed = remove_all_but_latest_date(root)
+    if removed:
+        logger.info("Removed %d expired coverage archive date directories", len(removed))
 
 
 async def _load_config(db: AsyncSession, key: str) -> dict | None:
@@ -790,7 +784,10 @@ async def sync_pr_lines(
                 path, signature = await _download_with_signature(
                     signature=signature, destination=destination
                 )
-        result = await asyncio.to_thread(_process_line_coverage, path, signature, "ut")
+        # Aggregate line coverage from ALL test types (ut, e2e, other) to match
+        # what other internal reports show (80%+ vs 70%+ UT-only).
+        # Passing test_type=None tells _aggregate_raw_coverage to include every job.
+        result = await asyncio.to_thread(_process_line_coverage, path, signature, test_type=None)
         if result["status"] == "failed":
             # Keep the last usable snapshot in MySQL. The durable task and
             # sync status expose the current failure without blanking the UI.

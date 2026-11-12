@@ -52,6 +52,10 @@ class GitHubClient:
     RETRY_DELAY = 1.0  # 秒
     RETRY_BACKOFF = 2.0  # 指数退避因子
 
+    # 速率限制等待配置：等待到 X-RateLimit-Reset 后继续，避免全量同步中途被限流打断
+    RATE_LIMIT_MAX_WAIT_PER_LOOP = 3700  # 单次等待上限（秒），略小于重置窗口 1h，防止异常挂死
+    RATE_LIMIT_WAIT_LOOPS = 12  # 最多续等次数（累计上限 12 个重置窗口 ≈ 12h，覆盖全量同步 ~10h）
+
     def __init__(self, token: str, owner: str | None = None, repo: str | None = None):
         """
         初始化 GitHub 客户端
@@ -68,6 +72,8 @@ class GitHubClient:
         # 速率限制状态
         self.rate_limit_remaining = 5000
         self.rate_limit_reset: datetime | None = None
+        # 限流等待计数：累计"续等重置窗口"次数，达到 RATE_LIMIT_WAIT_LOOPS 即优雅放弃
+        self.rate_wait_loops = 0
 
         # 创建 HTTP 客户端
         self.client = httpx.AsyncClient(
@@ -75,7 +81,8 @@ class GitHubClient:
             headers=self._get_headers(),
             timeout=httpx.Timeout(30.0, connect=10.0, read=60.0, write=30.0),
             follow_redirects=True,
-            limits=httpx.Limits(max_keepalive_connections=10, max_connections=20),
+            limits=httpx.Limits(max_keepalive_connections=50, max_connections=100),
+            verify=not settings.DEBUG,
         )
 
         logger.info(f"GitHubClient initialized for {self.owner}/{self.repo}")
@@ -117,12 +124,13 @@ class GitHubClient:
 
         while retry_count < self.MAX_RETRIES:
             try:
-                # 检查速率限制（在每次请求前）
+                # 检查速率限制（在每次请求前）：未触顶则等待到复位再发
                 if self.rate_limit_remaining < self.RATE_LIMIT_THRESHOLD:
                     if self.rate_limit_reset and datetime.now(UTC) < self.rate_limit_reset:
-                        raise GitHubRateLimitError(
-                            f"GitHub API rate limit exceeded. Resets at {self.rate_limit_reset}"
-                        )
+                        if not await self._wait_for_rate_limit_reset():
+                            raise GitHubRateLimitError(
+                                f"GitHub API rate limit exceeded. Resets at {self.rate_limit_reset}"
+                            )
                     else:
                         # rate_limit_reset 已过期，重置计数器允许请求继续
                         logger.info(f"Rate limit reset time has passed, resetting rate_limit_remaining from {self.rate_limit_remaining} to 5000")
@@ -144,19 +152,20 @@ class GitHubClient:
                     # 检查是否是速率限制
                     remaining = response.headers.get("X-RateLimit-Remaining")
                     if remaining == "0":
-                        reset_timestamp = response.headers.get("X-RateLimit-Reset")
-                        if reset_timestamp:
-                            try:
-                                reset_time = datetime.fromtimestamp(
-                                    int(reset_timestamp), tz=UTC
-                                )
-                                raise GitHubRateLimitError(
-                                    f"GitHub API rate limit exceeded. Resets at {reset_time}"
-                                )
-                            except (ValueError, TypeError):
-                                # 无法解析时间戳，使用默认消息
-                                raise GitHubRateLimitError("GitHub API rate limit exceeded")
-                        raise GitHubRateLimitError("GitHub API rate limit exceeded")
+                        # 触顶：等待到复位后重试本次请求
+                        if response.headers.get("X-RateLimit-Reset"):
+                            self.rate_limit_reset = datetime.fromtimestamp(
+                                int(response.headers["X-RateLimit-Reset"]), tz=UTC
+                            )
+                        if not await self._wait_for_rate_limit_reset():
+                            raise GitHubRateLimitError(
+                                f"GitHub API rate limit exceeded. Resets at {self.rate_limit_reset}"
+                            )
+                        # 403 限流触顶后：等待复位并重新发送本次请求
+                        # 重试计数不计增加，避免占用 MAX_RETRIES 配额
+                        retry_count = max(0, retry_count - 1)
+                        self.rate_wait_loops = 0
+                        continue
 
                 if response.status_code == httpx.codes.UNAUTHORIZED:
                     raise GitHubAuthenticationError(
@@ -203,6 +212,50 @@ class GitHubClient:
             error_msg += f": {last_error}"
         raise GitHubAPIError(error_msg)
 
+    async def _wait_for_rate_limit_reset(self) -> bool:
+        """
+        遇到 / 预判速率限制时，等待到 X-RateLimit-Reset 再继续。
+
+        等待成功后：重置 rate_limit_remaining 允许后续请求继续，并清零 retry_count
+        （通过外层 while 的 rate_wait_count 控制总等待次数）。
+
+        Returns:
+            True  等待完成、可继续发请求
+            False 已续等超过上限（RATE_LIMIT_WAIT_LOOPS）仍有限制，调用方应抛出
+                  GitHubRateLimitError 让上层优雅停止（保留部分数据，避免反复 sleep）
+        """
+        now = datetime.now(UTC)
+        if self.rate_limit_reset is None or now >= self.rate_limit_reset:
+            # 已无需等待
+            self.rate_limit_remaining = 5000
+            self.rate_limit_reset = None
+            return True
+
+        if self.rate_wait_loops >= self.RATE_LIMIT_WAIT_LOOPS:
+            # 已累计等待过多窗口，放弃以避免长时间挂起
+            logger.warning(
+                "Rate limit wait exceeded %d windows; giving up gracefully",
+                self.RATE_LIMIT_WAIT_LOOPS,
+            )
+            return False
+
+        wait_secs = (self.rate_limit_reset - now).total_seconds()
+        # 单次等待夹在 (0, RATE_LIMIT_MAX_WAIT_PER_LOOP]，避免异常 reset 时间导致死等
+        wait_secs = max(1.0, min(wait_secs, self.RATE_LIMIT_MAX_WAIT_PER_LOOP))
+        logger.info(
+            "GitHub rate limit hit; waiting %.1fs until %s then retrying "
+            "(wait window %d/%d)",
+            wait_secs, self.rate_limit_reset.isoformat(),
+            self.rate_wait_loops + 1, self.RATE_LIMIT_WAIT_LOOPS,
+        )
+        self.rate_wait_loops += 1
+        await asyncio.sleep(wait_secs)
+
+        # 等待结束：重置配额，允许后续请求
+        self.rate_limit_remaining = 5000
+        self.rate_limit_reset = None
+        return True
+
     def _update_rate_limit(self, response: httpx.Response) -> None:
         """更新速率限制信息"""
         remaining = response.headers.get("X-RateLimit-Remaining")
@@ -244,7 +297,9 @@ class GitHubClient:
         Returns:
             workflow runs 列表
         """
-        url = f"/repos/{self.owner}/{self.repo}/actions/workflows/{workflow_id_or_name}/runs"
+        from urllib.parse import quote
+        encoded_workflow = quote(workflow_id_or_name, safe='')
+        url = f"/repos/{self.owner}/{self.repo}/actions/workflows/{encoded_workflow}/runs"
 
         params = {
             "per_page": min(per_page, 100),
@@ -284,6 +339,14 @@ class GitHubClient:
         url = f"/repos/{self.owner}/{self.repo}/actions/runs/{run_id}"
         logger.info(f"Fetching workflow run {run_id}")
         return await self._request("GET", url)
+
+    async def get_repository_workflow_runs(self, *, page: int = 1, per_page: int = 100) -> list[dict[str, Any]]:
+        """List recent runs for this repository, for local metadata backfills."""
+        result = await self._request(
+            "GET", f"/repos/{self.owner}/{self.repo}/actions/runs",
+            params={"page": page, "per_page": min(per_page, 100)},
+        )
+        return result.get("workflow_runs", [])
 
     async def get_job_list(self, run_id: int) -> list[dict[str, Any]]:
         """
@@ -536,6 +599,47 @@ class GitHubClient:
             仓库信息字典
         """
         return await self._request("GET", f"/repos/{self.owner}/{self.repo}")
+
+    async def list_workflows(
+        self,
+        owner: str | None = None,
+        repo: str | None = None,
+        per_page: int = 100,
+    ) -> dict[str, Any]:
+        """
+        列出仓库所有 Actions workflows
+
+        Args:
+            owner: 仓库所有者（默认使用实例化时的 owner）
+            repo: 仓库名（默认使用实例化时的 repo）
+            per_page: 每页数量
+
+        Returns:
+            含 workflows 列表的字典
+        """
+        o = owner or self.owner
+        r = repo or self.repo
+        url = f"/repos/{o}/{r}/actions/workflows"
+        params = {"per_page": min(per_page, 100)}
+        logger.info(f"Listing workflows for {o}/{r}")
+        result = await self._request("GET", url, params=params)
+
+        # 分页获取所有 workflows
+        all_workflows = result.get("workflows", [])
+        total_count = result.get("total_count", 0)
+
+        if total_count > len(all_workflows):
+            page = 2
+            while len(all_workflows) < total_count:
+                params["page"] = page
+                result = await self._request("GET", url, params=params)
+                page_workflows = result.get("workflows", [])
+                if not page_workflows:
+                    break
+                all_workflows.extend(page_workflows)
+                page += 1
+
+        return {"workflows": all_workflows, "total_count": len(all_workflows)}
 
     async def __aenter__(self) -> "GitHubClient":
         """异步上下文管理器入口"""
@@ -901,6 +1005,44 @@ class GitHubClient:
         )
         return results[:limit] if limit is not None else results
 
+    async def get_pr_details_concurrent(
+        self,
+        owner: str,
+        repo: str,
+        pr_number: int,
+    ) -> tuple[list[dict[str, Any]], list[dict[str, Any]], list[dict[str, Any]]]:
+        """
+        并发拉取单个 PR 的 reviews / commits / files（3 路并行）。
+
+        替代串行依次调用的方式，将单 PR 的网络等待时间从
+        3 × T 降为约 1 × T（T 为单次请求耗时）。
+
+        Returns:
+            (reviews, commits, files) — 任何一路失败不影响其他路，
+            失败的路返回空列表。
+        """
+        async def _safe_coro(coro, err_label: str) -> Any:
+            try:
+                return await coro
+            except GitHubRateLimitError:
+                raise
+            except Exception as e:
+                logger.warning("%s PR #%s failed: %s", err_label, pr_number, e)
+                return []
+
+        reviews_task = _safe_coro(self.get_pr_reviews(owner, repo, pr_number), "reviews")
+        commits_task = _safe_coro(self.get_pr_commits(owner, repo, pr_number), "commits")
+        files_task = _safe_coro(self.get_pr_files(owner, repo, pr_number), "files")
+
+        reviews, commits, files = await asyncio.gather(
+            reviews_task, commits_task, files_task
+        )
+        return (
+            reviews if isinstance(reviews, list) else [],
+            commits if isinstance(commits, list) else [],
+            files if isinstance(files, list) else [],
+        )
+
     async def get_pr_commits(
         self,
         owner: str,
@@ -920,7 +1062,6 @@ class GitHubClient:
         """
         url = f"/repos/{owner}/{repo}/pulls/{pr_number}/commits"
         params = {"per_page": 100}
-        logger.info(f"Fetching commits for PR #{pr_number}")
         result = await self._request("GET", url, params=params)
         return result
 
@@ -1000,7 +1141,6 @@ class GitHubClient:
         """
         url = f"/repos/{owner}/{repo}/pulls/{pr_number}/reviews"
         params = {"per_page": 100}
-        logger.info(f"Fetching reviews for PR #{pr_number}")
 
         all_reviews = []
         page = 1
@@ -1020,7 +1160,6 @@ class GitHubClient:
 
             page += 1
 
-        logger.info(f"Total {len(all_reviews)} reviews fetched for PR #{pr_number}")
         return all_reviews
 
     async def get_pr_files(
@@ -1042,7 +1181,6 @@ class GitHubClient:
         """
         url = f"/repos/{owner}/{repo}/pulls/{pr_number}/files"
         params = {"per_page": 100}
-        logger.info(f"Fetching files for PR #{pr_number}")
 
         all_files = []
         page = 1
@@ -1062,7 +1200,6 @@ class GitHubClient:
 
             page += 1
 
-        logger.info(f"Total {len(all_files)} files fetched for PR #{pr_number}")
         return all_files
 
     async def get_check_runs_for_sha(

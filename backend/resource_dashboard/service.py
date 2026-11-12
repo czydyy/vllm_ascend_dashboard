@@ -3,6 +3,7 @@ import re
 from datetime import UTC, datetime
 from decimal import Decimal
 from typing import Any
+from urllib.parse import quote
 
 from contracts.schemas import (
     ClusterResourceSummary,
@@ -17,18 +18,89 @@ from infrastructure.clients.kubernetes_client import (
     list_nodes,
     list_pods,
 )
-from infrastructure.core.config import settings
 from infrastructure.persistence.models import KubernetesClusterConfig
 
 ACTIVE_PHASES = {"Running", "Unknown"}
 PENDING_PHASES = {"Pending"}
 EXECUTED_PHASES = {"Succeeded", "Failed"}
 RESOURCE_DASHBOARD_NAMESPACE = "vllm-project"
+_JOB_WORKFLOW_REF_PATTERN = re.compile(
+    r"^(?:https://github\.com/)?(?P<repository>[^/\s]+/[^/\s]+)/"
+    r"\.github/workflows/(?P<workflow_path>[^@\s]+)@(?P<ref>.+)$"
+)
+from kubernetes_asyncio.client import CoreV1Api
+
+
+def parse_job_workflow_ref(job_workflow_ref: str | None) -> dict[str, str | int] | None:
+    """Extract GitHub repository, workflow, and optional PR links from ARC metadata."""
+
+    value = job_workflow_ref.strip() if isinstance(job_workflow_ref, str) else ""
+    match = _JOB_WORKFLOW_REF_PATTERN.fullmatch(value)
+    if not match:
+        return None
+
+    repository = match.group("repository")
+    workflow_path = match.group("workflow_path")
+    repository_url = f"https://github.com/{repository}"
+    info: dict[str, str | int] = {
+        "repository": repository,
+        "repository_url": repository_url,
+        "workflow_path": workflow_path,
+        "workflow_url": f"{repository_url}/actions/workflows/{quote(workflow_path, safe='/')}",
+    }
+    pr_match = re.search(r"(?:^|/)refs/pull/(\d+)/", match.group("ref"))
+    if pr_match:
+        pr_number = int(pr_match.group(1))
+        info["pr_number"] = pr_number
+        info["pr_url"] = f"{repository_url}/pull/{pr_number}"
+    return info
 
 
 class ResourceDashboardService:
     def __init__(self) -> None:
         self.client_factory = KubernetesClientFactory()
+
+    async def pod_scheduling_diagnostics(
+        self, cluster: KubernetesClusterConfig, *, namespace: str, name: str
+    ) -> dict[str, Any]:
+        """Read one live Pod with the server-held encrypted kubeconfig."""
+        api_client = await self.client_factory.create_api_client(cluster)
+        try:
+            pod = await CoreV1Api(api_client).read_namespaced_pod(
+                name=name, namespace=namespace, _request_timeout=30,
+            )
+        finally:
+            await api_client.close()
+
+        spec = pod.spec
+        status = pod.status
+        scheduled = next(
+            (condition for condition in (getattr(status, "conditions", None) or [])
+             if getattr(condition, "type", None) == "PodScheduled"),
+            None,
+        )
+        affinity = getattr(getattr(spec, "affinity", None), "node_affinity", None)
+        required_affinity = getattr(affinity, "required_during_scheduling_ignored_during_execution", None)
+        return {
+            "cluster_id": cluster.id,
+            "cluster_name": cluster.name,
+            "namespace": namespace,
+            "name": name,
+            "phase": getattr(status, "phase", None),
+            "node_name": getattr(spec, "node_name", None),
+            "scheduler_name": getattr(spec, "scheduler_name", None),
+            "priority_class_name": getattr(spec, "priority_class_name", None),
+            "resource_requests": self._pod_requests(pod, cluster.npu_resource_name),
+            "node_selector": dict(getattr(spec, "node_selector", None) or {}),
+            "required_node_affinity": required_affinity.to_dict() if required_affinity else None,
+            "tolerations": [toleration.to_dict() for toleration in (getattr(spec, "tolerations", None) or [])],
+            "pod_scheduled_condition": {
+                "status": getattr(scheduled, "status", None),
+                "reason": getattr(scheduled, "reason", None),
+                "message": getattr(scheduled, "message", None),
+                "last_transition_time": getattr(scheduled, "last_transition_time", None),
+            } if scheduled else None,
+        }
 
     async def build_dashboard(
         self,
@@ -111,7 +183,7 @@ class ResourceDashboardService:
         try:
             nodes = await list_nodes(api_client)
             pods = await list_pods(api_client, namespaces, resolved_label_selector)
-            runner_pr_info = await self._runner_pr_info(api_client, namespaces)
+            runner_workflow_info = await self._runner_workflow_info(api_client, namespaces)
         finally:
             await api_client.close()
 
@@ -141,13 +213,13 @@ class ResourceDashboardService:
                     node_resource.used = self._add_quantity(node_resource.used, pod_requests)
                     node_resource.executing_pods_count += 1
                 if include_pods:
-                    executing_infos.append(self._pod_info(cluster, pod, pod_requests, runner_pr_info))
+                    executing_infos.append(self._pod_info(cluster, pod, pod_requests, runner_workflow_info))
             elif phase in PENDING_PHASES:
                 pending_pods.append(pod)
                 if include_pods:
-                    executing_infos.append(self._pod_info(cluster, pod, pod_requests, runner_pr_info))
+                    executing_infos.append(self._pod_info(cluster, pod, pod_requests, runner_workflow_info))
             elif phase in EXECUTED_PHASES and include_pods:
-                executed_infos.append(self._pod_info(cluster, pod, pod_requests, runner_pr_info))
+                executed_infos.append(self._pod_info(cluster, pod, pod_requests, runner_workflow_info))
 
         summary = ClusterResourceSummary(
             cluster_id=cluster.id,
@@ -255,8 +327,8 @@ class ResourceDashboardService:
             )
         return sorted(node_resources.values(), key=lambda node_resource: node_resource.node_name)
 
-    async def _runner_pr_info(self, api_client: Any, namespaces: list[str]) -> dict[str, dict[str, Any]]:
-        pr_info = {}
+    async def _runner_workflow_info(self, api_client: Any, namespaces: list[str]) -> dict[str, dict[str, Any]]:
+        workflow_info = {}
         for namespace in namespaces:
             try:
                 runners = await list_ephemeral_runners(api_client, namespace)
@@ -270,18 +342,13 @@ class ResourceDashboardService:
                 job_workflow_ref = runner.get("status", {}).get("jobWorkflowRef")
                 if not name or not job_workflow_ref:
                     continue
-                match = re.search(r"refs/pull/(\d+)/", job_workflow_ref)
-                if not match:
+                info = parse_job_workflow_ref(job_workflow_ref)
+                if info is None:
                     continue
-                pr_number = int(match.group(1))
-                info = {
-                    "pr_number": pr_number,
-                    "pr_url": f"https://github.com/{settings.GITHUB_OWNER}/{settings.GITHUB_REPO}/pull/{pr_number}",
-                    "job_workflow_ref": job_workflow_ref,
-                }
-                pr_info[name] = info
-                pr_info[f"{runner_namespace}/{name}"] = info
-        return pr_info
+                info["job_workflow_ref"] = job_workflow_ref
+                workflow_info[name] = info
+                workflow_info[f"{runner_namespace}/{name}"] = info
+        return workflow_info
 
     def _pod_requests(self, pod: Any, npu_resource_name: str) -> ResourceQuantity:
         regular = ResourceQuantity()
@@ -311,24 +378,50 @@ class ResourceDashboardService:
         effective.npu += parse_number(overhead.get(npu_resource_name))
         return effective
 
-    def _pod_pr_info(
+    def _pod_workflow_info(
         self,
-        pod_namespace: str,
-        pod_name: str,
-        runner_pr_info: dict[str, dict[str, Any]],
+        pod: Any,
+        runner_workflow_info: dict[str, dict[str, Any]],
     ) -> dict[str, Any] | None:
+        """Resolve GitHub metadata directly from a workload Pod when present.
+
+        ARC runner Pods can be matched by name, but workload Pods created by
+        a CI step usually have a different name.  Their workflow reference is
+        commonly propagated as a label or annotation, so prefer that exact
+        source before falling back to the runner-name convention.
+        """
+        metadata = pod.metadata
+        labels = metadata.labels or {}
+        annotations = getattr(metadata, "annotations", None) or {}
+        reference_keys = (
+            "jobWorkflowRef", "job_workflow_ref", "job-workflow-ref",
+            "actions.github.com/jobWorkflowRef",
+            "actions.github.com/job-workflow-ref",
+        )
+        for source in (annotations, labels):
+            for key in reference_keys:
+                info = parse_job_workflow_ref(source.get(key))
+                if info is not None:
+                    info["job_workflow_ref"] = source[key]
+                    return info
+
+        pod_namespace = metadata.namespace
+        pod_name = metadata.name
         namespaced_pod_name = f"{pod_namespace}/{pod_name}"
-        if namespaced_pod_name in runner_pr_info:
-            return runner_pr_info[namespaced_pod_name]
-        if pod_name in runner_pr_info:
-            return runner_pr_info[pod_name]
+        runner_names = [namespaced_pod_name, pod_name]
+        for key in (
+            "actions.github.com/runner-name", "runner-name",
+            "actions.github.com/ephemeral-runner",
+        ):
+            runner_name = labels.get(key)
+            if runner_name:
+                runner_names.extend((f"{pod_namespace}/{runner_name}", runner_name))
         if pod_name.endswith("-workflow"):
             runner_name = pod_name[: -len("-workflow")]
-            namespaced_runner_name = f"{pod_namespace}/{runner_name}"
-            if namespaced_runner_name in runner_pr_info:
-                return runner_pr_info[namespaced_runner_name]
-            if runner_name in runner_pr_info:
-                return runner_pr_info[runner_name]
+            runner_names.extend((f"{pod_namespace}/{runner_name}", runner_name))
+        for runner_name in runner_names:
+            if runner_name in runner_workflow_info:
+                return runner_workflow_info[runner_name]
         return None
 
     def _pod_info(
@@ -336,7 +429,7 @@ class ResourceDashboardService:
         cluster: KubernetesClusterConfig,
         pod: Any,
         requests: ResourceQuantity,
-        runner_pr_info: dict[str, dict[str, Any]],
+        runner_workflow_info: dict[str, dict[str, Any]],
     ) -> ResourcePodInfo:
         status = pod.status
         started_at = getattr(status, "start_time", None) if status else None
@@ -347,7 +440,8 @@ class ResourceDashboardService:
             end_time = finished_at or datetime.now(UTC)
             duration_seconds = int((end_time - started_at).total_seconds())
 
-        pr_info = self._pod_pr_info(pod.metadata.namespace, pod.metadata.name, runner_pr_info) if pod.metadata else None
+        workflow_info = self._pod_workflow_info(pod, runner_workflow_info) if pod.metadata else None
+        scheduling_reason, scheduling_message = self._scheduling_condition(status)
 
         return ResourcePodInfo(
             cluster_id=cluster.id,
@@ -355,6 +449,9 @@ class ResourceDashboardService:
             namespace=pod.metadata.namespace,
             name=pod.metadata.name,
             phase=status.phase if status else None,
+            scheduling_reason=scheduling_reason,
+            scheduling_message=scheduling_message,
+            node_selector=dict(getattr(pod.spec, "node_selector", None) or {}),
             status=self._container_status_summary(status),
             node_name=pod.spec.node_name,
             labels=pod.metadata.labels or {},
@@ -362,12 +459,24 @@ class ResourceDashboardService:
             started_at=started_at,
             finished_at=finished_at,
             duration_seconds=duration_seconds,
-            pr_number=pr_info["pr_number"] if pr_info else None,
-            pr_url=pr_info["pr_url"] if pr_info else None,
-            job_workflow_ref=pr_info["job_workflow_ref"] if pr_info else None,
+            repository=workflow_info.get("repository") if workflow_info else None,
+            repository_url=workflow_info.get("repository_url") if workflow_info else None,
+            workflow_path=workflow_info.get("workflow_path") if workflow_info else None,
+            workflow_url=workflow_info.get("workflow_url") if workflow_info else None,
+            pr_number=workflow_info.get("pr_number") if workflow_info else None,
+            pr_url=workflow_info.get("pr_url") if workflow_info else None,
+            job_workflow_ref=workflow_info.get("job_workflow_ref") if workflow_info else None,
             requests=requests,
             containers=[container.name for container in pod.spec.containers or []],
         )
+
+    @staticmethod
+    def _scheduling_condition(status: Any) -> tuple[str | None, str | None]:
+        """Extract the Kubernetes scheduler explanation for a Pending Pod."""
+        for condition in getattr(status, "conditions", None) or []:
+            if getattr(condition, "type", None) == "PodScheduled" and getattr(condition, "status", None) != "True":
+                return getattr(condition, "reason", None), getattr(condition, "message", None)
+        return None, None
 
     def _finished_at(self, status: Any) -> datetime | None:
         if not status or not status.container_statuses:

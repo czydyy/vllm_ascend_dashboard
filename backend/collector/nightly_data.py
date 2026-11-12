@@ -8,12 +8,14 @@ deployments.
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import re
 from datetime import UTC, date, datetime, timedelta, timezone
 
-from sqlalchemy import delete, or_, select, text
+from sqlalchemy import delete, func, or_, select, text
+from sqlalchemy.exc import OperationalError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from collector.ci import CICollector
@@ -45,6 +47,8 @@ logger = logging.getLogger(__name__)
 
 BEIJING_TZ = timezone(timedelta(hours=8))
 _SYNC_LOCK_NAME = "vllm_dashboard:nightly_data_sync"
+_MATERIALIZATION_LOCK_RETRIES = 3
+_MATERIALIZATION_LOCK_RETRY_SECONDS = 0.25
 
 
 class NightlyDataCollector:
@@ -85,24 +89,59 @@ class NightlyDataCollector:
                 logger.info("Nightly data synchronization skipped: another worker holds the lock")
                 return {"nightly_test_cases": 0, "daily_failure_records": 0}
             try:
-                snapshot_count = await self.snapshot_configs()
-                failure_count = await self.populate_daily_failure_records()
-                return {
-                    "nightly_test_cases": snapshot_count,
-                    "daily_failure_records": failure_count,
-                }
+                for attempt in range(_MATERIALIZATION_LOCK_RETRIES):
+                    try:
+                        snapshot_count = await self.snapshot_configs()
+                        failure_count = await self.populate_daily_failure_records()
+                        return {
+                            "nightly_test_cases": snapshot_count,
+                            "daily_failure_records": failure_count,
+                        }
+                    except OperationalError as exc:
+                        if not self._is_transient_lock_error(exc):
+                            raise
+                        await self.db.rollback()
+                        if attempt + 1 >= _MATERIALIZATION_LOCK_RETRIES:
+                            logger.error(
+                                "Nightly data materialization exhausted %d lock retries",
+                                _MATERIALIZATION_LOCK_RETRIES,
+                            )
+                            raise
+                        delay = _MATERIALIZATION_LOCK_RETRY_SECONDS * (attempt + 1)
+                        logger.warning(
+                            "Nightly data materialization hit a transient database lock; "
+                            "retrying in %.2fs (%d/%d)",
+                            delay,
+                            attempt + 1,
+                            _MATERIALIZATION_LOCK_RETRIES,
+                        )
+                        await asyncio.sleep(delay)
             finally:
                 await lock_connection.execute(
                     text("SELECT RELEASE_LOCK(:lock_name)"),
                     {"lock_name": _SYNC_LOCK_NAME},
                 )
 
+    @staticmethod
+    def _is_transient_lock_error(exc: OperationalError) -> bool:
+        """Return whether MySQL can safely retry this transaction-level conflict."""
+        original = getattr(exc, "orig", None)
+        errno = getattr(original, "errno", None)
+        if errno is None and getattr(original, "args", None):
+            errno = original.args[0]
+        return errno in (1205, 1213)
+
     async def snapshot_configs(self) -> int:
         """Snapshot active branches from ``nightly_config.yaml``."""
 
         cache = self._get_cache()
         seed_count = await seed_missing_model_fo_mappings(self.db, load_model_fo_map())
+        # SessionLocal disables autoflush. Make freshly seeded rows visible to
+        # the lookup and historical-snapshot backfill in this same sync.
+        if seed_count:
+            await self.db.flush()
         fo_map = await load_model_fo_mappings(self.db)
+        backfill_count = await self._backfill_missing_snapshot_model_fo(fo_map)
         today = datetime.now(BEIJING_TZ).date()
         branches = cache.get_remote_branches("releases/")
         target_branches = ["main", *(b for b in branches if b.startswith("releases/"))]
@@ -146,14 +185,48 @@ class NightlyDataCollector:
                     existing.deployment_type = case.deployment
                 total += 1
 
-        if total or seed_count:
+        if total or seed_count or backfill_count:
             await self.db.commit()
         logger.info(
-            "Nightly config snapshot completed: %d entries across %d branches",
+            "Nightly config snapshot completed: %d entries across %d branches "
+            "(%d mappings seeded, %d snapshot FOs backfilled)",
             total,
             len(target_branches),
+            seed_count,
+            backfill_count,
         )
         return total
+
+    async def _backfill_missing_snapshot_model_fo(
+        self,
+        fo_map: dict[str, str],
+    ) -> int:
+        """Fill empty historical snapshot FOs from the current mapping.
+
+        ``nightly_test_cases`` is a materialized snapshot used by exports.
+        A mapping can be added after its snapshot was first created, so only
+        empty snapshot values are repaired here. Existing non-empty values are
+        intentionally preserved because they may have been maintained manually.
+        """
+
+        if not fo_map:
+            return 0
+
+        result = await self.db.execute(
+            select(NightlyTestCase).where(
+                or_(
+                    NightlyTestCase.model_fo.is_(None),
+                    func.trim(NightlyTestCase.model_fo) == "",
+                )
+            )
+        )
+        backfilled = 0
+        for snapshot in result.scalars().all():
+            model_fo = lookup_model_fo(fo_map, snapshot.test_model)
+            if model_fo:
+                snapshot.model_fo = model_fo
+                backfilled += 1
+        return backfilled
 
     async def populate_daily_failure_records(self) -> int:
         """Materialize failed or cancelled Nightly jobs matched to YAML snapshots.

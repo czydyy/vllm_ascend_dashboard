@@ -8,18 +8,25 @@ import io
 import json
 import logging
 import re
+import zipfile
 from datetime import UTC, datetime, timedelta, timezone
 from typing import Any
+from xml.sax.saxutils import escape as xml_escape
+from zoneinfo import ZoneInfo
 
 import yaml
-from fastapi import APIRouter, HTTPException, Query, Response, status
-from sqlalchemy import case, func, or_, select, text
+from fastapi import APIRouter, File, HTTPException, Query, Request, Response, UploadFile, status
+from openpyxl import Workbook, load_workbook
+from openpyxl.styles import Alignment, Font, PatternFill
+from openpyxl.utils import get_column_letter
+from sqlalchemy import case, false, func, or_, select, text
 
 from api.deps import CurrentAdminUser, CurrentSuperAdminUser, CurrentUser, DbSession
 from contracts.schemas import (
     CIDailyReport,
     CIJobDetailResponse,
     CIJobResponse,
+    CIRunJobStats,
     CIResultResponse,
     CIStats,
     CISyncResponse,
@@ -32,6 +39,11 @@ from contracts.schemas import (
     FailureAnalysisKnowledgeGraphResponse,
     FailureAnalysisListResponse,
     FailureAnalysisResponse,
+    ModelFoMasterCreate,
+    ModelFoMasterImportResult,
+    ModelFoMasterImportRowError,
+    ModelFoMasterResponse,
+    ModelFoMasterUpdate,
     NightlyGanttResponse,
     NightlyTestCaseCreate,
     NightlyTestCaseResponse,
@@ -46,6 +58,7 @@ from infrastructure.persistence.models import (
     JobFailureAnalysis,
     JobLogSummary,
     JobOwner,
+    ModelFoMaster,
     NightlyTestCase,
     WorkflowConfig,
 )
@@ -55,6 +68,7 @@ from infrastructure.persistence.run_attempts import (
     is_current_run_attempt,
 )
 from tooling.ci_filters import build_workflow_time_filter
+from reporting.ci_daily_report_builder import _parse_model_and_yaml
 from tooling.ci_version_snapshot import (
     get_version_snapshot,
     parse_ci_version_snapshot,
@@ -69,6 +83,9 @@ from tooling.model_fo_mapping import (
 from tooling.official_ci_scope import build_official_ci_filter
 
 logger = logging.getLogger(__name__)
+
+# 日期筛选控件使用北京时间；GitHub 和 CI 表中的时间均以 UTC 保存。
+SHANGHAI_TZ = ZoneInfo("Asia/Shanghai")
 
 router = APIRouter()
 
@@ -640,6 +657,354 @@ def _serialize_nightly_test_case_export(record: NightlyTestCase) -> dict[str, An
     return payload
 
 
+def _nightly_export_branch(job: CIJob, run: CIResult) -> str:
+    """Use the persisted run branch, with the legacy job-name fallback."""
+    if run.branch and run.branch.strip():
+        return run.branch.strip()
+    match = re.match(r"^\S+\s+\(([^,]+),", job.job_name or "")
+    return match.group(1).strip() if match else "main"
+
+
+def _nightly_snapshot_matches_job(snapshot: NightlyTestCase, job: CIJob) -> bool:
+    """Match a YAML snapshot to GitHub's decorated Job name."""
+    job_name = job.job_name or ""
+    return (
+        snapshot.job_name == job_name
+        or snapshot.job_name in job_name
+        or bool(snapshot.test_model and snapshot.test_model in job_name)
+    )
+
+
+async def _build_job_model_fo_map(db: DbSession, jobs: list[CIJob]) -> dict[int, str]:
+    """批量解析 CIJob 的 model_fo，按 job.id 索引。
+
+    fallback 链：
+    1) NightlyTestCase 快照（workflow_name + job_name 匹配，取 model_fo）
+    2) ModelFoMaster 主库（按快照 test_model 拆出的 yaml / model_name 匹配）
+
+    一次性查询（IN），避免 N+1。
+    """
+    if not jobs:
+        return {}
+
+    # 1) 批量查 NightlyTestCase 快照：按出现过的 (workflow_name, job_name) 去重查询
+    wf_names = {job.workflow_name for job in jobs if job.workflow_name}
+    jn_names = {job.job_name for job in jobs if job.job_name}
+    snapshot_by_wf_job: dict[tuple[str, str], NightlyTestCase] = {}
+    if wf_names and jn_names:
+        snaps = list((await db.execute(
+            select(NightlyTestCase).where(
+                NightlyTestCase.workflow_name.in_(list(wf_names)),
+                NightlyTestCase.job_name.in_(list(jn_names)),
+                NightlyTestCase.enabled.is_(True),
+            )
+        )).scalars().all())
+        # 每个 (wf, job) 取最新一条
+        for snap in snaps:
+            snapshot_by_wf_job[(snap.workflow_name, snap.job_name)] = snap
+
+    # 汇总需要回查 ModelFoMaster 的测试内容
+    master_test_yamls: set[str] = set()
+    master_model_names: set[str] = set()
+    snapshot_test_model: dict[int, str | None] = {}  # job.id -> snapshot.test_model
+    for job in jobs:
+        snap = snapshot_by_wf_job.get((job.workflow_name, job.job_name))
+        if snap and snap.test_model:
+            snapshot_test_model[job.id] = snap.test_model
+            mn, ty = _parse_model_and_yaml(snap.test_model)
+            if mn:
+                master_model_names.add(mn)
+            if ty:
+                master_test_yamls.add(ty)
+
+    master_map: dict[str, str] = {}
+    if master_test_yamls or master_model_names:
+        master_map = await _query_model_fo_master_for_jobs(db, master_test_yamls, master_model_names)
+
+    result: dict[int, str] = {}
+    for job in jobs:
+        snap = snapshot_by_wf_job.get((job.workflow_name, job.job_name))
+        # 1) 快照自带 model_fo
+        if snap and snap.model_fo:
+            result[job.id] = snap.model_fo
+            continue
+        # 2) ModelFoMaster 主库
+        test_model = snapshot_test_model.get(job.id)
+        if test_model:
+            mn, ty = _parse_model_and_yaml(test_model)
+            fo = _lookup_master_model_fo(master_map, ty, mn)
+            if fo:
+                result[job.id] = fo
+    return result
+
+
+async def _query_model_fo_master_for_jobs(
+    db: DbSession,
+    test_yamls: set[str],
+    model_names: set[str],
+) -> dict[str, str]:
+    """按 test_yaml / model_name 批量查 ModelFoMaster，返回 {key: model_fo}。"""
+    test_yamls = {t for t in test_yamls if t}
+    model_names = {m for m in model_names if m}
+    if not test_yamls and not model_names:
+        return {}
+    stmt = select(ModelFoMaster.test_yaml, ModelFoMaster.model_name, ModelFoMaster.model_fo).where(
+        ModelFoMaster.enabled.is_(True),
+        or_(
+            ModelFoMaster.test_yaml.in_(list(test_yamls)) if test_yamls else false(),
+            func.lower(ModelFoMaster.model_name).in_([m.lower() for m in model_names]) if model_names else false(),
+        ),
+    )
+    rows = (await db.execute(stmt)).all()
+    mapping: dict[str, str] = {}
+    for test_yaml, model_name, model_fo in rows:
+        if test_yaml and model_fo:
+            mapping.setdefault(f"yaml:{test_yaml}", model_fo)
+        if model_name and model_fo:
+            mapping.setdefault(f"model:{model_name.lower()}", model_fo)
+    return mapping
+
+
+def _lookup_master_model_fo(
+    master_map: dict[str, str],
+    test_yaml: str | None,
+    model_name: str | None,
+) -> str | None:
+    """按 test_yaml 精确 → model_name 小写 顺序查 ModelFoMaster。
+
+    master_map 的 key 形如 `yaml:{test_yaml}` / `model:{model_name 小写}`，
+    命中判断必须带同一前缀。
+    """
+    yaml_key = f"yaml:{test_yaml}" if test_yaml else ""
+    if test_yaml and yaml_key in master_map:
+        return master_map[yaml_key]
+    if model_name:
+        return master_map.get(f"model:{model_name.lower()}")
+    return None
+
+
+def _format_nightly_export_time(value: datetime | None) -> str:
+    if value is None:
+        return ""
+    if value.tzinfo is None:
+        value = value.replace(tzinfo=UTC)
+    return value.astimezone(timezone(timedelta(hours=8))).strftime("%Y-%m-%d %H:%M:%S")
+
+
+def _nightly_export_run_time_bounds(
+    start_date: str | None,
+    end_date: str | None,
+) -> tuple[datetime | None, datetime | None]:
+    """Translate UI calendar dates (Asia/Shanghai) into UTC DB boundaries."""
+
+    def to_utc_naive(value: str) -> datetime:
+        local_midnight = datetime.strptime(value, "%Y-%m-%d").replace(tzinfo=SHANGHAI_TZ)
+        # MySQL TIMESTAMP values are returned as naive UTC datetimes in this project.
+        return local_midnight.astimezone(UTC).replace(tzinfo=None)
+
+    start = to_utc_naive(start_date) if start_date else None
+    end = (
+        to_utc_naive((datetime.strptime(end_date, "%Y-%m-%d") + timedelta(days=1)).strftime("%Y-%m-%d"))
+        if end_date
+        else None
+    )
+    return start, end
+
+
+def _nightly_export_model_fo(snapshot: NightlyTestCase, fo_map: dict[str, str]) -> str:
+    """Keep old snapshot exports complete without overriding stored values."""
+
+    return snapshot.model_fo or lookup_model_fo(fo_map, snapshot.test_model) or ""
+
+
+def _xlsx_column_name(index: int) -> str:
+    result = ""
+    while index:
+        index, remainder = divmod(index - 1, 26)
+        result = chr(65 + remainder) + result
+    return result
+
+
+def _build_nightly_runs_xlsx_legacy(rows: list[dict[str, str]]) -> bytes:
+    """Build a small dependency-free XLSX file for Nightly run exports.
+
+    Keeping the writer local avoids adding a production dependency solely for
+    one seven-column export.  Values are stored as inline strings so long job
+    names and AI summaries keep their original text exactly.
+    """
+    headers = ["时间", "测试内容", "模型", "覆盖机型", "日志链接", "模型 FO", "AI 日志链接"]
+    column_widths = [22, 72, 42, 26, 65, 20, 65]
+    hyperlink_relationships: list[tuple[str, str]] = []
+    hyperlink_cells: list[tuple[str, str]] = []
+    rows_xml: list[str] = []
+
+    def cell(ref: str, value: str, *, style: int = 0) -> str:
+        attrs = f' r="{ref}"'
+        if style:
+            attrs += f' s="{style}"'
+        escaped = xml_escape(value or "")
+        return f'<c{attrs} t="inlineStr"><is><t xml:space="preserve">{escaped}</t></is></c>'
+
+    header_keys = ("time", "test_content", "model", "coverage", "log_url", "model_fo", "ai_log_url")
+    for row_index, values in enumerate([dict(zip(header_keys, headers, strict=True)), *rows], start=1):
+        cells = []
+        for column_index, key in enumerate(
+            header_keys,
+            start=1,
+        ):
+            ref = f"{_xlsx_column_name(column_index)}{row_index}"
+            value = str(values.get(key) or "")
+            relationship_id = None
+            style = 0
+            if row_index > 1 and key in {"log_url", "ai_log_url"} and value:
+                relationship_id = f"rId{len(hyperlink_relationships) + 1}"
+                hyperlink_relationships.append((relationship_id, value))
+                hyperlink_cells.append((ref, relationship_id))
+                style = 1
+            cells.append(cell(ref, value, style=style))
+        rows_xml.append(f'<row r="{row_index}">' + "".join(cells) + "</row>")
+
+    merge_cells: list[str] = []
+    start = 2
+    while start <= len(rows) + 1:
+        end = start
+        timestamp = rows[start - 2].get("time", "")
+        while end + 1 <= len(rows) + 1 and rows[end - 1].get("time", "") == timestamp:
+            end += 1
+        if timestamp and end > start:
+            merge_cells.append(f'<mergeCell ref="A{start}:A{end}"/>')
+        start = end + 1
+
+    columns_xml = "".join(
+        f'<col min="{index}" max="{index}" width="{width}" customWidth="1"/>'
+        for index, width in enumerate(column_widths, start=1)
+    )
+    relationship_parts = []
+    for relationship_id, url in hyperlink_relationships:
+        escaped_url = xml_escape(url, {'"': "&quot;"})
+        relationship_parts.append(
+            f'<Relationship Id="{relationship_id}" '
+            'Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/hyperlink" '
+            f'Target="{escaped_url}" TargetMode="External"/>'
+        )
+    relationships_xml = "".join(relationship_parts)
+    hyperlinks_xml = "".join(
+        f'<hyperlink ref="{ref}" r:id="{relationship_id}"/>'
+        for ref, relationship_id in hyperlink_cells
+    )
+    sheet_xml = (
+        '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+        '<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" '
+        'xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">'
+        f'<cols>{columns_xml}</cols><sheetViews><sheetView workbookViewId="0"><pane ySplit="1" '
+        'topLeftCell="A2" activePane="bottomLeft" state="frozen"/></sheetView></sheetViews>'
+        f'<sheetData>{"".join(rows_xml)}</sheetData>'
+    )
+    if merge_cells:
+        sheet_xml += f'<mergeCells count="{len(merge_cells)}">{"".join(merge_cells)}</mergeCells>'
+    if hyperlinks_xml:
+        sheet_xml += f'<hyperlinks>{hyperlinks_xml}</hyperlinks>'
+    sheet_xml += '</worksheet>'
+
+    content_types = '''<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">
+<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>
+<Default Extension="xml" ContentType="application/xml"/>
+<Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>
+<Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>
+<Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/>
+</Types>'''
+    root_relationships = '''<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/>
+</Relationships>'''
+    workbook = '''<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
+<sheets><sheet name="用例运行明细" sheetId="1" r:id="rId1"/></sheets></workbook>'''
+    workbook_relationships = '''<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/>
+<Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/>
+</Relationships>'''
+    styles = '''<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
+<fonts count="2"><font><sz val="11"/><name val="Calibri"/></font><font><sz val="11"/><color rgb="FF1677FF"/><u/><name val="Calibri"/></font></fonts>
+<fills count="2"><fill><patternFill patternType="none"/></fill><fill><patternFill patternType="gray125"/></fill></fills>
+<borders count="1"><border><left/><right/><top/><bottom/><diagonal/></border></borders>
+<cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs>
+<cellXfs count="2"><xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/><xf numFmtId="0" fontId="1" fillId="0" borderId="0" xfId="0"/></cellXfs>
+</styleSheet>'''
+
+    output = io.BytesIO()
+    with zipfile.ZipFile(output, "w", zipfile.ZIP_DEFLATED) as archive:
+        archive.writestr("[Content_Types].xml", content_types)
+        archive.writestr("_rels/.rels", root_relationships)
+        archive.writestr("xl/workbook.xml", workbook)
+        archive.writestr("xl/_rels/workbook.xml.rels", workbook_relationships)
+        archive.writestr("xl/styles.xml", styles)
+        archive.writestr("xl/worksheets/sheet1.xml", sheet_xml)
+        if relationships_xml:
+            archive.writestr(
+                "xl/worksheets/_rels/sheet1.xml.rels",
+                '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+                '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
+                f"{relationships_xml}</Relationships>",
+            )
+    return output.getvalue()
+
+
+def _build_nightly_runs_xlsx(rows: list[dict[str, str]]) -> bytes:
+    """Build a standards-compliant XLSX report with openpyxl.
+
+    Do not handcraft SpreadsheetML here: Excel validates more than ZIP/XML
+    well-formedness, including relationship and schema ordering details.
+    """
+    headers = ["时间", "测试内容", "模型", "覆盖机型", "日志链接", "模型 FO", "AI 日志链接"]
+    widths = [22, 72, 42, 26, 65, 20, 65]
+    keys = ("time", "test_content", "model", "coverage", "log_url", "model_fo", "ai_log_url")
+
+    workbook = Workbook()
+    worksheet = workbook.active
+    worksheet.title = "用例运行明细"
+    worksheet.freeze_panes = "A2"
+    worksheet.append(headers)
+    for cell in worksheet[1]:
+        cell.font = Font(bold=True)
+        cell.alignment = Alignment(vertical="center")
+
+    for row in rows:
+        worksheet.append([str(row.get(key) or "") for key in keys])
+        row_index = worksheet.max_row
+        log_url = str(row.get("log_url") or "")
+        if log_url:
+            log_cell = worksheet.cell(row=row_index, column=5)
+            log_cell.hyperlink = log_url
+            log_cell.style = "Hyperlink"
+        ai_log_url = str(row.get("ai_log_url") or "")
+        if ai_log_url:
+            ai_log_cell = worksheet.cell(row=row_index, column=7)
+            ai_log_cell.hyperlink = ai_log_url
+            ai_log_cell.style = "Hyperlink"
+
+    for index, width in enumerate(widths, start=1):
+        worksheet.column_dimensions[get_column_letter(index)].width = width
+
+    start = 2
+    while start <= len(rows) + 1:
+        end = start
+        timestamp = str(rows[start - 2].get("time") or "")
+        while end + 1 <= len(rows) + 1 and str(rows[end - 1].get("time") or "") == timestamp:
+            end += 1
+        if timestamp and end > start:
+            worksheet.merge_cells(start_row=start, start_column=1, end_row=end, end_column=1)
+            worksheet.cell(row=start, column=1).alignment = Alignment(vertical="center")
+        start = end + 1
+
+    output = io.BytesIO()
+    workbook.save(output)
+    return output.getvalue()
+
+
 @router.get("/workflows", response_model=list[str])
 async def list_workflows(
     db: DbSession
@@ -695,7 +1060,51 @@ async def list_runs(
     stmt = stmt.order_by(run_belonging_time.desc()).limit(limit)
 
     result = await db.execute(stmt)
-    return result.scalars().all()
+    runs = list(result.scalars().all())
+    if not runs:
+        return []
+
+    run_ids = [run.run_id for run in runs]
+    # 与 /runs/{run_id}/jobs 详情保持同一口径：只统计当前 GitHub run_attempt 的 job，
+    # 避免重跑后把旧 attempt 的 job 也计入（否则列表统计会翻倍、与详情不一致）。
+    job_rows = (await db.execute(
+        select(CIJob.run_id, CIJob.status, CIJob.conclusion, CIJob.data)
+        .where(CIJob.run_id.in_(run_ids))
+    )).all()
+    attempt_by_run = {run.run_id: extract_run_attempt(run.data) for run in runs}
+    counters: dict[int, dict[str, int]] = {}
+    for row in job_rows:
+        if not is_current_run_attempt(row.data, attempt_by_run.get(row.run_id)):
+            continue
+        c = counters.setdefault(
+            row.run_id,
+            {"total": 0, "executed": 0, "skipped": 0, "success": 0,
+             "failure": 0, "in_progress": 0, "cancelled": 0},
+        )
+        c["total"] += 1
+        conclusion = row.conclusion
+        if conclusion is not None and conclusion != "skipped":
+            c["executed"] += 1
+        if conclusion == "skipped":
+            c["skipped"] += 1
+        elif conclusion == "success":
+            c["success"] += 1
+        elif conclusion == "failure":
+            c["failure"] += 1
+        elif conclusion == "cancelled":
+            c["cancelled"] += 1
+        if row.status == "in_progress":
+            c["in_progress"] += 1
+    job_stats_by_run = {
+        run_id: CIRunJobStats(**vals) for run_id, vals in counters.items()
+    }
+
+    def _to_run_response(run: CIResult) -> CIResultResponse:
+        response = CIResultResponse.model_validate(run)
+        response.job_stats = job_stats_by_run.get(run.run_id)
+        return response
+
+    return [_to_run_response(run) for run in runs]
 
 
 @router.get("/workflows/latest", response_model=list[WorkflowLatestResult])
@@ -1132,6 +1541,7 @@ async def list_jobs_by_run(
     jobs = result.scalars().all()
     current_attempt = extract_run_attempt(run.data) if run else None
     jobs = filter_current_run_attempt(jobs, current_attempt)
+    job_fo_map = await _build_job_model_fo_map(db, jobs)
 
     response = []
     for job in jobs:
@@ -1165,6 +1575,7 @@ async def list_jobs_by_run(
             duration_seconds=job.duration_seconds,
             runner_labels=runner_labels,
             steps_summary=steps_summary,
+            model_fo=job_fo_map.get(job.id),
             created_at=job.created_at,
         ))
 
@@ -1225,6 +1636,7 @@ async def list_jobs(
             for job in jobs
             if is_current_run_attempt(job.data, run_attempts.get(job.run_id))
         ]
+    job_fo_map = await _build_job_model_fo_map(db, jobs)
 
     response = []
     for job in jobs:
@@ -1257,6 +1669,7 @@ async def list_jobs(
             duration_seconds=job.duration_seconds,
             runner_labels=runner_labels,
             steps_summary=steps_summary,
+            model_fo=job_fo_map.get(job.id),
             created_at=job.created_at,
         ))
 
@@ -2345,6 +2758,230 @@ async def get_daily_report(
         )
 
 
+# ============ CI 每日综合报错报告（失败详情为核心，支持 PDF / Excel 导出）===========
+
+@router.get("/reports/comprehensive")
+async def get_comprehensive_report(
+    db: DbSession,
+    start: str | None = Query(default=None, description="窗口起始，北京时间 'YYYY-MM-DD HH:MM'；缺省默认昨日 20:00"),
+    end: str | None = Query(default=None, description="窗口结束，北京时间 'YYYY-MM-DD HH:MM'；缺省默认当日 09:00"),
+    hardware: str | None = Query(default=None, description="硬件过滤（如 910B），缺省全部"),
+    branch: str | None = Query(default=None, description="分支过滤（如 main/release），缺省全部"),
+    collect_raw_logs: bool = Query(default=False, description="自动抓取 GitHub 原始日志并解析报错线索（失败项较多时较慢）"),
+):
+    """聚合指定时间窗口内的 CI 综合报错数据。
+
+    报告以「失败详情」为核心：哪些用例/模型失败了、失败原因（问题范畴 +
+    原始报错线索行 + AI 根因摘要）、处理状态。窗口内无失败时 all_green=true。
+
+    返回包含 summary / failures / runs / trends / charts（base64 图表）。
+    """
+    from reporting.ci_daily_report_builder import (
+        CIDailyReportBuilder,
+        ReportRequest,
+        parse_window,
+    )
+    from reporting.ci_report_charts import render_report_charts
+
+    try:
+        start_utc, end_utc = parse_window(start, end)
+        request = ReportRequest(start_utc=start_utc, end_utc=end_utc, hardware=hardware, branch=branch)
+        builder = CIDailyReportBuilder(db)
+        report = await builder.build_report(request)
+        if collect_raw_logs:
+            report = await builder.collect_raw_logs(report)
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
+    except Exception as e:
+        logger.exception("Failed to build CI comprehensive report")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"构建综合报告失败: {e}",
+        )
+
+    charts: dict[str, Any] = {}
+    try:
+        charts = render_report_charts(report)
+    except Exception as e:
+        logger.warning("render CI report charts failed: %s", e)
+    report["charts"] = charts
+    return report
+
+
+@router.post("/reports/comprehensive/collect-raw-logs")
+async def collect_comprehensive_raw_logs(
+    db: DbSession,
+    start: str | None = Query(default=None, description="窗口起始，北京时间 'YYYY-MM-DD HH:MM'；缺省默认昨日 20:00"),
+    end: str | None = Query(default=None, description="窗口结束，北京时间 'YYYY-MM-DD HH:MM'；缺省默认当日 09:00"),
+    hardware: str | None = Query(default=None, description="硬件过滤"),
+    branch: str | None = Query(default=None, description="分支过滤"),
+):
+    """对窗口内失败记录自动访问 GitHub 原始日志链接，抓取并解析报错线索行。
+
+    仅对「缺少原始报错行 / 未定界」的失败项抓取（已分析的复用 AI 结果）。
+    返回增强后的完整报告（含 failures 内新填充的 raw_log_lines / error_line）。
+    """
+    from reporting.ci_daily_report_builder import (
+        CIDailyReportBuilder,
+        ReportRequest,
+        parse_window,
+    )
+    from reporting.ci_report_charts import render_report_charts
+
+    try:
+        start_utc, end_utc = parse_window(start, end)
+        request = ReportRequest(start_utc=start_utc, end_utc=end_utc, hardware=hardware, branch=branch)
+        builder = CIDailyReportBuilder(db)
+        report = await builder.build_report(request)
+        report = await builder.collect_raw_logs(report)
+        report["charts"] = render_report_charts(report)
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
+    except Exception as e:
+        logger.exception("Failed to collect CI comprehensive raw logs")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"抓取原始日志失败: {e}",
+        )
+    return report
+
+
+@router.post("/reports/comprehensive/auto-analyze")
+async def auto_analyze_comprehensive_report(
+    db: DbSession,
+    start: str | None = Query(default=None, description="窗口起始，北京时间 'YYYY-MM-DD HH:MM'；缺省默认昨日 20:00"),
+    end: str | None = Query(default=None, description="窗口结束，北京时间 'YYYY-MM-DD HH:MM'；缺省默认当日 09:00"),
+    hardware: str | None = Query(default=None, description="硬件过滤"),
+    branch: str | None = Query(default=None, description="分支过滤"),
+):
+    """对窗口内「结论=失败 且尚无 AI 分析记录」的用例，自动入队 AI 分析。
+
+    复用 FailureAnalysisService + TaskManager（与失败列表「分析失败用例」同一套
+    占位 + 异步执行链路），让导出的 PDF/Excel 更有价值（带 AI 根因摘要）。
+    已 analyzing/completed 的不重复入队；单条入队失败不中断整体。
+
+    返回 { triggered, skipped, total_failures, errors, triggered_jobs }。
+    分析为异步执行——前端可稍后重新拉取报告查看 analysis_status / AI 结果。
+    """
+    from reporting.ci_daily_report_builder import (
+        CIDailyReportBuilder,
+        ReportRequest,
+        parse_window,
+    )
+
+    try:
+        start_utc, end_utc = parse_window(start, end)
+        request = ReportRequest(start_utc=start_utc, end_utc=end_utc, hardware=hardware, branch=branch)
+        builder = CIDailyReportBuilder(db)
+        report = await builder.build_report(request)
+        result = await builder.auto_analyze_missing(report)
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
+    except Exception as e:
+        logger.exception("Failed to auto-analyze CI comprehensive failures")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"自动 AI 分析入队失败: {e}",
+        )
+    return result
+
+
+@router.get("/reports/comprehensive/export.pdf")
+async def export_comprehensive_report_pdf(
+    db: DbSession,
+    start: str | None = Query(default=None, description="窗口起始，北京时间 'YYYY-MM-DD HH:MM'；缺省默认昨日 20:00"),
+    end: str | None = Query(default=None, description="窗口结束，北京时间 'YYYY-MM-DD HH:MM'；缺省默认当日 09:00"),
+    hardware: str | None = Query(default=None, description="硬件过滤"),
+    branch: str | None = Query(default=None, description="分支过滤"),
+    collect_raw_logs: bool = Query(default=False, description="导出前自动抓取 GitHub 原始日志并解析报错线索（失败项较多时较慢）"),
+):
+    """导出 CI 每日综合报错报告为 PDF（含 matplotlib 图表 + 失败明细表）。"""
+    from reporting.ci_daily_report_builder import (
+        CIDailyReportBuilder,
+        ReportRequest,
+        parse_window,
+    )
+    from reporting.ci_report_charts import render_report_charts
+    from reporting.ci_report_pdf import CIDailyReportPDF
+
+    try:
+        start_utc, end_utc = parse_window(start, end)
+        request = ReportRequest(start_utc=start_utc, end_utc=end_utc, hardware=hardware, branch=branch)
+        builder = CIDailyReportBuilder(db)
+        report = await builder.build_report(request)
+        if collect_raw_logs:
+            report = await builder.collect_raw_logs(report)
+        try:
+            report["charts"] = render_report_charts(report)
+        except Exception as e:
+            logger.warning("render CI report charts failed: %s", e)
+            report["charts"] = {}
+        pdf_bytes = CIDailyReportPDF(report).render()
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
+    except Exception as e:
+        logger.exception("Failed to export CI comprehensive report PDF")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"导出 PDF 失败: {e}",
+        )
+
+    from reporting.ci_report_pdf import CIDailyReportPDF as _Pdf
+
+    return Response(
+        content=pdf_bytes,
+        media_type="application/pdf",
+        headers={
+            "Content-Disposition": f'attachment; filename="{_Pdf.default_filename(report)}"'
+        },
+    )
+
+
+@router.get("/reports/comprehensive/export.xlsx")
+async def export_comprehensive_report_excel(
+    db: DbSession,
+    start: str | None = Query(default=None, description="窗口起始，北京时间 'YYYY-MM-DD HH:MM'；缺省默认昨日 20:00"),
+    end: str | None = Query(default=None, description="窗口结束，北京时间 'YYYY-MM-DD HH:MM'；缺省默认当日 09:00"),
+    hardware: str | None = Query(default=None, description="硬件过滤"),
+    branch: str | None = Query(default=None, description="分支过滤"),
+    collect_raw_logs: bool = Query(default=False, description="导出前自动抓取 GitHub 原始日志并解析报错线索（失败项较多时较慢）"),
+):
+    """导出 CI 每日综合报错报告为 Excel（多 Sheet：失败详情/失败维度统计/运行记录）。"""
+    from reporting.ci_daily_report_builder import (
+        CIDailyReportBuilder,
+        ReportRequest,
+        parse_window,
+    )
+    from reporting.ci_report_excel import CIDailyReportExcel
+
+    try:
+        start_utc, end_utc = parse_window(start, end)
+        request = ReportRequest(start_utc=start_utc, end_utc=end_utc, hardware=hardware, branch=branch)
+        builder = CIDailyReportBuilder(db)
+        report = await builder.build_report(request)
+        if collect_raw_logs:
+            report = await builder.collect_raw_logs(report)
+        excel_bytes = CIDailyReportExcel(report).render()
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
+    except Exception as e:
+        logger.exception("Failed to export CI comprehensive report Excel")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"导出 Excel 失败: {e}",
+        )
+
+    from reporting.ci_report_excel import CIDailyReportExcel as _Xlsx
+
+    return Response(
+        content=excel_bytes,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={
+            "Content-Disposition": f'attachment; filename="{_Xlsx.default_filename(report)}"'
+        },
+    )
+
+
 # ============ Failure Analysis API ============
 
 @router.post("/failure-analysis/analyze/{job_id}")
@@ -3392,6 +4029,153 @@ async def export_nightly_test_cases(
     )
 
 
+@router.get("/nightly-test-cases/run-export")
+async def export_nightly_test_case_runs(
+    request: Request,
+    current_user: CurrentAdminUser,
+    db: DbSession,
+    format: str = Query("json", pattern="^(json|xlsx)$"),
+    scope: str = Query("filtered", pattern="^(filtered|all)$"),
+    start_date: str | None = Query(None, description="开始日期 YYYY-MM-DD（含）"),
+    end_date: str | None = Query(None, description="结束日期 YYYY-MM-DD（含）"),
+    source_branch: str | None = Query(None, description="来源分支"),
+    workflow_names: list[str] | None = Query(None, description="可重复传入的 Workflow 名称"),
+):
+    """Export executed Nightly cases, enriched from snapshots and failure analysis.
+
+    The legacy endpoint above deliberately remains an import-compatible
+    configuration snapshot export.  This endpoint is for the user-facing
+    run-history report, so it can include GitHub links and an AI report link
+    without embedding the full report in the exported file.
+    """
+    del current_user
+    if start_date:
+        try:
+            datetime.strptime(start_date, "%Y-%m-%d")
+        except ValueError:
+            raise HTTPException(status_code=400, detail="start_date 格式须为 YYYY-MM-DD") from None
+    if end_date:
+        try:
+            datetime.strptime(end_date, "%Y-%m-%d")
+        except ValueError:
+            raise HTTPException(status_code=400, detail="end_date 格式须为 YYYY-MM-DD") from None
+
+    # Exports must not depend on a later collector pass to materialize FO on
+    # old snapshots.  The persisted mapping is authoritative; the packaged
+    # JSON keeps exports complete while an older database has not yet been
+    # backfilled.
+    from tooling.parsers.nightly_config_parser import load_model_fo_map
+
+    fo_map = load_model_fo_map()
+    fo_map.update(await load_model_fo_mappings(db))
+    snapshots_stmt = select(NightlyTestCase).order_by(NightlyTestCase.report_date.desc())
+    if scope == "filtered":
+        if start_date:
+            snapshots_stmt = snapshots_stmt.where(NightlyTestCase.report_date >= start_date)
+        if end_date:
+            snapshots_stmt = snapshots_stmt.where(NightlyTestCase.report_date <= end_date)
+        if source_branch:
+            snapshots_stmt = snapshots_stmt.where(NightlyTestCase.source_branch == source_branch)
+        if workflow_names:
+            snapshots_stmt = snapshots_stmt.where(NightlyTestCase.workflow_name.in_(workflow_names))
+    snapshots = list((await db.execute(snapshots_stmt)).scalars().all())
+    if not snapshots:
+        rows: list[dict[str, str]] = []
+    else:
+        workflows = {item.workflow_name for item in snapshots}
+        jobs_stmt = (
+            select(CIJob, CIResult)
+            .join(CIResult, CIResult.run_id == CIJob.run_id)
+            .where(CIJob.workflow_name.in_(workflows))
+            # Keep the capped export useful: the old ascending order only ever
+            # reached the oldest Jobs and omitted current Nightly executions.
+            .order_by(CIResult.started_at.desc(), CIJob.started_at.desc(), CIJob.id.desc())
+            .limit(10_000)
+        )
+        if scope == "filtered":
+            run_start, run_end = _nightly_export_run_time_bounds(start_date, end_date)
+            if run_start:
+                jobs_stmt = jobs_stmt.where(CIResult.started_at >= run_start)
+            if run_end:
+                jobs_stmt = jobs_stmt.where(CIResult.started_at < run_end)
+
+        jobs_and_runs = (await db.execute(jobs_stmt)).all()
+        snapshots_by_workflow: dict[str, list[NightlyTestCase]] = {}
+        for snapshot in snapshots:
+            snapshots_by_workflow.setdefault(snapshot.workflow_name, []).append(snapshot)
+
+        matched: list[tuple[CIJob, CIResult, NightlyTestCase]] = []
+        for job, run in jobs_and_runs:
+            if not is_current_run_attempt(job.data, extract_run_attempt(run.data)):
+                continue
+            branch = _nightly_export_branch(job, run)
+            branch_aliases = {branch, branch.replace("releases-", "releases/", 1)}
+            candidates = snapshots_by_workflow.get(job.workflow_name, [])
+            candidate = next(
+                (
+                    item
+                    for item in candidates
+                    if item.source_branch in branch_aliases and _nightly_snapshot_matches_job(item, job)
+                ),
+                None,
+            )
+            if candidate is not None:
+                matched.append((job, run, candidate))
+
+        analysis_by_job_id: dict[int, JobFailureAnalysis] = {}
+        job_ids = [job.job_id for job, _, _ in matched if job.job_id is not None]
+        if job_ids:
+            analyses = (
+                await db.execute(select(JobFailureAnalysis).where(JobFailureAnalysis.job_id.in_(job_ids)))
+            ).scalars().all()
+            analysis_by_job_id = {analysis.job_id: analysis for analysis in analyses}
+
+        public_base_url = str(request.base_url).rstrip("/")
+
+        def ai_log_url(analysis: JobFailureAnalysis | None) -> str:
+            if analysis is None or not analysis.share_token:
+                return ""
+            return f"{public_base_url}/api/v1/ci/public/analysis/{analysis.share_token}/report"
+
+        def coverage_label(job: CIJob, snapshot: NightlyTestCase) -> str:
+            deployment = snapshot.deployment_type or ""
+            deployment = deployment.replace("multi-node-2", "双机").replace("single-node", "单机")
+            return " / ".join(part for part in (job.hardware, deployment) if part)
+
+        rows = []
+        for job, run, snapshot in matched:
+            rows.append({
+                "time": _format_nightly_export_time(run.started_at or job.started_at),
+                "test_content": job.job_name,
+                "model": snapshot.test_model or "",
+                "coverage": coverage_label(job, snapshot),
+                # CIJob.logs_url is GitHub's authenticated API download URL.
+                # Exports must use the browser-facing Actions Job page instead.
+                "log_url": (
+                    f"https://github.com/{settings.GITHUB_OWNER}/{settings.GITHUB_REPO}"
+                    f"/actions/runs/{job.run_id}/job/{job.job_id}"
+                    if job.job_id else ""
+                ),
+                "model_fo": _nightly_export_model_fo(snapshot, fo_map),
+                "ai_log_url": ai_log_url(analysis_by_job_id.get(job.job_id)),
+            }
+            )
+
+    timestamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
+    if format == "xlsx":
+        return Response(
+            content=_build_nightly_runs_xlsx(rows),
+            media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            headers={"Content-Disposition": f'attachment; filename="nightly_run_details_{timestamp}.xlsx"'},
+        )
+    content = json.dumps(rows, ensure_ascii=False, indent=2).encode("utf-8")
+    return Response(
+        content=content,
+        media_type="application/json",
+        headers={"Content-Disposition": f'attachment; filename="nightly_run_details_{timestamp}.json"'},
+    )
+
+
 @router.post("/nightly-test-cases", response_model=NightlyTestCaseResponse, status_code=status.HTTP_201_CREATED)
 async def create_nightly_test_case(
     data: NightlyTestCaseCreate,
@@ -3475,6 +4259,11 @@ async def sync_test_cases_from_yaml(
     )
 
     seed_count = await seed_missing_model_fo_mappings(db, load_model_fo_map())
+    # This session has autoflush disabled.  Without an explicit flush, a
+    # first JSON import is not visible to the lookup below, leaving today's
+    # existing Nightly rows blank until a later synchronization.
+    if seed_count:
+        await db.flush()
     fo_map = await load_model_fo_mappings(db)
     cache = get_github_cache_for_repo(settings.GITHUB_OWNER, settings.GITHUB_REPO)
     if not cache._is_repo_cloned():
@@ -3530,6 +4319,10 @@ async def sync_test_cases_from_yaml(
             if existing:
                 existing.test_model = c.model_path
                 existing.deployment_type = c.deployment
+                # Keep an explicit, manually maintained FO.  Otherwise a
+                # re-sync must repair older blank snapshots immediately.
+                if not (existing.model_fo or "").strip():
+                    existing.model_fo = lookup_model_fo(fo_map, c.model_path)
                 total_updated += 1
             else:
                 db.add(NightlyTestCase(
@@ -3554,3 +4347,287 @@ async def sync_test_cases_from_yaml(
         "created": total_created,
         "updated": total_updated,
     }
+
+
+# ============ 模型-FO 映射主库（ModelFoMaster）============
+# 团队维护的「Suite / 节点类型 / yaml / 模型 / 机型 / 模型FO」六元组。
+# 通过 Excel 批量导入或单条 CRUD 维护，CI 模块（每日综合报告 / Job 详情 /
+# 失败记录）在 owner / model_fo 缺失时按本表 fallback 查询。
+
+_MODEL_FO_MASTER_IMPORT_HEADERS = [
+    "Suite",
+    "节点类型",
+    "测试内容（yaml/路径）",
+    "模型",
+    "覆盖机型",
+    "模型FO",
+]
+
+
+def _parse_model_fo_master_xlsx(content: bytes) -> list[dict[str, Any]]:
+    """解析团队 Excel（前 6 列：Suite/节点类型/测试内容(yaml)/模型/覆盖机型/模型FO）。
+
+    返回每行 dict；表头不符时抛 ValueError。空行跳过。
+    """
+    wb = load_workbook(filename=io.BytesIO(content), read_only=True, data_only=True)
+    ws = wb.active
+    if ws is None:
+        raise ValueError("Excel 缺少有效工作表")
+
+    rows_iter = ws.iter_rows(values_only=True)
+    try:
+        header_row = next(rows_iter)
+    except StopIteration:
+        raise ValueError("Excel 为空")
+
+    # 校验表头：取每格 str 去空格后与基准表头比对（顺序必须一致）
+    normalized = [
+        (str(h).strip() if h is not None else "") for h in header_row[:6]
+    ]
+    if normalized != _MODEL_FO_MASTER_IMPORT_HEADERS:
+        raise ValueError(
+            f"表头不符，期望：{_MODEL_FO_MASTER_IMPORT_HEADERS}，实际：{normalized}"
+        )
+
+    data_rows: list[dict[str, Any]] = []
+    for row in rows_iter:
+        if row is None:
+            continue
+        # 全空行跳过
+        if all(v is None or (isinstance(v, str) and not v.strip()) for v in row[:6]):
+            continue
+        values = [
+            (str(v).strip() if v is not None else None) for v in row[:6]
+        ]
+        data_rows.append({
+            "suite": values[0],
+            "node_type": values[1],
+            "test_yaml": values[2],
+            "model_name": values[3],
+            "coverage_hardware": values[4] or None,
+            "model_fo": values[5],
+        })
+    wb.close()
+    return data_rows
+
+
+@router.get("/model-fo-mappings", response_model=list[ModelFoMasterResponse])
+async def list_model_fo_mappings(
+    db: DbSession,
+    current_user: CurrentUser,
+    suite: str | None = Query(None, max_length=50),
+    node_type: str | None = Query(None, max_length=50),
+    model_name: str | None = Query(None, max_length=200),
+    test_yaml: str | None = Query(None, max_length=300),
+    only_enabled: bool = Query(True),
+    limit: int = Query(500, ge=1, le=2000),
+):
+    """模型-FO 映射主库列表，支持多维度筛选。"""
+    stmt = select(ModelFoMaster)
+    if suite:
+        stmt = stmt.where(ModelFoMaster.suite == suite)
+    if node_type:
+        stmt = stmt.where(ModelFoMaster.node_type == node_type)
+    if model_name:
+        stmt = stmt.where(func.lower(ModelFoMaster.model_name).like(f"%{model_name.lower()}%"))
+    if test_yaml:
+        stmt = stmt.where(func.lower(ModelFoMaster.test_yaml).like(f"%{test_yaml.lower()}%"))
+    if only_enabled:
+        stmt = stmt.where(ModelFoMaster.enabled.is_(True))
+    stmt = stmt.order_by(ModelFoMaster.suite, ModelFoMaster.node_type, ModelFoMaster.test_yaml).limit(limit)
+    result = await db.execute(stmt)
+    return result.scalars().all()
+
+
+@router.post("/model-fo-mappings", response_model=ModelFoMasterResponse, status_code=status.HTTP_201_CREATED)
+async def create_model_fo_mapping(
+    db: DbSession,
+    current_user: CurrentAdminUser,
+    data: ModelFoMasterCreate,
+):
+    """单条新增。已存在相同 (suite, node_type, test_yaml) 时返回 409。"""
+    existing = (await db.execute(
+        select(ModelFoMaster).where(
+            ModelFoMaster.suite == data.suite,
+            ModelFoMaster.node_type == data.node_type,
+            ModelFoMaster.test_yaml == data.test_yaml,
+        )
+    )).scalar_one_or_none()
+    if existing:
+        raise HTTPException(status.HTTP_409_CONFLICT,
+                            detail=f"已存在相同 (suite, node_type, test_yaml) 记录 id={existing.id}")
+    record = ModelFoMaster(**data.model_dump())
+    db.add(record)
+    await db.commit()
+    await db.refresh(record)
+    return record
+
+
+@router.put("/model-fo-mappings/{mapping_id}", response_model=ModelFoMasterResponse)
+async def update_model_fo_mapping(
+    db: DbSession,
+    current_user: CurrentAdminUser,
+    mapping_id: int,
+    data: ModelFoMasterUpdate,
+):
+    """单条修改。"""
+    record = (await db.execute(
+        select(ModelFoMaster).where(ModelFoMaster.id == mapping_id)
+    )).scalar_one_or_none()
+    if not record:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="记录不存在")
+
+    updates = data.model_dump(exclude_unset=True, exclude_none=True)
+    # 三元组变更时检查唯一性
+    if any(k in updates for k in ("suite", "node_type", "test_yaml")):
+        new_suite = updates.get("suite", record.suite)
+        new_node = updates.get("node_type", record.node_type)
+        new_yaml = updates.get("test_yaml", record.test_yaml)
+        conflict = (await db.execute(
+            select(ModelFoMaster).where(
+                ModelFoMaster.suite == new_suite,
+                ModelFoMaster.node_type == new_node,
+                ModelFoMaster.test_yaml == new_yaml,
+                ModelFoMaster.id != mapping_id,
+            )
+        )).scalar_one_or_none()
+        if conflict:
+            raise HTTPException(status.HTTP_409_CONFLICT,
+                                detail=f"已存在相同三元组记录 id={conflict.id}")
+    for k, v in updates.items():
+        setattr(record, k, v)
+    await db.commit()
+    await db.refresh(record)
+    return record
+
+
+@router.delete("/model-fo-mappings/{mapping_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_model_fo_mapping(
+    db: DbSession,
+    current_user: CurrentAdminUser,
+    mapping_id: int,
+):
+    """单条删除（物理）。如需保留记录请改 enabled=false。"""
+    record = (await db.execute(
+        select(ModelFoMaster).where(ModelFoMaster.id == mapping_id)
+    )).scalar_one_or_none()
+    if not record:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="记录不存在")
+    await db.delete(record)
+    await db.commit()
+
+
+@router.post("/model-fo-mappings/import", response_model=ModelFoMasterImportResult)
+async def import_model_fo_mappings(
+    db: DbSession,
+    current_user: CurrentAdminUser,
+    file: UploadFile = File(...),
+):
+    """批量导入团队 Excel（Suite/节点类型/yaml/模型/机型/模型FO 六列）。
+
+    按 (suite, node_type, test_yaml) 三元组 upsert：存在则更新，不存在则新增。
+    行级错误（缺必填/格式错）收集到 errors，不阻断其它行。
+    """
+    content = await file.read()
+    try:
+        data_rows = _parse_model_fo_master_xlsx(content)
+    except ValueError as e:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
+
+    imported = 0
+    skipped = 0
+    errors: list[ModelFoMasterImportRowError] = []
+    # Excel 数据行从第 2 行起（第 1 行是表头）
+    for idx, row in enumerate(data_rows, start=2):
+        # 必填校验：suite / node_type / test_yaml / model_name
+        # model_fo 允许暂缺（后续可手动录入），不作为拒绝条件
+        missing = [k for k in ("suite", "node_type", "test_yaml", "model_name")
+                   if not row.get(k) or not str(row.get(k)).strip()]
+        if missing:
+            errors.append(ModelFoMasterImportRowError(row=idx, reason=f"缺失字段：{', '.join(missing)}"))
+            continue
+        suite = row["suite"].strip()
+        node_type = row["node_type"].strip()
+        test_yaml = row["test_yaml"].strip()
+        model_name = row["model_name"].strip()
+        coverage_hardware = (row.get("coverage_hardware") or "").strip() or None
+        model_fo = (row.get("model_fo") or "").strip() or None
+
+        existing = (await db.execute(
+            select(ModelFoMaster).where(
+                ModelFoMaster.suite == suite,
+                ModelFoMaster.node_type == node_type,
+                ModelFoMaster.test_yaml == test_yaml,
+            )
+        )).scalar_one_or_none()
+        if existing:
+            existing.model_name = model_name
+            # 导入值为空时保留已手动录入的 FO / 机型，避免覆盖
+            if coverage_hardware is not None:
+                existing.coverage_hardware = coverage_hardware
+            if model_fo is not None:
+                existing.model_fo = model_fo
+            existing.enabled = True
+        else:
+            db.add(ModelFoMaster(
+                suite=suite,
+                node_type=node_type,
+                test_yaml=test_yaml,
+                model_name=model_name,
+                coverage_hardware=coverage_hardware,
+                model_fo=model_fo,
+                enabled=True,
+            ))
+        imported += 1
+
+    # 空行计入 skipped（这里行都已过滤空行，所以 skipped 通常 0）
+    await db.commit()
+    return ModelFoMasterImportResult(
+        imported=imported,
+        skipped=skipped,
+        errors=errors,
+        total_rows=len(data_rows),
+    )
+
+
+@router.get("/model-fo-mappings/import-template")
+async def download_model_fo_master_import_template():
+    """下载 Excel 导入模板（表头 + 2 行示例）。"""
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "模型FO主库"
+    for c, h in enumerate(_MODEL_FO_MASTER_IMPORT_HEADERS, 1):
+        cell = ws.cell(row=1, column=c, value=h)
+        cell.font = Font(bold=True, color="FFFFFF")
+        cell.fill = PatternFill("solid", fgColor="1E40AF")
+        cell.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
+    # 示例行
+    samples = [
+        ("A2", "单机", "Qwen3-30B-A3B-BF16-A2.yaml", "qwen3-30b-a3b-bf16-a2-performance",
+         "A2单机 linux-aarch64-a2b3-8", "示例FO 00000000"),
+        ("A3", "单机", "MiniMax-M3-BF16-A3.yaml", "minimax-m3-bf16-a3",
+         "A3单机 linux-aarch64-a3-800i-16", "示例FO 11111111"),
+    ]
+    for r, row in enumerate(samples, 2):
+        for c, v in enumerate(row, 1):
+            ws.cell(row=r, column=c, value=v).alignment = Alignment(vertical="center", wrap_text=True)
+    for i, w in enumerate([12, 12, 35, 35, 30, 22], 1):
+        ws.column_dimensions[get_column_letter(i)].width = w
+
+    buf = io.BytesIO()
+    wb.save(buf)
+    buf.seek(0)
+    return Response(
+        content=buf.getvalue(),
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": "attachment; filename=model_fo_master_template.xlsx"},
+    )
+
+
+@router.get("/model-fo-mappings/distinct-suites", response_model=list[str])
+async def list_model_fo_master_suites(db: DbSession, current_user: CurrentUser):
+    """Suite 去重列表（供前端筛选下拉）。"""
+    rows = (await db.execute(
+        select(ModelFoMaster.suite).where(ModelFoMaster.enabled.is_(True)).distinct()
+    )).scalars().all()
+    return sorted([s for s in rows if s])

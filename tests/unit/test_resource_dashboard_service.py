@@ -1,10 +1,158 @@
 from types import SimpleNamespace
 
-from cryptography.fernet import InvalidToken
 import pytest
+from cryptography.fernet import InvalidToken
 
+from contracts.schemas import ResourcePodInfo, ResourceQuantity
 import resource_dashboard.service as resource_dashboard_service
-from resource_dashboard.service import ResourceDashboardService
+from resource_dashboard.metrics_query import PersistedResourceMetricsService
+from resource_dashboard.service import ResourceDashboardService, parse_job_workflow_ref
+
+
+def test_job_workflow_ref_uses_its_own_repository_for_all_github_links() -> None:
+    assert parse_job_workflow_ref(
+        "acme/ml-ci/.github/workflows/nightly-a2.yml@refs/pull/42/merge"
+    ) == {
+        "repository": "acme/ml-ci",
+        "repository_url": "https://github.com/acme/ml-ci",
+        "workflow_path": "nightly-a2.yml",
+        "workflow_url": "https://github.com/acme/ml-ci/actions/workflows/nightly-a2.yml",
+        "pr_number": 42,
+        "pr_url": "https://github.com/acme/ml-ci/pull/42",
+    }
+
+
+def test_job_workflow_ref_keeps_non_pr_workflows_linkable() -> None:
+    assert parse_job_workflow_ref(
+        "acme/ml-ci/.github/workflows/nightly.yml@refs/heads/main"
+    ) == {
+        "repository": "acme/ml-ci",
+        "repository_url": "https://github.com/acme/ml-ci",
+        "workflow_path": "nightly.yml",
+        "workflow_url": "https://github.com/acme/ml-ci/actions/workflows/nightly.yml",
+    }
+
+
+def test_workload_pod_uses_its_own_workflow_annotation_before_runner_name() -> None:
+    service = ResourceDashboardService()
+    pod = SimpleNamespace(
+        metadata=SimpleNamespace(
+            name="buildkite-workload-1",
+            namespace="vllm-project",
+            labels={},
+            annotations={
+                "actions.github.com/job-workflow-ref": (
+                    "acme/workload/.github/workflows/nightly.yml@refs/pull/7/merge"
+                ),
+            },
+        ),
+    )
+
+    assert service._pod_workflow_info(pod, {}) == {
+        "repository": "acme/workload",
+        "repository_url": "https://github.com/acme/workload",
+        "workflow_path": "nightly.yml",
+        "workflow_url": "https://github.com/acme/workload/actions/workflows/nightly.yml",
+        "pr_number": 7,
+        "pr_url": "https://github.com/acme/workload/pull/7",
+        "job_workflow_ref": "acme/workload/.github/workflows/nightly.yml@refs/pull/7/merge",
+    }
+
+
+def test_persisted_resource_metrics_restore_github_links() -> None:
+    row = SimpleNamespace(
+        cluster_id=1,
+        cluster_name="A2",
+        top_pods_json=[{
+            "name": "runner-1",
+            "namespace": "vllm-project",
+            "npu": 8,
+            "repository": "acme/ml-ci",
+            "repository_url": "https://github.com/acme/ml-ci",
+            "workflow_path": "nightly.yml",
+            "workflow_url": "https://github.com/acme/ml-ci/actions/workflows/nightly.yml",
+            "pr_number": 42,
+            "pr_url": "https://github.com/acme/ml-ci/pull/42",
+            "job_workflow_ref": "acme/ml-ci/.github/workflows/nightly.yml@refs/pull/42/merge",
+        }],
+    )
+
+    pod = PersistedResourceMetricsService._pods(row, include_pods=True)[0]
+
+    assert pod.repository == "acme/ml-ci"
+    assert pod.workflow_url == "https://github.com/acme/ml-ci/actions/workflows/nightly.yml"
+    assert pod.pr_url == "https://github.com/acme/ml-ci/pull/42"
+
+
+def test_pod_history_metadata_requires_one_exact_namespace_and_pod_name_match() -> None:
+    payload = {
+        "name": "workload-0",
+        "source": "github-action",
+        "groups": {"vllm-project": {"device_count": 1}},
+        "extend_env_comments": {
+            "workflow_ref": "acme/ml-ci/.github/workflows/nightly.yml@refs/pull/42/merge",
+            "workflow_run_id": "123",
+        },
+    }
+    result = PersistedResourceMetricsService._history_metadata_by_pod_key([payload])
+
+    assert result[("vllm-project", "workload-0")]["repository"] == "acme/ml-ci"
+    assert result[("vllm-project", "workload-0")]["run_url"] == "https://github.com/acme/ml-ci/actions/runs/123"
+    assert PersistedResourceMetricsService._history_metadata_by_pod_key([payload, payload]) == {}
+
+
+@pytest.mark.asyncio
+async def test_pod_history_uses_same_github_workflow_name_as_occupancy_analysis() -> None:
+    payload = {
+        "name": "workload-0",
+        "source": "github-action",
+        "groups": {"vllm-project": {"device_count": 1}},
+        "extend_env_comments": {
+            "workflow_ref": "acme/ml-ci/.github/workflows/nightly.yml@refs/heads/main",
+            "workflow_run_id": "123",
+        },
+    }
+
+    class ScalarResult:
+        def __init__(self, values):
+            self.values = values
+
+        def scalars(self):
+            return self
+
+        def all(self):
+            return self.values
+
+    class MappingResult:
+        def mappings(self):
+            return self
+
+        def all(self):
+            return [{"run_id": 123, "workflow_name": "Nightly-A3 (PR 19513)"}]
+
+    class FakeDb:
+        def __init__(self):
+            self.responses = [
+                ScalarResult([payload]),
+                ScalarResult([SimpleNamespace(run_id=123, workflow_name="stale CI name")]),
+                MappingResult(),
+            ]
+
+        async def execute(self, _statement, _params=None):
+            return self.responses.pop(0)
+
+    pod = ResourcePodInfo(
+        cluster_id=1,
+        cluster_name="A3",
+        namespace="vllm-project",
+        name="workload-0",
+        requests=ResourceQuantity(npu=1),
+    )
+
+    await PersistedResourceMetricsService().enrich_pods_from_history(FakeDb(), [pod])
+
+    assert pod.workflow_path == "Nightly-A3 (PR 19513)"
+    assert pod.workflow_url == "https://github.com/acme/ml-ci/actions/workflows/nightly.yml"
 
 
 @pytest.mark.asyncio

@@ -85,16 +85,26 @@ export interface ResourcePodInfo {
   namespace: string
   name: string
   phase?: string | null
+  scheduling_reason?: string | null
+  scheduling_message?: string | null
+  node_selector?: Record<string, string>
   status?: string | null
   node_name?: string | null
   labels: Record<string, string>
   created_at?: string | null
   started_at?: string | null
   finished_at?: string | null
+  last_observed_at?: string | null
   duration_seconds?: number | null
+  repository?: string | null
+  repository_url?: string | null
+  workflow_path?: string | null
+  workflow_url?: string | null
   pr_number?: number | null
   pr_url?: string | null
   job_workflow_ref?: string | null
+  workflow_run_id?: number | null
+  run_url?: string | null
   requests: ResourceQuantity
   containers: string[]
 }
@@ -111,6 +121,35 @@ export interface ResourceDashboardParams {
   cluster_ids?: number[]
   label_selector?: string
   include_pods?: boolean
+}
+
+export interface ResourcePodTimelineResponse {
+  generated_at: string
+  window_start: string
+  pods: ResourcePodInfo[]
+}
+
+export interface NodeUtilizationBucket {
+  start: string
+  end: string
+  utilization: number | null
+  active_seconds: number
+  window_seconds: number
+  coverage: number
+}
+
+export interface NodeUtilizationHeatmap {
+  pool: string | null
+  start: string
+  end: string
+  bucket: string
+  overall_utilization: number
+  nodes: Array<{
+    cluster_id: number
+    cluster_name: string
+    node_name: string
+    buckets: NodeUtilizationBucket[]
+  }>
 }
 
 const buildParams = (params: ResourceDashboardParams) => {
@@ -138,6 +177,27 @@ export const getClusterSummary = async (clusterId: number) => {
 export const getResourceDashboard = async (params: ResourceDashboardParams = {}) => {
   const response = await api.get<ResourceDashboardResponse>('/resource-dashboard/summary', {
     params: buildParams(params),
+  })
+  return response.data
+}
+
+export const getResourcePodTimeline = async (params: { cluster_ids?: number[]; hours?: number } = {}) => {
+  const searchParams = buildParams(params)
+  if (params.hours !== undefined) {
+    searchParams.set('hours', String(params.hours))
+  }
+  const response = await api.get<ResourcePodTimelineResponse>('/resource-dashboard/pod-timeline', {
+    params: searchParams,
+  })
+  return response.data
+}
+
+export const getNodeUtilizationHeatmap = async (
+  pool?: string,
+  params?: { start?: string; end?: string; bucket_hours?: number },
+) => {
+  const response = await api.get<NodeUtilizationHeatmap>('/resource-dashboard/node-utilization-heatmap', {
+    params: { ...(pool ? { pool } : {}), ...params },
   })
   return response.data
 }

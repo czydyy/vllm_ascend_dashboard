@@ -112,15 +112,30 @@ class ResourcePodInfo(BaseModel):
     namespace: str
     name: str
     phase: str | None = None
+    # The scheduler's latest PodScheduled condition is retained in resource
+    # snapshots so a long Pending wait can be explained after collection.
+    scheduling_reason: str | None = None
+    scheduling_message: str | None = None
+    node_selector: dict[str, str] = Field(default_factory=dict)
     node_name: str | None = None
     labels: dict[str, str] = Field(default_factory=dict)
     created_at: datetime | None = None
     started_at: datetime | None = None
     finished_at: datetime | None = None
+    # Timestamp of the latest resource collection that observed this Pod.
+    # It lets the timeline distinguish a currently Pending Pod from an older
+    # Pending observation after the Pod has disappeared from Kubernetes.
+    last_observed_at: datetime | None = None
     duration_seconds: int | None = None
+    repository: str | None = None
+    repository_url: str | None = None
+    workflow_path: str | None = None
+    workflow_url: str | None = None
     pr_number: int | None = None
     pr_url: str | None = None
     job_workflow_ref: str | None = None
+    workflow_run_id: int | None = None
+    run_url: str | None = None
     requests: ResourceQuantity
     containers: list[str] = Field(default_factory=list)
 
@@ -147,3 +162,29 @@ class ResourceDashboardResponse(BaseModel):
     clusters: list[ClusterResourceSummary]
     executing_pods: list[ResourcePodInfo]
     executed_pods: list[ResourcePodInfo]
+
+
+class ResourcePodTimelineResponse(BaseModel):
+    """Pod lifecycles observed in a bounded resource-metrics window."""
+
+    generated_at: datetime
+    window_start: datetime
+    pods: list[ResourcePodInfo] = Field(default_factory=list)
+
+
+class PodSchedulingDiagnosticsResponse(BaseModel):
+    """Read-only live scheduling view; kubeconfig and tokens never leave the server."""
+
+    cluster_id: int
+    cluster_name: str
+    namespace: str
+    name: str
+    phase: str | None = None
+    node_name: str | None = None
+    scheduler_name: str | None = None
+    priority_class_name: str | None = None
+    resource_requests: ResourceQuantity
+    node_selector: dict[str, str] = Field(default_factory=dict)
+    required_node_affinity: dict[str, Any] | None = None
+    tolerations: list[dict[str, Any]] = Field(default_factory=list)
+    pod_scheduled_condition: dict[str, Any] | None = None

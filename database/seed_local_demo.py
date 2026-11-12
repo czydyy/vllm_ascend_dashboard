@@ -15,13 +15,15 @@ import asyncio
 import json
 import logging
 import os
+import random
 import sys
+import uuid
 from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
 
-from sqlalchemy import select
+from sqlalchemy import delete, func, select
 from sqlalchemy.exc import SQLAlchemyError
 
 repository_root = Path(__file__).resolve().parents[1]
@@ -76,6 +78,9 @@ from infrastructure.persistence.models import (
     User,
     UserLoginLog,
     WorkflowConfig,
+    Contributor,
+    ContributorProfile,
+    ImageBuildPlan,
 )
 from infrastructure.storage.failure_analysis_file_store import FailureAnalysisFileStore
 
@@ -84,6 +89,239 @@ logger = logging.getLogger("seed_local_demo")
 
 DEMO_MARKER = "local-demo-v1"
 DEMO_PREFIX = "[local-demo]"
+
+# Contributor board mock data constants
+random.seed(42)
+
+_CB_MODULES = ["csrc", "attention", "MoE", "EPLB", "MRV2", "decoder", "scheduler", "kv_cache", "tokenizer", "config"]
+_CB_COMMIT_TYPES = ["BugFix", "Feature", "Performance", "Doc", "Test", "Refactor", "CI", "Misc"]
+_CB_COMMIT_TYPE_WEIGHTS = [30, 25, 10, 15, 8, 5, 3, 4]
+
+_CB_COMMIT_MESSAGES = {
+    "BugFix": [
+        "fix(attention): correct kernel launch config for A5",
+        "fix(kv_cache): handle edge case in cache eviction",
+        "fix: resolve OOM on 910B with large batch",
+        "fix(MoE): balance expert load across NPU",
+        "fix: correct dtype handling for w8a8 models",
+    ],
+    "Feature": [
+        "feat(EPLB): add speculative decoding support",
+        "feat: support Qwen3-235B on A5",
+        "feat(scheduler): implement dynamic batch sizing",
+        "feat: add FP8 quantization pipeline",
+        "feat(MRV2): implement new attention backend",
+    ],
+    "Performance": [
+        "perf(attention): optimize 310P memory copy",
+        "perf: reduce kernel launch overhead by 15%",
+        "perf(kv_cache): use shared memory for small blocks",
+        "perf: batch tokenization for high-throughput",
+    ],
+    "Doc": [
+        "docs: add A5 hardware setup guide",
+        "docs: update performance benchmark results",
+        "docs: fix typo in README",
+    ],
+    "Test": [
+        "test: add e2e test for MoE routing",
+        "test(ci): add 310P nightly coverage",
+        "test: improve flaky test reliability",
+    ],
+    "Refactor": [
+        "refactor(scheduler): simplify batch allocation logic",
+        "refactor: extract common kernel utilities",
+    ],
+    "CI": [
+        "ci: update runner image to v2024.10",
+        "ci: add 910C testing stage",
+    ],
+    "Misc": [
+        "chore: update dependency versions",
+        "misc: cleanup unused imports",
+    ],
+}
+
+_CB_BUILD_TYPES = ["full_build", "minimal_build", "nightly_only", "skip", "smart_check", "conservative"]
+_CB_BUILD_WEIGHTS = [25, 20, 15, 15, 15, 10]
+
+_CB_CONTRIBUTORS = [
+    # INCENTIVE - Star contributors
+    {"login": "ykato", "name": "Yushi Kato", "github_id": 1001, "is_community": True, "company": "Sony", "quadrant": "INCENTIVE"},
+    {"login": "adam", "name": "Adam", "github_id": 1002, "is_community": False, "company": "Huawei", "quadrant": "INCENTIVE"},
+    {"login": "xwjiang", "name": "Xiangwang Jiang", "github_id": 1003, "is_community": False, "company": "Huawei", "quadrant": "INCENTIVE"},
+    {"login": "hjiang", "name": "Hexiang Jiang", "github_id": 1004, "is_community": True, "company": "Stanford", "quadrant": "INCENTIVE"},
+    {"login": "david", "name": "David Wu", "github_id": 1005, "is_community": False, "company": "Huawei", "quadrant": "INCENTIVE"},
+    # INCENTIVE - Active contributors
+    {"login": "jiasenli", "name": "Jiachen Lin", "github_id": 1006, "is_community": False, "company": "Huawei", "quadrant": "INCENTIVE"},
+    {"login": "michael", "name": "Michael Zhang", "github_id": 1007, "is_community": True, "company": "NVIDIA", "quadrant": "INCENTIVE"},
+    {"login": "alicechen", "name": "Alice Chen", "github_id": 1008, "is_community": False, "company": "Huawei", "quadrant": "INCENTIVE"},
+    {"login": "bobwang", "name": "Bob Wang", "github_id": 1009, "is_community": False, "company": "Huawei", "quadrant": "INCENTIVE"},
+    {"login": "carolliu", "name": "Carol Liu", "github_id": 1010, "is_community": True, "company": "Tsinghua", "quadrant": "INCENTIVE"},
+    # IMPROVE - High contrib, high error
+    {"login": "erranddev1", "name": "Errand Dev 1", "github_id": 1011, "is_community": True, "company": "Community", "quadrant": "IMPROVE"},
+    {"login": "erranddev2", "name": "Errand Dev 2", "github_id": 1012, "is_community": True, "company": "Alibaba", "quadrant": "IMPROVE"},
+    {"login": "erranddev3", "name": "Errand Dev 3", "github_id": 1013, "is_community": True, "company": "Baidu", "quadrant": "IMPROVE"},
+    {"login": "erranddev4", "name": "Errand Dev 4", "github_id": 1014, "is_community": True, "company": "Tencent", "quadrant": "IMPROVE"},
+    # ENCOURAGE - Low contrib, low error
+    {"login": "newbie1", "name": "Newbie Dev 1", "github_id": 1015, "is_community": True, "company": "Student", "quadrant": "ENCOURAGE"},
+    {"login": "newbie2", "name": "Newbie Dev 2", "github_id": 1016, "is_community": True, "company": "Community", "quadrant": "ENCOURAGE"},
+    {"login": "newbie3", "name": "Newbie Dev 3", "github_id": 1017, "is_community": True, "company": "Student", "quadrant": "ENCOURAGE"},
+    {"login": "newbie4", "name": "Newbie Dev 4", "github_id": 1018, "is_community": True, "company": "Community", "quadrant": "ENCOURAGE"},
+    # REPLACE - Low contrib, high error
+    {"login": "toxicdev1", "name": "Toxic Dev 1", "github_id": 1019, "is_community": True, "company": "External", "quadrant": "REPLACE"},
+    {"login": "toxicdev2", "name": "Toxic Dev 2", "github_id": 1020, "is_community": True, "company": "External", "quadrant": "REPLACE"},
+]
+
+
+def _cb_detect_roles(merged, reviews, approvals, merges, additions):
+    roles = []
+    if merged > 0 or additions > 0:
+        roles.append("developer")
+    if reviews >= 3:
+        roles.append("reviewer")
+    if merges >= 5:
+        roles.append("maintainer")
+    if not roles:
+        roles.append("developer")
+    return roles
+
+
+def _cb_generate_sha():
+    return uuid.uuid4().hex[:40]
+
+
+def _cb_aggregated_profile(quadrant):
+    """Generate 6-month aggregated metrics for a single ContributorProfile row."""
+    profiles = {
+        "INCENTIVE": {"pr": (8, 20), "code": (50, 150), "review": (10, 40), "approval": (5, 20), "commit": (30, 80), "active_days": (30, 60)},
+        "IMPROVE": {"pr": (3, 10), "code": (20, 80), "review": (5, 20), "approval": (2, 10), "commit": (10, 40), "active_days": (15, 40)},
+        "ENCOURAGE": {"pr": (1, 4), "code": (5, 30), "review": (0, 5), "approval": (0, 2), "commit": (3, 15), "active_days": (2, 15)},
+        "REPLACE": {"pr": (0, 2), "code": (0, 10), "review": (0, 3), "approval": (0, 1), "commit": (0, 5), "active_days": (0, 5)},
+    }
+    p = profiles[quadrant]
+    pr = random.randint(*p["pr"])
+    code = random.randint(*p["code"])
+    review = random.randint(*p["review"])
+    approval = random.randint(*p["approval"])
+    commit = random.randint(*p["commit"])
+    active_days = random.randint(*p["active_days"])
+    pr_open = random.randint(0, max(1, pr // 3))
+    pr_closed = random.randint(0, max(1, pr // 4))
+    doc_files = random.randint(0, max(1, code // 10))
+    span_days = random.randint(30, 180)
+    review_ratio = round(review / max(1, review + pr + pr_open + pr_closed), 4)
+    score = round(pr * 10.0 + code * 0.5 + review * 3.0 + approval * 5.0 + commit * 1.5, 2)
+    today = date.today()
+    return {
+        "repo_name": "vllm-project/vllm-ascend",
+        "commit_count": commit,
+        "code_files": code,
+        "doc_files": doc_files,
+        "pr_merged": pr,
+        "pr_open": pr_open,
+        "pr_closed": pr_closed,
+        "active_days_90": active_days,
+        "span_days": span_days,
+        "review_count": review,
+        "approval_count": approval,
+        "review_ratio": review_ratio,
+        "total_score": score,
+        "tier": quadrant,
+        "role": "reviewer" if review >= 5 and pr < review else "developer",
+        "first_seen": today - timedelta(days=span_days),
+        "last_seen": today - timedelta(days=random.randint(0, 14)),
+    }
+
+
+async def seed_contributor_board(db: Any, now: datetime) -> None:
+    """Seed contributor board mock data into the existing database."""
+    today = date.today()
+    six_months_ago = today - timedelta(days=180)
+    contributor_map: dict[str, Contributor] = {}
+
+    # 1) Create contributors
+    for c in _CB_CONTRIBUTORS:
+        existing = await db.execute(select(Contributor).where(Contributor.github_id == c["github_id"]))
+        row = existing.scalar_one_or_none()
+        if row:
+            contributor_map[c["login"]] = row
+            continue
+        contrib = Contributor(
+            github_id=c["github_id"],
+            login=c["login"],
+            avatar_url=f"https://avatars.githubusercontent.com/u/{c['github_id']}",
+            email=f"{c['login']}@example.com",
+            name=c["name"],
+            is_community=c["is_community"],
+            role_types=[],
+            company=c["company"],
+            first_contribution_at=datetime.combine(six_months_ago, datetime.min.time(), tzinfo=UTC),
+            last_contribution_at=now,
+            created_at=now,
+            updated_at=now,
+        )
+        db.add(contrib)
+        contributor_map[c["login"]] = contrib
+
+    await db.flush()
+    logger.info("  contributor_board: %d contributors", len(contributor_map))
+
+    # 2) ContributorProfiles (one row per contributor, 6-month aggregated)
+    profile_count = 0
+    for c_info in _CB_CONTRIBUTORS:
+        login = c_info["login"]
+        contrib = contributor_map[login]
+        existing = await db.execute(
+            select(ContributorProfile).where(
+                ContributorProfile.repo_name == "vllm-project/vllm-ascend",
+                ContributorProfile.login == login,
+            )
+        )
+        if existing.scalar_one_or_none():
+            continue
+        agg = _cb_aggregated_profile(c_info["quadrant"])
+        roles = _cb_detect_roles(
+            agg["pr_merged"], agg["review_count"], agg["approval_count"],
+            agg["pr_merged"], agg["code_files"],
+        )
+        contrib.role_types = roles
+        db.add(ContributorProfile(
+            contributor_id=contrib.id,
+            login=login,
+            **agg,
+        ))
+        profile_count += 1
+    await db.flush()
+    logger.info("  contributor_board: %d profiles, role_types updated for %d", profile_count, len(_CB_CONTRIBUTORS))
+
+    # 3) BuildPlans — (pr_number, repo_name) 有唯一约束，先查已有 pr 号避免重复
+    bp_count = 0
+    existing_qr = await db.execute(
+        select(ImageBuildPlan.pr_number).where(
+            ImageBuildPlan.repo_name == "vllm-project/vllm-ascend"
+        )
+    )
+    used_pr_numbers: set[int] = {r[0] for r in existing_qr.fetchall()}
+    next_pr = max(used_pr_numbers, default=0) + 1
+    for c_info in _CB_CONTRIBUTORS:
+        for _ in range(random.randint(3, 8)):
+            db.add(ImageBuildPlan(
+                pr_number=next_pr,
+                commit_sha=_cb_generate_sha(),
+                commit_type=random.choice(_CB_COMMIT_TYPES),
+                build_type=random.choices(_CB_BUILD_TYPES, weights=_CB_BUILD_WEIGHTS, k=1)[0],
+                chips=random.sample(["910B", "910C", "310P", "A5"], k=random.randint(1, 2)),
+                os_list=["ubuntu22.04"],
+                cache_strategy=random.choice(["layer_cache", "full_rebuild", "smart_cache"]),
+                estimated_saving_percent=round(random.uniform(0, 80), 1),
+                actual_execution=random.random() < 0.7,
+                repo_name='vllm-project/vllm-ascend',
+                created_at=now - timedelta(days=random.randint(1, 180)),
+            ))
+            next_pr += 1
+            bp_count += 1
+    logger.info("  contributor_board: %d build plans", bp_count)
 
 
 def json_text(value: Any) -> str:
@@ -97,7 +335,7 @@ async def upsert(
     values: dict[str, Any],
 ) -> Any:
     """Update an owned record or insert it when it does not exist."""
-    result = await db.execute(select(model).filter_by(**filters))
+    result = await db.execute(select(model).filter_by(**filters).limit(1))
     item = result.scalar_one_or_none()
     if item is None:
         item = model(**filters, **values)
@@ -677,6 +915,29 @@ async def seed_clusters_and_resources(
         for sample in range(9):
             collected_at = now - timedelta(hours=sample * 3)
             current_used = min(total, used + ((sample + cluster_index) % 4) - 1.0)
+            executing_pods_count = 4 + sample % 3
+            cards_per_pod = round(current_used / executing_pods_count, 2)
+            snapshot_pods = []
+            assigned_cards = 0.0
+            for pod_index in range(executing_pods_count):
+                pod_cards = (
+                    round(current_used - assigned_cards, 2)
+                    if pod_index == executing_pods_count - 1
+                    else cards_per_pod
+                )
+                assigned_cards += pod_cards
+                snapshot_pods.append(
+                    {
+                        # Include the sample in the identity so clicking a
+                        # different historical point visibly loads that exact
+                        # persisted Pod snapshot instead of an invariant demo list.
+                        "name": f"demo-{hardware.lower()}-s{sample}-pod-{pod_index}",
+                        "namespace": "vllm-project",
+                        "phase": "Running",
+                        "npu": pod_cards,
+                        "pr_number": 120 + sample * 10 + pod_index,
+                    }
+                )
             await upsert(
                 db,
                 ResourceNpuMetrics,
@@ -687,18 +948,9 @@ async def seed_clusters_and_resources(
                     "npu_used": current_used,
                     "npu_available": total - current_used,
                     "npu_utilization": round(current_used / total * 100, 2),
-                    "executing_pods_count": 4 + sample % 3,
+                    "executing_pods_count": executing_pods_count,
                     "pr_count": 2 + sample % 4,
-                    "top_pods_json": [
-                        {
-                            "name": f"demo-{hardware.lower()}-pod-{pod_index}",
-                            "namespace": "vllm-project",
-                            "phase": "Running",
-                            "npu": 2 + pod_index,
-                            "pr_number": 120 + pod_index,
-                        }
-                        for pod_index in range(3)
-                    ],
+                    "top_pods_json": snapshot_pods,
                 },
             )
 
@@ -1391,6 +1643,7 @@ async def seed_database(skip_files: bool) -> None:
             await seed_test_board(db, jobs, now)
             await seed_code_metrics(db, now)
             await seed_system_records(db, users, now)
+            await seed_contributor_board(db, now)
             await db.commit()
         except Exception:
             await db.rollback()

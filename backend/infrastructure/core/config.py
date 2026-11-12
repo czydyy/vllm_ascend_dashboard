@@ -60,6 +60,18 @@ class Settings(BaseSettings):
     NPU_OCCUPANCY_MAX_WINDOW_SECONDS: int = 2_592_000
     NPU_OCCUPANCY_SYNC_INTERVAL_MINUTES: int = 60
     NPU_OCCUPANCY_SYNC_LOOKBACK_HOURS: int = 6
+    # A failed upstream call must not leave the durable sync state in
+    # ``running`` forever.  This bounds one invocation; a stale-state lease
+    # below is deliberately a little longer to avoid taking over healthy work.
+    NPU_OCCUPANCY_SYNC_TIMEOUT_SECONDS: int = 1_200
+    NPU_OCCUPANCY_SYNC_LEASE_SECONDS: int = 1_800
+    NPU_OCCUPANCY_METADATA_BACKFILL_BATCH_SIZE: int = 500
+    NPU_OCCUPANCY_METADATA_BACKFILL_CONCURRENCY: int = 10
+    NPU_OCCUPANCY_METADATA_BACKFILL_MAX_PAGES_PER_REPOSITORY: int = 60
+    # Page reads reuse a bounded window cache.  It is deliberately short: a
+    # successful sync invalidates it immediately, while repeated page opens do
+    # not repeatedly parse the same persisted JSON snapshot.
+    NPU_OCCUPANCY_RECORDS_CACHE_TTL_SECONDS: int = 60
 
     # CORS 配置
     # 生产环境应明确指定允许的域名，不要使用 "*"
@@ -127,7 +139,10 @@ class Settings(BaseSettings):
     COVERAGE_SYNC_INTERVAL_MINUTES: int = 60
     COVERAGE_DAILY_SYNC_HOUR: int = 3
     COVERAGE_DAILY_SYNC_MINUTE: int = 15
-    COVERAGE_ARCHIVE_RETENTION_DAYS: int = 7
+    # Coverage archives are source artifacts: retaining the newest complete
+    # daily snapshot is sufficient after normalized data reaches MySQL.
+    COVERAGE_ARCHIVE_RETENTION_DAYS: int = 1
+    CLAUDE_LOG_RETENTION_DAYS: int = 7
     PR_COVERAGE_TAR_URL: str = "https://vllm-ascend.obs.cn-north-4.myhuaweicloud.com/ci/precision-test/coverage.tar"
     PR_COVERAGE_DOWNLOAD_TIMEOUT_SECONDS: int = 300
     PR_COVERAGE_DOWNLOAD_RETRIES: int = 3
@@ -153,6 +168,16 @@ class Settings(BaseSettings):
     SUPPORT_MATRIX_FEATURES_PATH: str = "docs/source/user_guide/support_matrix/supported_features.md"
     SUPPORT_MATRIX_COMPAT_PATH: str = "docs/source/user_guide/support_matrix/feature_matrix.md"
     TEST_BOARD_CASE_MATRIX_PATH: str = "resources/test-board/e2e_feature_matrix.csv"
+
+    # 贡献者评估系统配置
+    CONTRIBUTOR_SYNC_INTERVAL_MINUTES: int = 360  # 6小时增量采集
+    CONTRIBUTOR_QUADRANT_UPDATE_HOUR: int = 2     # 每日 2:00 全量重新评估
+    CONTRIBUTOR_QUADRANT_UPDATE_MINUTE: int = 0
+    BUILD_OPTIMIZATION_ENABLED: bool = True
+    # 多仓库采集配置: owner/repo,owner/repo,... 默认为 GITHUB_OWNER/GITHUB_REPO
+    CONTRIBUTOR_REPOS: str = ""
+    # 工号提取正则: 从 GitHub email 或 bio 中匹配内部工号
+    EMPLOYEE_ID_PATTERN: str = r"\bZ?\d{7,8}\b"
 
     @field_validator("JWT_SECRET")
     @classmethod

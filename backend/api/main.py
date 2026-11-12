@@ -30,6 +30,8 @@ from api.v1 import (
     ci,
     code_metrics,
     commit_analysis,
+    contributor_board,
+    contributor_scoring,
     daily_report,
     daily_summary,
     issue_diagnosis,
@@ -42,6 +44,7 @@ from api.v1 import (
     performance,
     pr_pipeline,
     project_dashboard,
+    release_management,
     resource_dashboard,
     resource_metrics,
     stats,
@@ -180,6 +183,94 @@ async def legacy_schema_upgrade_test_case_columns():
 
     except Exception as e:
         logger.warning(f"test_cases column migration skipped (non-fatal): {e}")
+
+
+async def legacy_schema_upgrade_model_fo_master_columns():
+    """Allow model_fo_master.model_fo to be NULL (FO 可后续手动补录)."""
+    try:
+        from sqlalchemy import text
+        from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
+
+        async_session = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
+        async with async_session() as db:
+            def _get_nullable(sync_session):
+                row = sync_session.execute(text(
+                    "SELECT IS_NULLABLE FROM INFORMATION_SCHEMA.COLUMNS "
+                    "WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'model_fo_master' "
+                    "AND COLUMN_NAME = 'model_fo'"
+                )).fetchone()
+                return row[0] if row else None
+
+            is_nullable = await db.run_sync(_get_nullable)
+            if is_nullable == "NO":
+                logger.info("Altering model_fo_master.model_fo to allow NULL")
+                await db.execute(text(
+                    "ALTER TABLE model_fo_master MODIFY COLUMN model_fo VARCHAR(100) NULL"
+                ))
+                await db.commit()
+    except Exception as e:
+        logger.warning(f"model_fo_master column migration skipped (non-fatal): {e}")
+
+
+async def legacy_schema_upgrade_third_party_columns():
+    """Ensure release_third_party_versions table has repository_url column."""
+    try:
+        from sqlalchemy import text
+        from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
+
+        async_session = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
+        async with async_session() as db:
+            def _get_columns(sync_session):
+                rows = sync_session.execute(text(
+                    "SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS "
+                    "WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'release_third_party_versions'"
+                )).fetchall()
+                return [r[0] for r in rows]
+            existing_cols = await db.run_sync(_get_columns)
+
+            if "repository_url" not in existing_cols:
+                logger.info("Adding missing column 'repository_url' to release_third_party_versions")
+                await db.execute(text(
+                    "ALTER TABLE release_third_party_versions ADD COLUMN repository_url VARCHAR(500) DEFAULT NULL"
+                ))
+                await db.commit()
+    except Exception as e:
+        logger.warning(f"release_third_party_versions column migration skipped (non-fatal): {e}")
+
+
+async def legacy_schema_upgrade_contributor_metrics_columns():
+    """Ensure contributor_metrics table has PR-efficiency columns for recalc-from-prs."""
+    try:
+        from sqlalchemy import text
+        from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
+
+        async_session = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
+        async with async_session() as db:
+            def _get_columns(sync_session):
+                rows = sync_session.execute(text(
+                    "SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS "
+                    "WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'contributor_metrics'"
+                )).fetchall()
+                return [r[0] for r in rows]
+            existing_cols = await db.run_sync(_get_columns)
+
+            new_columns = [
+                ("ci_failure_count", "INT DEFAULT 0"),
+                ("first_review_hours_avg", "FLOAT DEFAULT NULL"),
+                ("merge_hours_avg", "FLOAT DEFAULT NULL"),
+                ("ci_duration_hours_avg", "FLOAT DEFAULT NULL"),
+            ]
+            added = []
+            for col_name, col_type in new_columns:
+                if col_name not in existing_cols:
+                    logger.info("Adding missing column '%s' to contributor_metrics", col_name)
+                    await db.execute(text(f"ALTER TABLE contributor_metrics ADD COLUMN {col_name} {col_type}"))
+                    added.append(col_name)
+            if added:
+                await db.commit()
+                logger.info("Added contributor_metrics columns: %s", ", ".join(added))
+    except Exception as e:
+        logger.warning(f"contributor_metrics column migration skipped (non-fatal): {e}")
 
 
 async def _warmup_claude_code_cli():
@@ -437,6 +528,10 @@ async def lifespan(app: FastAPI):
     # 启动时初始化数据库（含 app_logs 表）
     await init_db()
 
+    await legacy_schema_upgrade_third_party_columns()
+    await legacy_schema_upgrade_contributor_metrics_columns()
+    await legacy_schema_upgrade_model_fo_master_columns()
+
     try:
         from infrastructure.core.app_runtime_config import load_app_runtime_config
         from infrastructure.core.github_config import load_github_runtime_config
@@ -457,6 +552,42 @@ async def lifespan(app: FastAPI):
     # Usage analytics are written by one bounded background worker instead of
     # opening a second DB session for every HTTP response.
     await start_usage_tracking_worker()
+
+    # 回收重启前遗留的 running 贡献者同步记录（进程被杀后 status 永久卡 running）
+    try:
+        from infrastructure.db.base import engine as _eng
+        from sqlalchemy.ext.asyncio import AsyncSession
+        from sqlalchemy import text as _text
+
+        async with AsyncSession(bind=_eng) as _db:
+            rows = await _db.execute(_text("""
+                SELECT id, progress_message FROM contributor_sync_records
+                WHERE status = 'running' AND sync_type = 'daily_backfill'
+            """))
+            for row in rows.fetchall():
+                logger.warning(
+                    "Auto-recovering stuck daily_backfill record %d (msg=%s) → failed",
+                    row[0], (row[1] or "")[:60],
+                )
+            await _db.execute(_text("""
+                UPDATE contributor_sync_records
+                SET status = 'failed',
+                    error_message = '服务器重启导致任务中断，请重新触发',
+                    completed_at = NOW()
+                WHERE status = 'running' AND sync_type = 'daily_backfill'
+            """))
+            await _db.commit()
+
+            # 同步回收 background_task_records 中的孤儿记录
+            await _db.execute(_text("""
+                UPDATE background_task_records
+                SET status = 'cancelled', error_message = '服务器重启导致任务中断',
+                    completed_at = NOW()
+                WHERE status = 'running' AND task_type = 'contributor_sync'
+            """))
+            await _db.commit()
+    except Exception as e:
+        logger.warning("Stale task recovery failed (non-fatal): %s", e)
 
     yield
 
@@ -525,6 +656,9 @@ def create_app() -> FastAPI:
     app.include_router(test_board.router, prefix="/api/v1", tags=["测试看板"])
     app.include_router(logs.router, prefix="/api/v1/logs", tags=["日志中心"])
     app.include_router(code_metrics.router, prefix="/api/v1/code-metrics", tags=["代码度量"])
+    app.include_router(contributor_board.router, prefix="/api/v1/contributor-board", tags=["贡献者看板"])
+    app.include_router(contributor_scoring.router, prefix="/api/v1/contributor-board/scoring", tags=["贡献者评分/权重版本"])
+    app.include_router(release_management.router, prefix="/api/v1", tags=["发布件管理"])
 
     @app.get("/health")
     async def health_check():
@@ -534,6 +668,55 @@ def create_app() -> FastAPI:
             "version": "0.1.0",
             "environment": settings.ENVIRONMENT,
         }
+
+    # ── 全局异常处理器 ──────────────────────────────────────────
+
+    @app.exception_handler(Exception)
+    async def global_exception_handler(request, exc):
+        """
+        全局异常处理器，返回统一 JSON 格式：
+        {"code": int, "msg": str, "data": null}
+        """
+        from fastapi import HTTPException as FastAPIHTTPException
+        from fastapi.responses import JSONResponse
+        import traceback
+
+        from infrastructure.core.exceptions import BusinessException, StatusCode
+
+        def _respond(status: StatusCode, msg: str) -> JSONResponse:
+            return JSONResponse(
+                status_code=int(status),
+                content={"code": int(status), "msg": msg, "data": None},
+            )
+
+        # HTTPException → 透传原始状态码
+        if isinstance(exc, FastAPIHTTPException):
+            status = StatusCode.from_http_status(exc.status_code)
+            return _respond(status, str(exc.detail))
+
+        # 业务异常 → 按枚举映射
+        if isinstance(exc, BusinessException):
+            msg = exc.msg
+            if settings.DEBUG and exc.detail is not None:
+                msg = f"{msg} [{exc.detail}]"
+            return _respond(exc.status_code, msg)
+
+        # 编程错误 → 500
+        if isinstance(exc, (NameError, TypeError, AttributeError, KeyError)):
+            detail = f"{type(exc).__name__}: {exc}" if settings.DEBUG else StatusCode.INTERNAL.default_msg
+            return _respond(StatusCode.INTERNAL, detail)
+
+        # 超时/连接 → 503
+        if isinstance(exc, (TimeoutError, ConnectionError, OSError)):
+            return _respond(StatusCode.SERVICE_UNAVAILABLE, StatusCode.SERVICE_UNAVAILABLE.default_msg)
+
+        # 其他未知 → 500
+        detail = f"{type(exc).__name__}: {exc}" if settings.DEBUG else StatusCode.INTERNAL.default_msg
+        logger.error(
+            "Unhandled exception on %s %s: %s\n%s",
+            request.method, request.url.path, exc, traceback.format_exc(),
+        )
+        return _respond(StatusCode.INTERNAL, detail)
 
     return app
 

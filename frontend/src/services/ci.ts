@@ -3,6 +3,16 @@ import { longTimeoutApiClient } from './api'
 
 // ============ Types ============
 
+export interface CIRunJobStats {
+  total: number
+  executed: number
+  skipped: number
+  success: number
+  failure: number
+  in_progress: number
+  cancelled: number
+}
+
 export interface CIResult {
   id: number
   workflow_name: string
@@ -18,6 +28,7 @@ export interface CIResult {
   started_at: string | null
   completed_at: string | null
   duration_seconds: number | null
+  job_stats?: CIRunJobStats | null
   created_at: string
   github_html_url?: string
 }
@@ -42,6 +53,7 @@ export interface CIJob {
   vllm_ascend_commit_date?: string | null
   vllm_ascend_commit_message?: string | null
   version_evidence_status?: string | null
+  model_fo?: string | null
   created_at: string
   github_job_url?: string
 }
@@ -551,6 +563,27 @@ export const exportNightlyTestCases = async (params?: {
   return response.data
 }
 
+export const exportNightlyTestCaseRuns = async (params: {
+  format: 'json' | 'xlsx'
+  scope: 'filtered' | 'all'
+  start_date?: string
+  end_date?: string
+  source_branch?: string
+  workflow_names?: string[]
+}): Promise<Blob> => {
+  const query = new URLSearchParams()
+  query.set('format', params.format)
+  query.set('scope', params.scope)
+  if (params.start_date) query.set('start_date', params.start_date)
+  if (params.end_date) query.set('end_date', params.end_date)
+  if (params.source_branch) query.set('source_branch', params.source_branch)
+  params.workflow_names?.forEach((name) => query.append('workflow_names', name))
+  const response = await api.get<Blob>(`/ci/nightly-test-cases/run-export?${query.toString()}`, {
+    responseType: 'blob',
+  })
+  return response.data
+}
+
 export const createNightlyTestCase = async (data: NightlyTestCaseCreate): Promise<NightlyTestCase> => {
   const response = await api.post<NightlyTestCase>('/ci/nightly-test-cases', data)
   return response.data
@@ -563,6 +596,100 @@ export const updateNightlyTestCase = async (id: number, data: NightlyTestCaseUpd
 
 export const deleteNightlyTestCase = async (id: number): Promise<void> => {
   await api.delete(`/ci/nightly-test-cases/${id}`)
+}
+
+// ============ ModelFoMaster（模型-FO 映射主库）============
+
+export interface ModelFoMaster {
+  id: number
+  suite: string
+  node_type: string
+  test_yaml: string
+  model_name: string
+  coverage_hardware: string | null
+  model_fo: string | null
+  enabled: boolean
+  created_at: string
+  updated_at: string | null
+}
+
+export interface ModelFoMasterCreate {
+  suite: string
+  node_type: string
+  test_yaml: string
+  model_name: string
+  coverage_hardware?: string | null
+  model_fo?: string | null
+  enabled?: boolean
+}
+
+export interface ModelFoMasterUpdate {
+  suite?: string | null
+  node_type?: string | null
+  test_yaml?: string | null
+  model_name?: string | null
+  coverage_hardware?: string | null
+  model_fo?: string | null
+  enabled?: boolean | null
+}
+
+export interface ModelFoMasterImportRowError {
+  row: number
+  reason: string
+}
+
+export interface ModelFoMasterImportResult {
+  imported: number
+  skipped: number
+  errors: ModelFoMasterImportRowError[]
+  total_rows: number
+}
+
+export const getModelFoMasters = async (params?: {
+  suite?: string
+  node_type?: string
+  model_name?: string
+  test_yaml?: string
+  only_enabled?: boolean
+  limit?: number
+}): Promise<ModelFoMaster[]> => {
+  const response = await api.get<ModelFoMaster[]>('/ci/model-fo-mappings', { params })
+  return response.data
+}
+
+export const createModelFoMaster = async (data: ModelFoMasterCreate): Promise<ModelFoMaster> => {
+  const response = await api.post<ModelFoMaster>('/ci/model-fo-mappings', data)
+  return response.data
+}
+
+export const updateModelFoMaster = async (id: number, data: ModelFoMasterUpdate): Promise<ModelFoMaster> => {
+  const response = await api.put<ModelFoMaster>(`/ci/model-fo-mappings/${id}`, data)
+  return response.data
+}
+
+export const deleteModelFoMaster = async (id: number): Promise<void> => {
+  await api.delete(`/ci/model-fo-mappings/${id}`)
+}
+
+export const importModelFoMasters = async (file: File): Promise<ModelFoMasterImportResult> => {
+  const form = new FormData()
+  form.append('file', file)
+  const response = await api.post<ModelFoMasterImportResult>('/ci/model-fo-mappings/import', form, {
+    headers: { 'Content-Type': 'multipart/form-data' },
+  })
+  return response.data
+}
+
+export const downloadModelFoMasterTemplate = async (): Promise<Blob> => {
+  const response = await api.get<Blob>('/ci/model-fo-mappings/import-template', {
+    responseType: 'blob',
+  })
+  return response.data
+}
+
+export const getModelFoMasterSuites = async (): Promise<string[]> => {
+  const response = await api.get<string[]>('/ci/model-fo-mappings/distinct-suites')
+  return response.data
 }
 
 // ============ Nightly Gantt ============
@@ -628,4 +755,225 @@ export const getNightlyGantt = async (
     { params: { hardware } },
   )
   return response.data
+}
+
+// ============ CI 每日综合报错报告（失败详情为核心，支持 PDF / Excel 导出）===========
+
+export interface ComprehensiveReportWindow {
+  start_beijing: string
+  end_beijing: string
+  start_date: string
+  end_date: string
+  hardware: string | null
+  branch: string | null
+  generated_at: string
+}
+
+export interface ComprehensiveReportSummary {
+  total_runs: number
+  passed_runs: number
+  failed_runs: number
+  skipped_runs: number
+  other_runs: number
+  success_rate: number
+  total_failed: number
+  failure_by_category: Record<string, number>
+  failure_by_branch: Record<string, number>
+  failure_by_hardware: Record<string, number>
+  failure_by_model: Record<string, number>
+  processing_distribution: Record<string, number>
+  analysis_distribution: Record<string, number>
+  unprocessed_failures: number
+  top_failure_category: string | null
+  top_failure_category_count: number
+  avg_duration_seconds: number | null
+  p90_duration_seconds: number | null
+  max_duration_seconds: number | null
+  case_total: number
+  case_pass_rate: number
+}
+
+export interface ComprehensiveReportFailure {
+  id: number | null
+  report_date: string
+  report_datetime: string
+  raw_log_lines?: string[] | null
+  analysis_status?: string | null
+  analysis_id?: number | null
+  analysis_phase?: string | null
+  failed_step?: string | null
+  failed_steps?: string[] | null
+  conclusion_zh?: string
+  source_branch: string
+  workflow_name: string
+  job_name: string
+  run_id: number
+  job_id: number | null
+  display_name: string | null
+  test_model: string | null
+  model_name?: string | null
+  test_yaml?: string | null
+  model_fo: string | null
+  deployment_type: string | null
+  hardware: string
+  owner: string | null
+  conclusion: string | null
+  started_at: string
+  completed_at: string
+  duration_seconds: number | null
+  duration_text: string
+  problem_category: string | null
+  error_line: string | null
+  problem_line: string
+  root_cause_summary: string | null
+  improvement_measures: string | null
+  related_pr: string | null
+  processing_status: string
+  notes: string | null
+  github_url: string | null
+  error_brief?: string | null
+  /** 树形子行（antd Tree Table children） */
+  children?: ComprehensiveReportFailure[]
+}
+
+export interface ComprehensiveReportRun {
+  run_id: number
+  run_number?: number
+  workflow_name: string
+  branch: string
+  hardware: string
+  event: string
+  conclusion: string | null
+  result: string
+  started_at: string
+  completed_at: string
+  duration_seconds: number | null
+  duration_text: string
+  github_url: string | null
+}
+
+export interface ComprehensiveReportTrend {
+  date: string
+  label: string
+  total: number
+  passed: number
+  failed: number
+  success_rate: number
+}
+
+export interface ComprehensiveReport {
+  all_green: boolean
+  window: ComprehensiveReportWindow
+  summary: ComprehensiveReportSummary
+  runs: ComprehensiveReportRun[]
+  failures: ComprehensiveReportFailure[]
+  slowest_failed_jobs: ComprehensiveReportFailure[]
+  case_stats: { total: number; passed: number; failed: number; skipped: number; pass_rate: number }
+  trends: ComprehensiveReportTrend[]
+  charts?: Record<string, string>
+  /** collect-raw-logs 端点返回的抓取统计（targets/collected/skipped_no_token）。 */
+  _raw_log_stats?: { targets: number; collected: number; skipped_no_token?: boolean }
+}
+
+export function buildComprehensiveReportQueryString(params?: {
+  start?: string | null
+  end?: string | null
+  hardware?: string | null
+  branch?: string | null
+  collectRawLogs?: boolean
+}): string {
+  const query = new URLSearchParams()
+  if (params?.start) query.set('start', params.start)
+  if (params?.end) query.set('end', params.end)
+  if (params?.hardware && params.hardware !== 'all') query.set('hardware', params.hardware)
+  if (params?.branch && params.branch !== 'all') query.set('branch', params.branch)
+  if (params?.collectRawLogs) query.set('collect_raw_logs', 'true')
+  const qs = query.toString()
+  return qs ? `?${qs}` : ''
+}
+
+export const getComprehensiveReport = async (params?: {
+  start?: string | null
+  end?: string | null
+  hardware?: string | null
+  branch?: string | null
+  collectRawLogs?: boolean
+}): Promise<ComprehensiveReport> => {
+  const response = await api.get<ComprehensiveReport>(
+    `/ci/reports/comprehensive${buildComprehensiveReportQueryString(params)}`,
+    { timeout: params?.collectRawLogs ? 300000 : 90000 },
+  )
+  return response.data
+}
+
+/** 自动抓取 GitHub 原始日志并解析报错线索，返回增强后的完整报告。 */
+export const collectComprehensiveRawLogs = async (params?: {
+  start?: string | null
+  end?: string | null
+  hardware?: string | null
+  branch?: string | null
+}): Promise<ComprehensiveReport> => {
+  const response = await api.post<ComprehensiveReport>(
+    `/ci/reports/comprehensive/collect-raw-logs${buildComprehensiveReportQueryString(params)}`,
+    undefined,
+    { timeout: 180000 },
+  )
+  return response.data
+}
+
+export interface AutoAnalyzeResult {
+  triggered: number
+  skipped: number
+  total_failures: number
+  errors: string[]
+  triggered_jobs?: number[]
+}
+
+/** 对「结论=失败 且尚无 AI 分析」的失败用例自动入队 AI 分析（异步执行）。 */
+export const autoAnalyzeComprehensiveReport = async (params?: {
+  start?: string | null
+  end?: string | null
+  hardware?: string | null
+  branch?: string | null
+}): Promise<AutoAnalyzeResult> => {
+  const response = await api.post<AutoAnalyzeResult>(
+    `/ci/reports/comprehensive/auto-analyze${buildComprehensiveReportQueryString(params)}`,
+    undefined,
+    { timeout: 120000 },
+  )
+  return response.data
+}
+
+// PDF/Excel 导出：Blob + 从 Content-Disposition 解析文件名
+export const downloadComprehensiveReport = async (format: 'pdf' | 'excel', params?: {
+  start?: string | null
+  end?: string | null
+  hardware?: string | null
+  branch?: string | null
+  collectRawLogs?: boolean
+}): Promise<void> => {
+  const query = new URLSearchParams()
+  if (params?.start) query.set('start', params.start)
+  if (params?.end) query.set('end', params.end)
+  if (params?.hardware && params.hardware !== 'all') query.set('hardware', params.hardware)
+  if (params?.branch && params.branch !== 'all') query.set('branch', params.branch)
+  if (params?.collectRawLogs) query.set('collect_raw_logs', 'true')
+  const qs = query.toString()
+  const ext = format === 'pdf' ? 'pdf' : 'xlsx'
+  const response = await api.get<Blob>(`/ci/reports/comprehensive/export.${ext}${qs ? `?${qs}` : ''}`, {
+    responseType: 'blob',
+    timeout: 300000,
+  })
+  const blob = response.data
+  const disposition: string = response.headers?.['content-disposition'] ?? ''
+  const match = disposition.match(/filename="?([^";]+)"?/i)
+  const filename = match?.[1] || `ci_daily_report.${ext}`
+  const url = URL.createObjectURL(blob)
+  const link = document.createElement('a')
+  link.href = url
+  link.download = filename
+  document.body.appendChild(link)
+  link.click()
+  link.remove()
+  URL.revokeObjectURL(url)
 }

@@ -10,7 +10,8 @@ from zoneinfo import ZoneInfo
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from infrastructure.persistence.models import CINpuJobFact
+from infrastructure.github_run_metadata import build_run_metadata
+from infrastructure.persistence.models import CIJob, CINpuJobFact, CIResult
 from npu_queue.snapshots import is_running, is_waiting, physical_queue_state, physical_queue_trend
 
 BEIJING_TZ = ZoneInfo("Asia/Shanghai")
@@ -54,6 +55,28 @@ def _queue_minutes(fact: CINpuJobFact) -> float | None:
     return _minutes(fact.queued_at, fact.started_at)
 
 
+def _ci_wait_state(ci_job: CIJob, run_result: CIResult | None) -> tuple[bool, datetime | None]:
+    """Return whether a CI wait is current and the best known end timestamp."""
+    run_completed = bool(
+        run_result
+        and (run_result.status == "completed" or run_result.completed_at is not None)
+    )
+    current = (
+        not run_completed
+        and ci_job.status == "queued"
+        and ci_job.started_at is None
+        and ci_job.completed_at is None
+    )
+    if current:
+        return True, None
+    return False, (
+        ci_job.started_at
+        or ci_job.completed_at
+        or (run_result.completed_at if run_result else None)
+        or (run_result.started_at if run_result else None)
+    )
+
+
 def _queue_delay_window(now: datetime) -> tuple[str, str]:
     """Return the seven Beijing calendar dates shown by the delay chart."""
     today = _beijing_time(now).date()
@@ -67,9 +90,27 @@ def _queue_delay_dates(now: datetime) -> list[str]:
     return [(first_day + timedelta(days=offset)).isoformat() for offset in range(7)]
 
 
-async def build_dashboard(db: AsyncSession) -> dict[str, Any]:
+async def build_dashboard(
+    db: AsyncSession,
+    *,
+    consumption_pool: str | None = None,
+    consumption_days: int = 7,
+) -> dict[str, Any]:
     facts = list((await db.scalars(select(CINpuJobFact).order_by(CINpuJobFact.queued_at.desc()))).all())
+    run_ids = {fact.run_id for fact in facts}
+    result_rows = []
+    if run_ids:
+        result_rows = list((await db.scalars(
+            select(CIResult).where(CIResult.run_id.in_(run_ids))
+        )).all())
+    results_by_run_id = {result.run_id: result for result in result_rows}
+    fact_job_ids = {fact.job_id for fact in facts}
+    ci_jobs = list((await db.scalars(
+        select(CIJob).where(CIJob.job_id.in_(fact_job_ids))
+    )).all()) if fact_job_ids else []
+    ci_jobs_by_id = {job.job_id: job for job in ci_jobs}
     now = datetime.now(UTC)
+    consumption_start = now - timedelta(days=consumption_days)
     queue_window_start, queue_window_end = _queue_delay_window(now)
     matched = [fact for fact in facts if fact.mapping_status == "matched" and fact.mapped_cards]
     pools: dict[str, list[CINpuJobFact]] = defaultdict(list)
@@ -112,6 +153,39 @@ async def build_dashboard(db: AsyncSession) -> dict[str, Any]:
             "pool": fact.pool or "未映射", "cards": fact.mapped_cards or 0,
             "createdAt": _beijing_time(fact.queued_at).isoformat() if fact.queued_at else "—",
             "state": "short" if wait < 2 else "waiting",
+        })
+
+    # CI facts and individual Job records can lag behind the workflow-level
+    # result.  A completed workflow is sufficient evidence that a queued Job
+    # is no longer waiting, even if its CIJob row was not refreshed in time.
+    ci_waiting_rows = []
+    for fact in sorted((row for row in matched if row.status == "queued"), key=lambda row: row.queued_at or now):
+        ci_job = ci_jobs_by_id.get(fact.job_id)
+        if ci_job is None or fact.queued_at is None:
+            continue
+        run_result = results_by_run_id.get(fact.run_id)
+        current, ended_at = _ci_wait_state(ci_job, run_result)
+        if not current and ended_at is None:
+            continue
+        if ended_at and _minutes(ended_at, now) is not None and _minutes(ended_at, now) > 7 * 24 * 60:
+            continue
+        wait = _minutes(fact.queued_at, ended_at or now) or 0
+        repository_url = f"https://github.com/{fact.repository}" if fact.repository else None
+        ci_waiting_rows.append({
+            "key": f"ci-{fact.run_id}-{fact.job_id}",
+            "waitMinutes": round(wait),
+            "title": fact.job_name or f"Job {fact.job_id}",
+            "repository": fact.repository,
+            "repositoryUrl": repository_url,
+            "pool": fact.pool,
+            "cards": fact.mapped_cards or 0,
+            "createdAt": fact.queued_at.isoformat() if fact.queued_at else None,
+            "endedAt": ended_at.isoformat() if ended_at else None,
+            "isCurrent": current,
+            "workflowName": (run_result.workflow_name if run_result else None) or fact.workflow_name,
+            "runUrl": fact.run_url,
+            "prNumber": fact.pr_number,
+            "prUrl": f"{repository_url}/pull/{fact.pr_number}" if repository_url and fact.pr_number else None,
         })
 
     physical_state, pending_pods = await physical_queue_state(db)
@@ -187,14 +261,59 @@ async def build_dashboard(db: AsyncSession) -> dict[str, Any]:
         runtime_minutes = _minutes(fact.started_at, fact.completed_at)
         if runtime_minutes is None or not fact.completed_at:
             continue
+        completed_at = (
+            fact.completed_at.replace(tzinfo=UTC)
+            if fact.completed_at.tzinfo is None
+            else fact.completed_at.astimezone(UTC)
+        )
+        # Consumption is a separate view: filter before aggregation, rather
+        # than returning all historical Run data for the browser to trim.
+        if completed_at < consumption_start:
+            continue
+        if consumption_pool and fact.pool != consumption_pool:
+            continue
         card_hours = runtime_minutes * (fact.mapped_cards or 0) / 60
-        day = fact.completed_at.date().isoformat()
+        # Keep the PR-consumption completion date consistent with the Beijing
+        # calendar used by the seven-day queue-delay chart.
+        day = _beijing_time(fact.completed_at).date().isoformat()
         daily_usage[day]["cardHours"] += card_hours
         daily_usage[day]["jobs"] += 1
         if fact.conclusion != "success":
             daily_usage[day]["failedCardHours"] += card_hours
-        key = f"pr-{fact.pr_number}" if fact.pr_number else f"run-{fact.run_id}"
-        cost = pr_costs.setdefault(key, {"key": key, "title": fact.job_name or key, "branch": key, "cardHours": 0.0, "allCardHours": 0.0, "runs": set(), "successfulRuns": set()})
+        organization, _, repository = fact.repository.partition("/")
+        metadata = build_run_metadata(
+            organization=organization or None,
+            repository=repository or None,
+            workflow_run_id=fact.run_id,
+            workflow_ref=None,
+            job_display_name=fact.job_name,
+            ci_result=results_by_run_id.get(fact.run_id),
+            pr_number=fact.pr_number,
+        )
+        # Run-level aggregation keeps multiple jobs/occupancy records under one
+        # GitHub Actions Run and preserves its PR as metadata instead of merging
+        # distinct runs only because they belong to the same PR.
+        key = f"run-{fact.repository}-{fact.run_id}"
+        cost = pr_costs.setdefault(key, {
+            "key": key,
+            "title": fact.job_name or metadata["run_display_name"],
+            "branch": metadata["run_display_name"],
+            "repository": fact.repository,
+            "kind": "pr" if metadata["pr_number"] else "run",
+            "detailUrl": metadata["run_url"] or fact.run_url,
+            "workflowRunId": metadata["workflow_run_id"],
+            "workflowName": metadata["workflow_name"],
+            "runNumber": metadata["run_number"],
+            "runDisplayName": metadata["run_display_name"],
+            "workflowRef": metadata["workflow_ref"],
+            "prNumber": metadata["pr_number"],
+            "event": metadata["event"],
+            "triggerScope": metadata["trigger_scope"],
+            "cardHours": 0.0,
+            "allCardHours": 0.0,
+            "runs": set(),
+            "successfulRuns": set(),
+        })
         cost["allCardHours"] += card_hours
         cost["runs"].add(fact.run_id)
         if fact.conclusion == "success":
@@ -216,12 +335,35 @@ async def build_dashboard(db: AsyncSession) -> dict[str, Any]:
         "p90": _percentile(queue_window_samples, .9),
         "samples": len(queue_window_samples),
     }
+    completed_facts = [
+        fact
+        for fact in matched
+        if fact.completed_at
+        and (
+            (fact.completed_at.replace(tzinfo=UTC) if fact.completed_at.tzinfo is None else fact.completed_at.astimezone(UTC))
+            >= consumption_start
+        )
+        and (not consumption_pool or fact.pool == consumption_pool)
+    ]
+    # Read runtime-configured sync settings only when the dashboard payload is
+    # requested; helper imports remain usable in isolated unit tests.
+    from infrastructure.core.config import settings
+
+    usage_period = {
+        "startDate": _beijing_time(min(fact.completed_at for fact in completed_facts)).date().isoformat()
+        if completed_facts else None,
+        "endDate": _beijing_time(max(fact.completed_at for fact in completed_facts)).date().isoformat()
+        if completed_facts else None,
+        "syncIntervalMinutes": settings.CI_SYNC_INTERVAL_MINUTES,
+        "initialLookbackDays": settings.CI_SYNC_DAYS_BACK,
+    }
     daily_usage_rows = [{"date": day, "cardHours": round(values["cardHours"], 2), "jobs": int(values["jobs"]), "failedCardHours": round(values["failedCardHours"], 2)} for day, values in sorted(daily_usage.items())]
     pr_cost_rows = [{**cost, "cardHours": round(cost["cardHours"], 2), "allCardHours": round(cost["allCardHours"], 2), "runs": len(cost["runs"]), "successfulRuns": len(cost["successfulRuns"])} for cost in pr_costs.values()]
     return {
         "generatedAt": now.isoformat(), "pools": sorted(pool_rows, key=lambda row: row["name"]),
         "trend": trend, "dailyQueue": daily_queue_rows, "queueDelaySummary": queue_delay_summary,
-        "dailyUsage": daily_usage_rows, "queue": queue_rows,
-        "prCosts": sorted(pr_cost_rows, key=lambda row: row["allCardHours"], reverse=True)[:15],
+        "dailyUsage": daily_usage_rows, "queue": queue_rows, "ciWaiting": ci_waiting_rows,
+        "prCosts": sorted(pr_cost_rows, key=lambda row: row["allCardHours"], reverse=True)[:10],
+        "usagePeriod": usage_period,
         "dataQuality": {"matched_jobs": len(matched), "unmatched_jobs": len(facts) - len(matched)},
     }

@@ -1,4 +1,7 @@
-import api from './api'
+// Windowed reads are cached on the backend, but an initial cold snapshot can
+// still exceed the general UI request budget.  Keep this route independent of
+// the 60-second default used by ordinary CRUD calls.
+import { longTimeoutApiClient as api } from './api'
 
 export type OccupancyView = 'pool' | 'project'
 
@@ -28,9 +31,26 @@ export interface OccupancyTrendResponse {
 
 export interface OccupancyTask {
   env_id: string
+  organization: string | null
+  repository: string | null
   project: string
   pool: string
   workflow: string
+  job_id: string | null
+  job_name: string
+  workflow_run_id: number | null
+  workflow_name: string | null
+  workflow_file: string | null
+  run_display_title: string | null
+  run_number: number | null
+  run_display_name: string
+  workflow_ref: string | null
+  pr_number: number | null
+  event: string | null
+  trigger_scope: string | null
+  run_url: string | null
+  github_url: string | null
+  workflow_config_match: boolean
   cards: number
   node_ip: string | null
   npu_list: string | null
@@ -39,11 +59,33 @@ export interface OccupancyTask {
   effective_end: string
 }
 
+export interface OccupancyRun {
+  key: string
+  workflow_run_id: number | null
+  workflow_name: string | null
+  workflow_file: string | null
+  run_display_title: string | null
+  run_number: number | null
+  run_display_name: string
+  workflow_ref: string | null
+  pr_number: number | null
+  event: string | null
+  trigger_scope: string | null
+  run_url: string | null
+  github_url: string | null
+  workflow_config_match: boolean
+  cards: number
+  task_count: number
+  created_at: string
+  effective_end: string
+  tasks: OccupancyTask[]
+}
+
 export interface OccupancyDetailGroup {
   name: string
   occupied_cards: number
   task_count: number
-  tasks: OccupancyTask[]
+  runs: OccupancyRun[]
 }
 
 export interface OccupancyDetailsResponse {
@@ -60,7 +102,7 @@ export interface OccupancyAnalysisGroup {
   peak_cards: number
   average_cards: number
   task_count: number
-  tasks: OccupancyTask[]
+  runs: OccupancyRun[]
 }
 
 export interface OccupancyAnalysisResponse {

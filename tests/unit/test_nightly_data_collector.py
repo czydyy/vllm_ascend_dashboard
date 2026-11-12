@@ -2,6 +2,8 @@ import asyncio
 from datetime import UTC, datetime, timedelta, timezone
 from types import SimpleNamespace
 
+from sqlalchemy.exc import OperationalError
+
 from collector.nightly_data import NightlyDataCollector
 from infrastructure.persistence.models import DailyFailureRecord
 from tooling.parsers.nightly_config_parser import NightlyConfigParser
@@ -89,6 +91,29 @@ class _LockEngine:
 class _BoundFakeSession:
     def __init__(self, acquired: int):
         self.bind = _LockEngine(acquired)
+        self.rollback_count = 0
+
+    async def rollback(self):
+        self.rollback_count += 1
+
+
+def test_snapshot_sync_backfills_only_empty_model_fo_values():
+    missing = SimpleNamespace(
+        test_model="configs/DeepSeek_V31_Terminus_w4a8_w8a8_A5.yaml",
+        model_fo=None,
+    )
+    unmatched = SimpleNamespace(test_model="configs/unknown.yaml", model_fo="")
+    db = _FakeSession([[missing, unmatched]])
+
+    count = asyncio.run(
+        NightlyDataCollector(db)._backfill_missing_snapshot_model_fo(
+            {"deepseek_v31_terminus_w4a8_w8a8_a5.yaml": "李镕凡"}
+        )
+    )
+
+    assert count == 1
+    assert missing.model_fo == "李镕凡"
+    assert unmatched.model_fo == ""
 
 
 def test_sync_skips_when_another_worker_holds_the_materialization_lock():
@@ -127,6 +152,35 @@ def test_sync_releases_materialization_lock_after_writes():
     operations = collector.db.bind.connection.operations
     assert "GET_LOCK" in operations[0]
     assert "RELEASE_LOCK" in operations[-1]
+
+
+def test_sync_retries_transient_mysql_lock_timeout():
+    collector = NightlyDataCollector(_BoundFakeSession(acquired=1))
+    attempts = 0
+
+    async def snapshot_configs():
+        return 4
+
+    async def populate_daily_failure_records():
+        nonlocal attempts
+        attempts += 1
+        if attempts == 1:
+            raise OperationalError(
+                "UPDATE daily_failure_records",
+                {},
+                Exception(1205, "Lock wait timeout exceeded"),
+            )
+        return 2
+
+    collector.snapshot_configs = snapshot_configs
+    collector.populate_daily_failure_records = populate_daily_failure_records
+
+    assert asyncio.run(collector.sync()) == {
+        "nightly_test_cases": 4,
+        "daily_failure_records": 2,
+    }
+    assert attempts == 2
+    assert collector.db.rollback_count == 1
 
 
 def test_match_snapshot_prefers_exact_report_date():

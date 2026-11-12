@@ -1,0 +1,4480 @@
+﻿import {useCallback, useEffect, useMemo, useRef, useState} from 'react'
+import * as echarts from 'echarts'
+import {useNavigate, useParams} from 'react-router-dom'
+
+/** 保存当前 tab/repo 到 sessionStorage 以便详情页返回时恢复，然后导航到详情页 */
+function navigateToDetail(navigate: ReturnType<typeof useNavigate>, login: string, tab: string, repo: string | undefined) {
+  try {
+    sessionStorage.setItem('cb_last_tab', tab)
+    if (repo) sessionStorage.setItem('cb_last_repo', repo)
+  } catch { /* ignore */ }
+  navigate(`/contributor-board/detail/${login}`)
+}
+import {
+  Alert,
+  Avatar,
+  Button,
+  Card,
+  Col,
+  DatePicker,
+  Descriptions,
+  Divider,
+  Dropdown,
+  Empty,
+  Form,
+  Input,
+  InputNumber,
+  message,
+  Modal,
+  Progress,
+  Radio,
+  Result,
+  Row,
+  Select,
+  Slider,
+  Space,
+  Spin,
+  Statistic,
+  Switch,
+  Table,
+  Tabs,
+  Tag,
+  Timeline,
+  Tooltip,
+  Typography,
+} from 'antd'
+import {
+  CalendarOutlined,
+  ClockCircleOutlined,
+  CloudUploadOutlined,
+  CheckCircleOutlined,
+  CloseCircleOutlined,
+  ColumnHeightOutlined,
+  DeleteOutlined,
+  HeartOutlined,
+  TeamOutlined,
+  EyeOutlined,
+  FilePdfOutlined,
+  ExperimentOutlined,
+  DownloadOutlined,
+  FlagOutlined,
+  FilterOutlined,
+  GithubOutlined,
+  ReloadOutlined,
+  RocketOutlined,
+  SearchOutlined,
+  SettingOutlined,
+  SortAscendingOutlined,
+  StarOutlined,
+  StopOutlined,
+  ToolOutlined,
+  TrophyOutlined,
+  WarningOutlined,
+} from '@ant-design/icons'
+import dayjs from 'dayjs'
+import { formatTimezone, fromTimezoneNow } from '@/utils/timezone'
+import {
+  type ContributorDetail,
+  ExtendedTrend,
+  getExtendedTrend,
+  getContributorDetail,
+  getContributorDistribution,
+  getContributorHeatmap,
+  getContributorPolicy,
+  getContributorTimeline,
+  type ContributorHeatmap as HeatmapType,
+  type ContributorDistribution as DistributionType,
+  type ContributorTimeline as TimelineType,
+  type HeatmapDataPoint,
+  type ModuleDistributionItem,
+  type TypeDistributionItem,
+  type TimelineCommitItem,
+  getQuadrantData,
+  getRanking,
+  getReposList,
+  getRoleStats,
+  PolicyResult,
+  type QuadrantData,
+  type RankingItem,
+  type RoleStats,
+  getContributorBoardSettings,
+  type ContributorBoardSettings as SettingsType,
+  type ScoringWeightsConfig,
+  updateQuadrantConfig,
+  updateScoringWeights,
+  updateRoleThresholds,
+  recalculateScores,
+  getActiveScoringVersion,
+  listScoringVersions,
+  listScoreSnapshots,
+  listScoreAuditLogs,
+  createScoringVersion,
+  applyScoringVersion,
+  rollbackScoringVersion,
+  compareScoringVersions,
+  calculateAutoWeights,
+  aiAnalyzeWeights,
+  exportPdfByVersion,
+  generateAIReport,
+  listAIReports,
+  getAIReportDetail,
+  exportComprehensivePdf,
+  generateScoreSnapshot,
+  type AIReportListItem,
+  type AIReportDetail as AIReportDetailType,
+  type AIAnalysisDimension,
+  type AITopContributor,
+  type ScoringVersion,
+  type VersionCompareResult,
+  type ScoreSnapshot,
+  type ScoreUpdateAudit,
+  WEIGHT_DIMENSIONS,
+  WEIGHT_LABELS,
+  METHOD_CONFIG,
+  normalizeWeights,
+   type AutoWeightsResult,
+  getSyncSchedule,
+  updateSyncSchedule,
+  type ContributorSyncScheduleConfig,
+     syncContributors,
+     type SyncRecord,
+     type SyncSummary,
+      getSyncStatus,
+      getSyncHistory,
+       getSyncSummary,
+       cancelSync,
+       clearSyncData,
+       triggerDailyBackfill,
+} from '../services/contributorBoard'
+import { getLLMProviders, type LLMProvider } from '../services/dailySummary'
+import MarkdownRenderer from '../components/MarkdownRenderer'
+
+const { Title, Text, Paragraph } = Typography
+
+/* ------------------------------------------------------------------ */
+/*                             颜色映射                                 */
+/* ------------------------------------------------------------------ */
+
+const roleLabels: Record<string, string> = {
+  developer: '开发者',
+  reviewer: '检视者',
+  maintainer: 'Maintainer',
+}
+
+const roleColors: Record<string, string> = {
+  developer: 'blue',
+  reviewer: 'purple',
+  maintainer: 'orange',
+}
+
+const quadrantLabels: Record<string, string> = {
+  INCENTIVE: '激励区',
+  IMPROVE: '改进区',
+  ENCOURAGE: '鼓励区',
+  REPLACE: '置换区',
+}
+
+const quadrantColors: Record<string, string> = {
+  INCENTIVE: '#52c41a',
+  IMPROVE: '#faad14',
+  ENCOURAGE: '#1890ff',
+  REPLACE: '#ff4d4f',
+}
+
+const classificationLabels: Record<string, string> = {
+  BugFix: 'Bug 修复',
+  Feature: '新功能',
+  Performance: '性能优化',
+  Revert: '回滚',
+  CI: 'CI/CD',
+  Doc: '文档',
+  Test: '测试',
+  Refactor: '重构',
+  Misc: '其他',
+}
+
+const classificationColors: Record<string, string> = {
+  BugFix: 'red',
+  Feature: 'green',
+  Performance: 'blue',
+  Revert: 'volcano',
+  CI: 'orange',
+  Doc: 'cyan',
+  Test: 'purple',
+  Refactor: 'magenta',
+  Misc: 'default',
+}
+
+const quadrantRoleLabels: Record<string, string> = {
+  star: '明星',
+  active: '活跃',
+  observer: '观察',
+  at_risk: '流失风险',
+}
+
+const quadrantRoleColors: Record<string, string> = {
+  star: 'gold',
+  active: 'blue',
+  observer: 'default',
+  at_risk: 'red',
+}
+
+/* ------------------------------------------------------------------ */
+/*                          四象限散点图 Tab                            */
+/* ------------------------------------------------------------------ */
+
+type ScatterDataPoint = {
+  x: number
+  y: number
+  z: number
+  login: string
+  quadrant: string
+}
+
+const axisOptions = [
+  { label: '出错评分', value: 'error_score' },
+  { label: '检视次数', value: 'review_count' },
+  { label: 'PR合并数', value: 'merged_pr_count' },
+  { label: '代码行数', value: 'code_additions' },
+]
+
+const axisLabels: Record<string, string> = {
+  error_score: '出错评分',
+  review_count: '检视次数',
+  merged_pr_count: 'PR合并数',
+  code_additions: '代码行数',
+}
+
+type ViewMode = 'single' | 'quad'
+
+/* ------------------------------------------------------------------ */
+/*  独立 ECharts 散点图组件 — 各自管理实例生命周期                      */
+/* ------------------------------------------------------------------ */
+
+function SingleChart({
+  data,
+  yLabel,
+  quadX,
+  quadY,
+  highlightedLogins,
+  height = 750,
+  sourceTab = 'quadrant',
+}: {
+  data: ScatterDataPoint[];
+  yLabel: string;
+  quadX: number;
+  quadY: number;
+  highlightedLogins: Set<string>;
+  height?: number;
+  sourceTab?: string;
+}) {
+  const containerRef = useRef<HTMLDivElement>(null)
+  const navigate = useNavigate()
+  const disabledQuadsRef = useRef(new Set<string>())
+
+  const buildOption = useCallback((disabled: Set<string>) => {
+    let filtered = data
+    if (highlightedLogins.size > 0) {
+      filtered = filtered.filter(p => highlightedLogins.has(p.login))
+    }
+    if (disabled.size > 0 && highlightedLogins.size === 0) {
+      filtered = filtered.filter(p => !disabled.has(p.quadrant))
+    }
+    if (filtered.length === 0) return null
+
+    const fXMax = Math.max(...filtered.map(p => p.x), 1)
+    const fYMax = Math.max(...filtered.map(p => p.y), 1)
+    const xMax = Math.ceil((fXMax + 1) * 1.15)
+    const yMax = Math.max(15, Math.ceil((fYMax + 1) * 1.15))
+
+    const series: any[] = []
+    const allQuads = ['INCENTIVE', 'ENCOURAGE', 'IMPROVE', 'REPLACE']
+    for (const q of allQuads) {
+      const qData = filtered.filter(p => p.quadrant === q)
+      series.push({
+        type: 'scatter',
+        name: quadrantLabels[q],
+        symbolSize: () => highlightedLogins.size > 0 ? 10 : 8,
+        data: qData.length === 0 ? [] : qData.map((p, idx) => {
+          const isHighlighted = highlightedLogins.has(p.login)
+          return {
+            value: [p.x, p.y, p.z, idx],
+            login: p.login,
+            quadrant: p.quadrant,
+            itemStyle: {
+              color: quadrantColors[q],
+              opacity: highlightedLogins.size === 0 || isHighlighted ? 0.9 : 0.15,
+            },
+          }
+        }),
+      })
+    }
+
+    return {
+      tooltip: {
+        trigger: 'item',
+        formatter: (params: any) => {
+          const raw = params.data
+          if (!raw || !raw.value) return ''
+          const [xVal, yVal, zVal] = raw.value
+          const login = raw.login
+          const quadrant = raw.quadrant
+          if (!login) return ''
+          const isMatch = highlightedLogins.has(login)
+          return `
+            <div style="display:flex;align-items:center;gap:6px;margin-bottom:6px;">
+              <img src="https://avatars.githubusercontent.com/${login}" style="width:20px;height:20px;border-radius:50%;" />
+              <strong>${login}</strong>
+              ${isMatch ? '<span style="background:#faad14;border:1px solid #fa8c16;color:#fff;padding:1px 8px;border-radius:4px;font-size:12px;font-weight:bold;margin-left:6px;">匹配</span>' : ''}
+            </div>
+            <div style="border-top:1px solid #eee;padding-top:6px;">
+              贡献分数: <b>${xVal.toFixed(1)}</b><br/>
+              ${yLabel}: <b>${yVal.toFixed(1)}</b><br/>
+              合并 PR: <b>${zVal}</b><br/>
+              象限: <span style="color:${quadrantColors[quadrant]};font-weight:bold">${quadrantLabels[quadrant] || quadrant}</span>
+            </div>
+          `
+        },
+      },
+      legend: {
+        orient: 'horizontal',
+        bottom: 0,
+        data: allQuads.map(q => ({
+          name: quadrantLabels[q],
+          itemStyle: { color: quadrantColors[q] },
+        })),
+        textStyle: { fontSize: 12, color: '#666' },
+        itemGap: 24,
+        itemWidth: 12,
+        itemHeight: 12,
+        selected: Object.fromEntries(allQuads.map(q => [quadrantLabels[q], !disabled.has(q)])),
+      },
+      grid: {
+        left: 60,
+        right: 16,
+        top: 10,
+        bottom: 40,
+      },
+      xAxis: {
+        type: 'value',
+        nameLocation: 'middle',
+        nameGap: 36,
+        min: 0,
+        max: xMax,
+        splitLine: { lineStyle: { type: 'dashed', color: '#f0f0f0' } },
+        scale: true,
+      },
+      yAxis: {
+        type: 'value',
+        name: yLabel,
+        nameLocation: 'middle',
+        nameGap: 44,
+        min: 0,
+        max: yMax,
+        splitLine: { lineStyle: { type: 'dashed', color: '#f0f0f0' } },
+        scale: true,
+      },
+      dataZoom: [
+        { type: 'inside', xAxisIndex: 0, filterMode: 'filter', zoomOnMouseWheel: true, moveOnMouseWheel: true },
+        { type: 'inside', yAxisIndex: 0, filterMode: 'filter', zoomOnMouseWheel: true, moveOnMouseWheel: true },
+      ],
+      series,
+      graphic: [],
+    }
+  }, [data, yLabel, highlightedLogins])
+
+  useEffect(() => {
+    const el = containerRef.current
+    if (!el) return
+
+    const inst = echarts.init(el)
+    const opt = buildOption(disabledQuadsRef.current)
+    if (opt) inst.setOption(opt, true)
+
+    inst.on('click', (params: any) => {
+      if (params.data?.login) navigateToDetail(navigate, params.data.login, sourceTab, undefined)
+    })
+
+    inst.on('legendselectchanged', (params: any) => {
+      const selected = params.selected
+      const newDisabled = new Set<string>()
+      for (const q of ['INCENTIVE', 'ENCOURAGE', 'IMPROVE', 'REPLACE']) {
+        if (!selected[quadrantLabels[q]]) {
+          newDisabled.add(q)
+        }
+      }
+      disabledQuadsRef.current = newDisabled
+      const newOpt = buildOption(newDisabled)
+      if (newOpt) inst.setOption(newOpt, true)
+    })
+
+    const onResize = () => inst.resize()
+    window.addEventListener('resize', onResize)
+
+    return () => {
+      window.removeEventListener('resize', onResize)
+      inst.dispose()
+    }
+  }, [buildOption, navigate])
+
+  return <div ref={containerRef} style={{ height, width: '100%' }} />
+}
+
+function QuadSubChart({
+  option,
+  title,
+  color,
+  count,
+  height = 350,
+}: {
+  option: any;
+  title: string;
+  color: string;
+  count: number;
+  height?: number;
+}) {
+  const containerRef = useRef<HTMLDivElement>(null)
+  const navigate = useNavigate()
+
+  useEffect(() => {
+    const el = containerRef.current
+    if (!el) return
+
+    const inst = echarts.init(el)
+    if (option) inst.setOption(option, true)
+
+    inst.on('click', (params: any) => {
+      if (params.data?.login) navigateToDetail(navigate, params.data.login, title.toLowerCase(), undefined)
+    })
+
+    const onResize = () => inst.resize()
+    window.addEventListener('resize', onResize)
+
+    return () => {
+      window.removeEventListener('resize', onResize)
+      inst.dispose()
+    }
+  }, [option, navigate])
+
+  return (
+    <Card
+      size="small"
+      title={
+        <span>
+          <span
+            style={{
+              display: 'inline-block',
+              width: 8,
+              height: 8,
+              borderRadius: '50%',
+              backgroundColor: color,
+              marginRight: 6,
+            }}
+          />
+          {title} ({count})
+        </span>
+      }
+      style={{ width: '100%' }}
+      bodyStyle={{ padding: '4px 8px 8px' }}
+    >
+      <div ref={containerRef} style={{ height, width: '100%' }} />
+    </Card>
+  )
+}
+
+function buildScatterOption(
+  data: ScatterDataPoint[],
+  yLabel: string,
+  quadX: number,
+  quadY: number,
+  highlightedLogins: Set<string>,
+  quadFilter?: string,
+  isSearchMode?: boolean,
+  showXAxisName?: boolean,
+): any {
+  let filtered = quadFilter ? data.filter(p => p.quadrant === quadFilter) : data
+
+  if (isSearchMode && filtered.length > 0) {
+    filtered = filtered.filter(p => highlightedLogins.has(p.login))
+  }
+
+  if (filtered.length === 0) {
+    return null
+  }
+
+  const fXMax = Math.max(...filtered.map(p => p.x), 1)
+  const fYMax = Math.max(...filtered.map(p => p.y), 1)
+
+  const xMax = Math.ceil((fXMax + 1) * 1.15)
+  const yMax = Math.max(15, Math.ceil((fYMax + 1) * 1.15))
+
+  const series: any[] = []
+  const quadsToShow = quadFilter ? [quadFilter] : ['INCENTIVE', 'ENCOURAGE', 'IMPROVE', 'REPLACE']
+
+  for (const q of quadsToShow) {
+    const qData = filtered.filter(p => p.quadrant === q)
+    if (qData.length === 0 && !quadFilter) continue
+
+    series.push({
+      type: 'scatter',
+      name: quadrantLabels[q],
+      symbolSize: () => isSearchMode && qData.length <= 20 ? 12 : (highlightedLogins.size > 0 ? 10 : 8),
+      data: qData.map((p, idx) => {
+        const isHighlighted = highlightedLogins.has(p.login)
+        return {
+          value: [p.x, p.y, p.z, idx],
+          login: p.login,
+          quadrant: p.quadrant,
+          itemStyle: {
+            color: quadrantColors[q],
+            opacity: highlightedLogins.size === 0 || isHighlighted ? 0.9 : 0.15,
+          },
+        }
+      }),
+    })
+  }
+
+  return {
+    tooltip: {
+      trigger: 'item',
+      formatter: (params: any) => {
+        const raw = params.data
+        if (!raw || !raw.value) return ''
+        const [xVal, yVal, zVal] = raw.value
+        const login = raw.login
+        const quadrant = raw.quadrant
+        if (!login) return ''
+        const isMatch = highlightedLogins.has(login)
+        return `
+          <div style="display:flex;align-items:center;gap:6px;margin-bottom:6px;">
+            <img src="https://avatars.githubusercontent.com/${login}" style="width:20px;height:20px;border-radius:50%;" />
+            <strong>${login}</strong>
+            ${isMatch ? '<span style="background:#faad14;border:1px solid #fa8c16;color:#fff;padding:1px 6px;border-radius:4px;font-size:11px;font-weight:bold;">匹配</span>' : ''}
+          </div>
+          <div style="border-top:1px solid #eee;padding-top:6px;">
+            贡献分数: <b>${xVal.toFixed(1)}</b><br/>
+            ${yLabel}: <b>${yVal.toFixed(1)}</b><br/>
+            合并 PR: <b>${zVal}</b><br/>
+            象限: <span style="color:${quadrantColors[quadrant]};font-weight:bold">${quadrantLabels[quadrant] || quadrant}</span>
+          </div>
+        `
+      },
+    },
+    legend: quadFilter ? undefined : {
+      orient: 'horizontal',
+      bottom: 0,
+      data: ['INCENTIVE', 'ENCOURAGE', 'IMPROVE', 'REPLACE'].map(q => ({
+        name: quadrantLabels[q],
+        itemStyle: { color: quadrantColors[q] },
+      })),
+      textStyle: { fontSize: 12, color: '#666' },
+      itemGap: 24,
+      itemWidth: 12,
+      itemHeight: 12,
+    },
+    grid: {
+      left: 60,
+      right: quadFilter ? 12 : 16,
+      top: quadFilter ? 8 : 10,
+      bottom: quadFilter ? 16 : 40,
+    },
+    xAxis: {
+      type: 'value',
+      name: showXAxisName ? '贡献分数' : undefined,
+      nameLocation: 'middle',
+      nameGap: 36,
+      min: 0,
+      max: xMax,
+      splitLine: { lineStyle: { type: 'dashed', color: '#f0f0f0' } },
+      scale: true,
+    },
+    yAxis: {
+      type: 'value',
+      name: yLabel,
+      nameLocation: 'middle',
+      nameGap: 44,
+      min: 0,
+      max: yMax,
+      splitLine: { lineStyle: { type: 'dashed', color: '#f0f0f0' } },
+      scale: true,
+    },
+    dataZoom: [
+      { type: 'inside', xAxisIndex: 0, filterMode: 'filter', zoomOnMouseWheel: true, moveOnMouseWheel: true },
+      { type: 'inside', yAxisIndex: 0, filterMode: 'filter', zoomOnMouseWheel: true, moveOnMouseWheel: true },
+    ],
+    series,
+    graphic: [],
+  }
+}
+
+function QuadrantTab({ refreshKey, selectedRepo }: { refreshKey?: number; selectedRepo?: string }) {
+  const [searchLogin, setSearchLogin] = useState('')
+  const [quadrantData, setQuadrantData] = useState<QuadrantData | null>(null)
+  const [quadrantLoading, setQuadrantLoading] = useState(true)
+  const [yAxisType, setYAxisType] = useState('review_count')
+  const [viewMode, setViewMode] = useState<ViewMode>('single')
+
+  useEffect(() => {
+    let cancelled = false
+    const loadSettings = async () => {
+      try {
+        const data = await getContributorBoardSettings()
+        if (!cancelled) setYAxisType(data.quadrant_config.y_axis_type)
+      } catch { /* ignore */ }
+    }
+    loadSettings()
+    return () => { cancelled = true }
+  }, [])
+
+  useEffect(() => {
+    let cancelled = false
+    const reloadAxis = async () => {
+      try {
+        const data = await getContributorBoardSettings()
+        if (!cancelled) setYAxisType(data.quadrant_config.y_axis_type)
+      } catch { /* ignore */ }
+    }
+    if (refreshKey && refreshKey > 0) reloadAxis()
+  }, [refreshKey])
+
+  const loadQuadrant = useCallback(async (axis: string, repo: string | undefined) => {
+    setQuadrantLoading(true)
+    try {
+      const data = await getQuadrantData({ y_axis_type: axis, repo_name: repo || null })
+      await new Promise(r => setTimeout(r, 400))
+      setQuadrantData(data)
+    } catch { /* silently fail */ } finally {
+      setQuadrantLoading(false)
+    }
+  }, [])
+
+  useEffect(() => {
+    loadQuadrant(yAxisType, selectedRepo)
+  }, [yAxisType, selectedRepo, loadQuadrant])
+
+  const scatterData: ScatterDataPoint[] = useMemo(() => {
+    const deduped = new Map<string, ScatterDataPoint>()
+    ;(quadrantData?.points ?? []).forEach(p => {
+      const pt: ScatterDataPoint = {
+        x: p.contribution_score, y: p.y_value, z: p.merged_pr_count, login: p.login, quadrant: p.quadrant,
+      }
+      const existing = deduped.get(p.login)
+      if (!existing || pt.z > existing.z || (pt.z === existing.z && pt.x > existing.x)) {
+        deduped.set(p.login, pt)
+      }
+    })
+    return Array.from(deduped.values())
+  }, [quadrantData])
+
+  const isHighlightedPoint = useCallback((login: string) => {
+    if (!searchLogin.trim()) return false
+    return login.toLowerCase().includes(searchLogin.trim().toLowerCase())
+  }, [searchLogin])
+
+  const highlightedLogins = useMemo(() => {
+    const s = new Set<string>()
+    scatterData.forEach(p => { if (isHighlightedPoint(p.login)) s.add(p.login) })
+    return s
+  }, [scatterData, isHighlightedPoint])
+
+  const yLabel = axisLabels[yAxisType] || 'Y轴评分'
+  const quadX = quadrantData?.quad_x ?? 0
+  const quadY = quadrantData?.quad_y ?? 0
+
+  const quadOrder = ['INCENTIVE', 'ENCOURAGE', 'IMPROVE', 'REPLACE']
+
+  const quadOptions = useMemo(() => {
+    return quadOrder.map(q =>
+      buildScatterOption(scatterData, yLabel, quadX, quadY, highlightedLogins, q),
+    )
+  }, [scatterData, yLabel, quadX, quadY, highlightedLogins])
+
+  const handleLocate = () => {
+    if (!searchLogin.trim()) return
+    const found = scatterData.filter(p => p.login.toLowerCase().includes(searchLogin.trim().toLowerCase()))
+    if (found.length > 0) {
+      message.success(`找到 ${found.length} 位贡献者: ${found.map(p => p.login).join(', ')} (点击散点查看详情)`)
+    } else {
+      message.warning(`未找到匹配的贡献者: ${searchLogin}`)
+    }
+  }
+
+  const quadCounts = quadrantData?.quadrant_counts ?? {}
+
+  return (
+    <Spin spinning={quadrantLoading}>
+      <Row gutter={[16, 16]}>
+        {quadOrder.map(q => (
+          <Col span={6} key={q}>
+            <Card size="small">
+              <Statistic title={quadrantLabels[q]} value={quadCounts[q] ?? 0} valueStyle={{ color: quadrantColors[q] }} />
+            </Card>
+          </Col>
+        ))}
+
+        <Col span={24}>
+          <Card
+            title="四象限散点图"
+            extra={
+              <Space size="small" wrap>
+                <Radio.Group size="small" value={viewMode} onChange={e => setViewMode(e.target.value)}>
+                  <Radio.Button value="single">单图</Radio.Button>
+                  <Radio.Button value="quad">四分图</Radio.Button>
+                </Radio.Group>
+                <Select
+                  size="small"
+                  value={yAxisType}
+                  onChange={v => setYAxisType(v)}
+                  options={axisOptions}
+                  style={{ width: 110 }}
+                />
+                <Input
+                  placeholder="输入用户名模糊搜索"
+                  value={searchLogin}
+                  onChange={e => setSearchLogin(e.target.value)}
+                  allowClear
+                  size="small"
+                  style={{ width: 200 }}
+                  prefix={<SearchOutlined />}
+                  onPressEnter={handleLocate}
+                />
+              </Space>
+            }
+            bodyStyle={{ padding: '4px 8px 8px' }}
+          >
+            {scatterData.length > 0 ? (
+              viewMode === 'single' ? (
+                <SingleChart key="single" data={scatterData} yLabel={yLabel} quadX={quadX} quadY={quadY} highlightedLogins={highlightedLogins} height={700} />
+              ) : (
+                <Row gutter={[12, 12]}>
+                  {quadOrder.map((q, i) => (
+                    <Col span={12} key={q}>
+                      <QuadSubChart
+                        key={`${q}-${i}`}
+                        option={quadOptions[i]}
+                        title={quadrantLabels[q]}
+                        color={quadrantColors[q]}
+                        count={quadCounts[q] ?? 0}
+                      />
+                    </Col>
+                  ))}
+                </Row>
+              )
+            ) : (
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: 300 }}>
+                <Text type="secondary">暂无数据 — 先执行同步采集</Text>
+              </div>
+            )}
+          </Card>
+        </Col>
+      </Row>
+    </Spin>
+  )
+}
+
+type SortRule = { field: string; order: 'asc' | 'desc' }
+
+const sortableColumns: { key: string; label: string }[] = [
+  { key: 'pr_count', label: 'PR 数' },
+  { key: 'merged_pr_count', label: '合并 PR' },
+  { key: 'pending_pr_count', label: '未合并 PR' },
+  { key: 'code_additions', label: '代码增加' },
+  { key: 'code_deletions', label: '代码删除' },
+  { key: 'review_count', label: 'Review 数' },
+  { key: 'approval_count', label: 'Approval 数' },
+  { key: 'login', label: '用户名' },
+]
+
+function RankingTab({ loading: _, selectedRepo }: { loading: boolean; selectedRepo: string | undefined }) {
+  const navigate = useNavigate()
+  const [roleType, setRoleType] = useState('author')
+  const [rankings, setRankings] = useState<RankingItem[]>([])
+  const [rankingLoading, setRankingLoading] = useState(false)
+  const [rankingTotal, setRankingTotal] = useState(0)
+   const [quadrantFilter, setQuadrantFilter] = useState<string>('')
+  const [roleStats, setRoleStats] = useState<RoleStats | null>(null)
+  const [pagination, setPagination] = useState({ current: 1, pageSize: 20 })
+  const [rankingDays, setRankingDays] = useState(30)
+  const [hasLoadedOnce, setHasLoadedOnce] = useState(false)
+  // 排行榜象限 Y 轴已固定为 error_score，无需手动切换（四象限看板的维度选择保留）
+
+  const [searchText, setSearchText] = useState('')
+  const [sortModalOpen, setSortModalOpen] = useState(false)
+  const [sortRules, setSortRules] = useState<SortRule[]>([{ field: 'contribution_score', order: 'desc' }])
+
+  const [form] = Form.useForm()
+
+  const fetchRanking = useCallback(async (page: number, size: number) => {
+    setRankingLoading(true)
+    try {
+      const sortField = sortRules.length > 0 ? sortRules[0].field : 'contribution_score'
+      const sortDir = sortRules.length > 0 ? sortRules[0].order : 'desc'
+      const data = await getRanking(roleType, size, {
+        repo_name: selectedRepo || null,
+        sort_by: sortField,
+        sort_order: sortDir,
+        offset: (page - 1) * size,
+        quadrant: quadrantFilter || undefined,
+        // y_axis_type 不再传：排行榜象限 Y 轴已固定为 error_score
+        days: rankingDays,
+      })
+      setRankings(data.rankings)
+      setRankingTotal(data.total)
+      setHasLoadedOnce(true)
+    } finally {
+      setRankingLoading(false)
+    }
+  }, [roleType, selectedRepo, sortRules, quadrantFilter, rankingDays])
+
+  // 立即加载排行榜数据（不等待 settings/stats）
+  useEffect(() => {
+    fetchRanking(pagination.current, pagination.pageSize)
+  }, [fetchRanking, pagination.current, pagination.pageSize])
+
+  // 异步加载 stats 和 settings（不阻塞排行榜表格）
+  useEffect(() => {
+    let cancelled = false
+    const loadStats = async () => {
+      try {
+        const [_roleStats, _settings] = await Promise.all([
+          getRoleStats({ repo_name: selectedRepo || undefined, days: rankingDays }),
+          getContributorBoardSettings().catch(() => null),
+        ])
+        if (!cancelled) {
+          setRoleStats(_roleStats)
+          // settings 加载仅用于显示权重/配置面板，排行榜 Y 轴已固定为 error_score
+        }
+      } catch { /* ignore */ }
+    }
+    loadStats()
+    return () => { cancelled = true }
+  }, [selectedRepo, rankingDays])
+
+  const handleExportCSV = () => {
+    const headers = ['排名', '用户名', '工号', '分数', '贡献分数', '合并PR', '未合并PR', 'Commits', '代码增加', '代码删除', 'Review', 'Approval', '四象限', '角色']
+    const rows = displayData.map((r, idx) => [
+      idx + 1, r.login, r.employee_id || '', r.score.toFixed(1),
+      r.contribution_score.toFixed(1), r.merged_pr_count, r.pending_pr_count,
+      r.commit_count || 0, r.code_additions, r.code_deletions, r.review_count, r.approval_count,
+      r.dynamic_quadrant || '', r.role_label || '',
+    ])
+    const csvContent = ['\uFEFF', headers.join(','), ...rows.map(r => r.map(v => `"${v}"`).join(','))].join('\n')
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `排行榜_${roleType}_${dayjs().format('YYYYMMDD')}.csv`
+    a.click()
+    URL.revokeObjectURL(url)
+  }
+
+  const roleTypeLabel = roleType === 'reviewer' ? '评审人' : '贡献者'
+
+  const applySort = useCallback((data: RankingItem[], rules: SortRule[]) => {
+    if (rules.length === 0) return data
+    return [...data].sort((a, b) => {
+      for (const rule of rules) {
+        const aVal = a[rule.field as keyof RankingItem]
+        const bVal = b[rule.field as keyof RankingItem]
+        let cmp = 0
+        if (typeof aVal === 'string' && typeof bVal === 'string') {
+          cmp = (aVal || '').localeCompare(bVal || '')
+        } else {
+          cmp = Number(aVal ?? 0) - Number(bVal ?? 0)
+        }
+        if (cmp !== 0) return rule.order === 'asc' ? cmp : -cmp
+      }
+      return 0
+    })
+  }, [])
+
+  const displayData = useMemo(() => {
+    const seen = new Set<string>()
+    let data = rankings.filter(r => {
+      if (seen.has(r.login)) return false
+      seen.add(r.login)
+      return true
+    })
+    if (searchText) {
+      const lower = searchText.toLowerCase()
+      data = data.filter(r =>
+        r.login.toLowerCase().includes(lower) ||
+        (r.employee_id && r.employee_id.toLowerCase().includes(lower)) ||
+        (r.dynamic_quadrant && r.dynamic_quadrant.toLowerCase().includes(lower)) ||
+        (r.role_label && r.role_label.toLowerCase().includes(lower)),
+      )
+    }
+    return applySort(data, sortRules)
+  }, [rankings, searchText, sortRules, applySort])
+
+  const handleAddSortRule = () => {
+    form.resetFields()
+    setSortModalOpen(true)
+  }
+
+  const handleApplySort = () => {
+    const values = form.getFieldsValue()
+    setSortRules(prev => [...prev, { field: values.field, order: values.order || 'desc' }])
+    setPagination(p => ({ ...p, current: 1 }))
+    form.resetFields()
+    setSortModalOpen(false)
+  }
+
+  const handleRemoveSortRule = (index: number) => {
+    setSortRules(prev => prev.filter((_, i) => i !== index))
+    setPagination(p => ({ ...p, current: 1 }))
+  }
+
+  const rankingColumns = [
+    {
+      title: '排名',
+      dataIndex: 'rank',
+      key: 'rank',
+      width: 70,
+      render: (rank: number) => (
+        <Tag color={rank <= 3 ? 'gold' : rank <= 10 ? 'blue' : 'default'}>
+          <TrophyOutlined /> #{rank}
+        </Tag>
+      ),
+    },
+    {
+      title: '用户名',
+      dataIndex: 'login',
+      key: 'login',
+      width: 200,
+      render: (login: string, record: RankingItem) => (
+        <Space direction="vertical" size={0}>
+          <Space size={4}>
+            <Avatar src={record.avatar_url} size="small" icon={<GithubOutlined />} />
+            <a onClick={() => navigateToDetail(navigate, login, 'ranking', selectedRepo)} style={{ cursor: 'pointer' }}>
+              {login}
+            </a>
+            {record.is_bot && <Tag color="purple" style={{ marginLeft: 4, fontSize: 11 }}>Bot</Tag>}
+          </Space>
+          {record.primary_email && (
+            <span style={{ fontSize: 11, color: '#999', paddingLeft: 28 }}>{record.primary_email}</span>
+          )}
+        </Space>
+      ),
+    },
+    {
+      title: '公司',
+      dataIndex: 'company',
+      key: 'company',
+      width: 80,
+      render: (company: string | null) => company ? <Tag color="blue">{company}</Tag> : <span style={{ color: '#ccc' }}>—</span>,
+    },
+    {
+      title: '工号',
+      dataIndex: 'employee_id',
+      key: 'employee_id',
+      width: 100,
+      render: (id: string | null) => id ? <Tag color="cyan">{id}</Tag> : '-',
+    },
+    {
+      title: '分数',
+      dataIndex: 'score',
+      key: 'score',
+      width: 100,
+      render: (score: number) => <Text strong>{score.toFixed(1)}</Text>,
+    },
+    {
+      title: '合并 PR',
+      dataIndex: 'merged_pr_count',
+      key: 'merged_pr_count',
+      width: 100,
+      render: (val: number) => <Tag color="green">{val}</Tag>,
+    },
+    {
+      title: '未合并 PR',
+      dataIndex: 'pending_pr_count',
+      key: 'pending_pr_count',
+      width: 100,
+      render: (val: number) => val > 0 ? <Tag color="orange">{val}</Tag> : '-',
+    },
+    {
+      title: 'Commits',
+      dataIndex: 'commit_count',
+      key: 'commit_count',
+      width: 90,
+      render: (val: number) => val > 0 ? <Tag color="geekblue">{val}</Tag> : '-',
+    },
+    {
+      title: '代码增加',
+      dataIndex: 'code_additions',
+      key: 'code_additions',
+      width: 110,
+      render: (val: number) => <Text style={{ color: '#52c41a' }}>+{val}</Text>,
+    },
+    {
+      title: '代码删除',
+      dataIndex: 'code_deletions',
+      key: 'code_deletions',
+      width: 110,
+      render: (val: number) => <Text style={{ color: '#ff4d4f' }}>-{val}</Text>,
+    },
+    {
+      title: 'Review 数',
+      dataIndex: 'review_count',
+      key: 'review_count',
+      width: 100,
+    },
+    {
+      title: 'Approval 数',
+      dataIndex: 'approval_count',
+      key: 'approval_count',
+      width: 110,
+    },
+    {
+      title: '四象限',
+      dataIndex: 'dynamic_quadrant',
+      key: 'dynamic_quadrant',
+      width: 90,
+      render: (q: string | null) => q ? <Tag color={quadrantColors[q]}>{quadrantLabels[q] || q}</Tag> : '-',
+    },
+    {
+      title: '角色',
+      dataIndex: 'role_label',
+      key: 'role_label',
+      width: 80,
+      render: (r: string | null) => r ? <Tag color={quadrantRoleColors[r]}>{quadrantRoleLabels[r] || r}</Tag> : '-',
+    },
+  ]
+
+  const sortRuleLabels = sortRules.map(r =>
+    `${sortableColumns.find(c => c.key === r.field)?.label ?? r.field} ${r.order === 'asc' ? '↑' : '↓'}`
+  ).join(' → ')
+
+  return (
+    <Spin spinning={rankingLoading}>
+      <Row gutter={[16, 16]} style={{ marginBottom: 16 }}>
+        <Col span={24}>
+          <Space wrap>
+            <Button type={roleType === 'author' ? 'primary' : 'default'} onClick={() => { setRoleType('author'); setPagination(p => ({ ...p, current: 1 })) }}>贡献者排行</Button>
+            <Button type={roleType === 'reviewer' ? 'primary' : 'default'} onClick={() => { setRoleType('reviewer'); setPagination(p => ({ ...p, current: 1 })) }}>评审人排行</Button>
+            <Divider type="vertical" />
+            <span style={{ fontSize: 13, color: '#8c8c8c' }}>时间范围:</span>
+                <Select
+                  value={rankingDays}
+                  onChange={(v) => setRankingDays(v)}
+                  style={{ width: 120 }}
+                  options={[
+                    { label: '近 7 天', value: 7 },
+                    { label: '近 30 天', value: 30 },
+                    { label: '近 60 天', value: 60 },
+                    { label: '近 90 天', value: 90 },
+                    { label: '近 180 天', value: 180 },
+                    { label: '近 365 天', value: 365 },
+                  ]}
+                />
+            <Divider type="vertical" />
+            <span style={{ fontSize: 13, color: '#8c8c8c' }}>象限筛选:</span>
+            <Button type={!quadrantFilter ? 'primary' : 'default'} onClick={() => { setQuadrantFilter(''); setPagination(p => ({ ...p, current: 1 })) }}>全部</Button>
+            {['INCENTIVE', 'IMPROVE', 'ENCOURAGE', 'REPLACE'].map(q => (
+              <Button key={q} type={quadrantFilter === q ? 'primary' : 'default'} onClick={() => { setQuadrantFilter(q); setPagination(p => ({ ...p, current: 1 })) }} style={{ borderColor: quadrantColors[q], color: quadrantFilter === q ? '#fff' : quadrantColors[q] }}>
+                {quadrantLabels[q]}
+              </Button>
+            ))}
+            <Divider type="vertical" />
+            <Tag color="default" style={{ margin: 0 }}>
+              X=贡献分数 · Y=低产出/低活动
+            </Tag>
+            <Divider type="vertical" />
+            <Button icon={<ReloadOutlined />} onClick={() => { fetchRanking(pagination.current, pagination.pageSize) }}>刷新数据</Button>
+            <Button icon={<DownloadOutlined />} onClick={handleExportCSV}>导出CSV</Button>
+          </Space>
+        </Col>
+      </Row>
+
+      <Row gutter={[16, 16]} style={{ marginBottom: 16 }}>
+        <Col span={6}>
+          <Card size="small">
+            <Statistic title="贡献者（作者）人数" value={roleStats?.developer_count ?? 0} valueStyle={{ color: '#1890ff' }} />
+          </Card>
+        </Col>
+        <Col span={6}>
+          <Card size="small">
+            <Statistic title="评审人人数" value={roleStats?.reviewer_count ?? 0} valueStyle={{ color: '#722ed1' }} />
+          </Card>
+        </Col>
+        <Col span={6}>
+          <Card size="small">
+            <Statistic title="总 PR 数" value={roleStats?.total_pr ?? 0} valueStyle={{ color: '#52c41a' }} />
+          </Card>
+        </Col>
+        <Col span={6}>
+          <Card size="small">
+            <Statistic title="总代码行数" value={roleStats?.total_code_lines ?? 0} valueStyle={{ color: '#fa8c16' }} />
+          </Card>
+        </Col>
+      </Row>
+
+      <Card
+        title={`排行榜 - ${roleTypeLabel}${selectedRepo ? ` (${selectedRepo})` : ''}`}
+        extra={
+          <Space>
+            <Input.Search
+              placeholder="搜索用户名/工号"
+              value={searchText}
+              onChange={e => setSearchText(e.target.value)}
+              allowClear
+              style={{ width: 200 }}
+              prefix={<SearchOutlined />}
+            />
+            <Button
+              icon={<SortAscendingOutlined />}
+              onClick={handleAddSortRule}
+              style={sortRules.length > 0 ? { borderColor: '#1890ff', color: '#1890ff' } : undefined}
+            >
+              排序{sortRuleLabels ? ` (${sortRuleLabels})` : ''}
+            </Button>
+            {sortRules.length > 0 && (
+              <Button danger size="small" onClick={() => setSortRules([])}>清除排序</Button>
+            )}
+          </Space>
+        }
+      >
+        <Table
+          columns={rankingColumns}
+          dataSource={displayData}
+          rowKey="login"
+          loading={rankingLoading}
+          pagination={{
+            current: pagination.current,
+            pageSize: pagination.pageSize,
+            total: rankingTotal,
+            pageSizeOptions: [10, 20, 50],
+            showSizeChanger: true,
+            showTotal: (total) => `共 ${total} 条`,
+            showQuickJumper: true,
+            onChange: (page, size) => {
+              setPagination({ current: page, pageSize: size })
+            },
+          }}
+        />
+      </Card>
+
+      <Modal
+        title="配置排序规则"
+        open={sortModalOpen}
+        onOk={handleApplySort}
+        onCancel={() => { form.resetFields(); setSortModalOpen(false) }}
+        okText="添加排序"
+        cancelText="取消"
+      >
+        <Form form={form} layout="vertical">
+          <Form.Item name="field" label="排序字段" rules={[{ required: true }]}>
+            <Select options={sortableColumns.map(c => ({ label: c.label, value: c.key }))} />
+          </Form.Item>
+          <Form.Item name="order" label="排序方式" initialValue="desc">
+            <Radio.Group>
+              <Radio value="desc">降序 ↓</Radio>
+              <Radio value="asc">升序 ↑</Radio>
+            </Radio.Group>
+          </Form.Item>
+        </Form>
+
+        {sortRules.length > 0 && (
+          <div style={{ marginTop: 16 }}>
+            <Text strong>当前排序规则：</Text>
+            <div style={{ marginTop: 8 }}>
+              {sortRules.map((rule, idx) => (
+                <Tag
+                  key={idx}
+                  closable
+                  onClose={() => handleRemoveSortRule(idx)}
+                  style={{ marginBottom: 4, fontSize: 13 }}
+                >
+                  {idx + 1}. {sortableColumns.find(c => c.key === rule.field)?.label ?? rule.field} {rule.order === 'asc' ? '↑ 升序' : '↓ 降序'}
+                </Tag>
+              ))}
+            </div>
+          </div>
+        )}
+      </Modal>
+    </Spin>
+  )
+}
+
+/* ------------------------------------------------------------------ */
+/*                            设置 Tab                                */
+/* ------------------------------------------------------------------ */
+
+function CronModal({ open, cron, onChange, onClose }: {
+  open: boolean
+  cron: string
+  onChange: (cron: string) => void
+  onClose: () => void
+}) {
+  const [mode, setMode] = useState<'preset' | 'custom' | 'weekly'>('preset')
+  const [customHour, setCustomHour] = useState(2)
+  const [customMinute, setCustomMinute] = useState(0)
+  const [weekDays, setWeekDays] = useState<number[]>([0, 1, 2, 3, 4])
+  const [selectedPreset, setSelectedPreset] = useState('0 2 * * *')
+
+  useEffect(() => {
+    const parts = cron.split(' ')
+    if (parts.length === 5) {
+      setCustomMinute(parseInt(parts[0]) || 0)
+      setCustomHour(parseInt(parts[1]) || 0)
+      setSelectedPreset(cron)
+    }
+    if (cron.startsWith('0 2 * * *')) {
+      setMode('preset')
+    } else if (parts.length === 5 && parts[4] !== '*') {
+      setMode('weekly')
+      const days = parts[4].split(',').map(Number).filter(n => !isNaN(n))
+      if (days.length) setWeekDays(days)
+    } else {
+      setMode('custom')
+    }
+  }, [cron])
+
+  const cronToText = (expr: string) => {
+    const parts = expr.split(' ')
+    if (parts.length !== 5) return expr
+    const [min, hour, day, _month, dow] = parts
+    if (dow !== '*') {
+      const dayNames = ['周日', '周一', '周二', '周三', '周四', '周五', '周六']
+      const days = dow.split(',').map(n => parseInt(n)).map(n => dayNames[n] || n).join('、')
+      return `每周${days} ${parseInt(hour)}:${parseInt(min).toString().padStart(2, '0')}`
+    }
+    if (day !== '*') return `每月${day}日 ${parseInt(hour)}:${parseInt(min).toString().padStart(2, '0')}`
+    return `每天 ${parseInt(hour)}:${parseInt(min).toString().padStart(2, '0')}`
+  }
+
+  const presetGroups = [
+    {
+      title: '每天',
+      items: [
+        { label: '02:00', value: '0 2 * * *' },
+        { label: '03:00', value: '0 3 * * *' },
+        { label: '06:00', value: '0 6 * * *' },
+        { label: '12:00', value: '0 12 * * *' },
+      ],
+    },
+    {
+      title: '每周',
+      items: [
+        { label: '周日', value: '0 2 * * 0' },
+        { label: '周一', value: '0 2 * * 1' },
+        { label: '周五', value: '0 2 * * 5' },
+        { label: '周六', value: '0 2 * * 6' },
+      ],
+    },
+    {
+      title: '每月',
+      items: [
+        { label: '1号', value: '0 2 1 * *' },
+        { label: '15号', value: '0 2 15 * *' },
+      ],
+    },
+  ]
+
+  const weekDayLabels = ['周日', '周一', '周二', '周三', '周四', '周五', '周六']
+
+  const toggleWeekDay = (day: number) => {
+    setWeekDays(prev =>
+      prev.includes(day) ? prev.filter(d => d !== day).sort() : [...prev, day].sort()
+    )
+  }
+
+  const handleSave = () => {
+    if (mode === 'weekly' && weekDays.length === 0) {
+      message.warning('请至少选择一个星期几')
+      return
+    }
+    let newCron = cron
+    if (mode === 'preset') {
+      newCron = selectedPreset
+    } else if (mode === 'weekly') {
+      newCron = `${customMinute} ${customHour} * * ${weekDays.join(',')}`
+    } else if (mode === 'custom') {
+      newCron = `${customMinute} ${customHour} * * *`
+    }
+    onChange(newCron)
+    message.success(`已设置为 ${cronToText(newCron)}`)
+    onClose()
+  }
+
+  const presetCardStyle = (val: string) => ({
+    padding: '8px 14px',
+    borderRadius: 8,
+    border: `1.5px solid ${val === selectedPreset ? '#5b46f5' : '#f0f0f0'}`,
+    background: val === selectedPreset ? '#f5f3ff' : '#fafafa',
+    color: val === selectedPreset ? '#5b46f5' : '#666',
+    fontWeight: val === selectedPreset ? 600 : 400,
+    cursor: 'pointer',
+    textAlign: 'center' as const,
+    fontSize: 13,
+    transition: 'all 0.15s',
+    userSelect: 'none' as const,
+  })
+
+  return (
+    <Modal
+      title="设置全量同步时间"
+      open={open}
+      onCancel={onClose}
+      destroyOnClose={false}
+      maskClosable
+      width={480}
+      footer={[
+        <Button key="cancel" onClick={onClose}>取消</Button>,
+        <Button key="save" type="primary" onClick={handleSave}>确定</Button>,
+      ]}
+    >
+      <Alert
+        message={cronToText(cron)}
+        description={<Text code style={{ fontSize: 11 }}>{cron}</Text>}
+        type="info"
+        showIcon
+        style={{ marginBottom: 16, fontSize: 13 }}
+      />
+
+      <Tabs
+        defaultActiveKey="preset"
+        onChange={key => setMode(key as typeof mode)}
+        items={[
+          {
+            key: 'preset',
+            label: '快速选择',
+            children: (
+              <div>
+                {presetGroups.map(group => (
+                  <div key={group.title} style={{ marginBottom: 14 }}>
+                    <Text type="secondary" style={{ fontSize: 12, display: 'block', marginBottom: 6 }}>{group.title}</Text>
+                    <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                      {group.items.map(p => (
+                        <div
+                          key={p.value}
+                          style={presetCardStyle(p.value)}
+                          onClick={() => setSelectedPreset(p.value)}
+                        >
+                          {p.label}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ),
+          },
+          {
+            key: 'custom',
+            label: '自定义',
+            children: (
+              <div>
+                <Text type="secondary" style={{ display: 'block', marginBottom: 16, fontSize: 13 }}>
+                  每天在固定时间执行全量同步
+                </Text>
+                <div style={{ display: 'flex', gap: 12, alignItems: 'center', justifyContent: 'center' }}>
+                  <Select
+                    value={customHour}
+                    onChange={v => setCustomHour(v)}
+                    style={{ width: 100 }}
+                    options={Array.from({ length: 24 }, (_, i) => ({ label: `${i.toString().padStart(2, '0')}`, value: i }))}
+                  />
+                  <Text style={{ fontSize: 20, fontWeight: 600 }}>:</Text>
+                  <Select
+                    value={customMinute}
+                    onChange={v => setCustomMinute(v)}
+                    style={{ width: 100 }}
+                    options={[{ label: '00', value: 0 }, { label: '15', value: 15 }, { label: '30', value: 30 }, { label: '45', value: 45 }]}
+                  />
+                </div>
+                <div style={{ textAlign: 'center', marginTop: 12 }}>
+                  <Tag color="blue">{cronToText(`${customMinute} ${customHour} * * *`)}</Tag>
+                </div>
+              </div>
+            ),
+          },
+          {
+            key: 'weekly',
+            label: '每周指定日',
+            children: (
+              <div>
+                <Text type="secondary" style={{ display: 'block', marginBottom: 12, fontSize: 13 }}>
+                  选择星期几，设定执行时间
+                </Text>
+                <div style={{ display: 'flex', gap: 6, justifyContent: 'center', marginBottom: 16 }}>
+                  {weekDayLabels.map((label, idx) => (
+                    <div
+                      key={idx}
+                      onClick={() => toggleWeekDay(idx)}
+                      style={{
+                        width: 32, height: 32, borderRadius: '50%',
+                        display: 'flex', alignItems: 'center', justifyContent: 'center',
+                        fontSize: 12, cursor: 'pointer', userSelect: 'none',
+                        background: weekDays.includes(idx) ? '#5b46f5' : '#f5f5f5',
+                        color: weekDays.includes(idx) ? '#fff' : '#999',
+                        fontWeight: weekDays.includes(idx) ? 600 : 400,
+                        transition: 'all 0.15s',
+                      }}
+                    >
+                      {label.slice(1)}
+                    </div>
+                  ))}
+                </div>
+                <div style={{ display: 'flex', gap: 12, alignItems: 'center', justifyContent: 'center' }}>
+                  <Select
+                    value={customHour}
+                    onChange={v => setCustomHour(v)}
+                    style={{ width: 100 }}
+                    options={Array.from({ length: 24 }, (_, i) => ({ label: `${i.toString().padStart(2, '0')}`, value: i }))}
+                  />
+                  <Text style={{ fontSize: 20, fontWeight: 600 }}>:</Text>
+                  <Select
+                    value={customMinute}
+                    onChange={v => setCustomMinute(v)}
+                    style={{ width: 100 }}
+                    options={[{ label: '00', value: 0 }, { label: '15', value: 15 }, { label: '30', value: 30 }, { label: '45', value: 45 }]}
+                  />
+                </div>
+                <div style={{ textAlign: 'center', marginTop: 12 }}>
+                  <Tag color="blue">
+                    {weekDays.length
+                      ? `每周${weekDays.map(d => weekDayLabels[d]).join('、')} ${customHour}:${customMinute.toString().padStart(2, '0')}`
+                      : '请选择星期几'}
+                  </Tag>
+                </div>
+              </div>
+            ),
+          },
+        ]}
+      />
+    </Modal>
+  )
+}
+
+function SettingsTab() {
+  const [form] = Form.useForm()
+  const [settings, setSettings] = useState<SettingsType | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [saving, setSaving] = useState(false)
+  const [recalculating, setRecalculating] = useState(false)
+
+  useEffect(() => {
+    let cancelled = false
+    const load = async () => {
+      setLoading(true)
+      try {
+        const settingsData = await getContributorBoardSettings()
+        if (!cancelled) {
+          setSettings(settingsData)
+          form.setFieldValue('y_axis_type', settingsData.quadrant_config.y_axis_type)
+          for (const dw of WEIGHT_DIMENSIONS) {
+            form.setFieldValue(dw.key, (settingsData.scoring_weights as unknown as Record<string, number>)[dw.key] ?? 0)
+          }
+          form.setFieldValue('star_threshold', settingsData.role_thresholds.star_threshold)
+          form.setFieldValue('active_threshold', settingsData.role_thresholds.active_threshold)
+          form.setFieldValue('max_error_score', settingsData.role_thresholds.max_error_score)
+        }
+      } catch { /* ignore */ } finally {
+        if (!cancelled) setLoading(false)
+      }
+    }
+    load()
+    return () => { cancelled = true }
+  }, [form])
+
+  const handleSave = async () => {
+    try {
+        const values = await form.validateFields()
+        setSaving(true)
+        const weightsPayload: Record<string, number> = {}
+        for (const dw of WEIGHT_DIMENSIONS) {
+          weightsPayload[dw.key] = values[dw.key] ?? 0
+        }
+        await Promise.all([
+          updateQuadrantConfig(values.y_axis_type),
+          updateScoringWeights(weightsPayload as unknown as ScoringWeightsConfig),
+        updateRoleThresholds({
+          star_threshold: values.star_threshold,
+          active_threshold: values.active_threshold,
+          max_error_score: values.max_error_score,
+        }),
+      ])
+      message.success('设置已保存')
+      window.dispatchEvent(new CustomEvent('settings-updated'))
+      const data = await getContributorBoardSettings()
+      setSettings(data)
+    } catch (err) {
+      message.error('保存失败')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const handleRecalculate = async () => {
+    try {
+      setRecalculating(true)
+      const result = await recalculateScores()
+      message.success(`重算完成，共更新 ${result?.recalculated_count ?? 0} 位贡献者的分数`)
+      window.dispatchEvent(new CustomEvent('settings-updated'))
+    } catch {
+      message.error('重算失败')
+    } finally {
+      setRecalculating(false)
+    }
+  }
+
+  const cardStyle = {
+    background: '#fff',
+    borderRadius: 12,
+    boxShadow: '0 1px 4px rgba(0,0,0,0.06)',
+    border: '1px solid #f0f0f0',
+  }
+
+  const sliderFormItemStyle = {
+    marginBottom: '8px',
+  }
+
+  return (
+    <Spin spinning={loading}>
+      {/* 顶部操作栏 */}
+      <div style={{
+        display: 'flex',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+        marginBottom: 20,
+      }}>
+        <div>
+          <Title level={4} style={{ margin: 0 }}>
+            <SettingOutlined style={{ marginRight: 8, color: '#5b46f5' }} />
+            贡献者分析设置
+          </Title>
+          <Text type="secondary" style={{ fontSize: 13 }}>
+            以下配置将同时影响「四象限看板」和「排行榜中的象限标识」。修改保存后，点击"重算分数"使新权重生效。
+          </Text>
+        </div>
+        <Space>
+          <Button type="primary" loading={saving} onClick={handleSave}>
+            保存设置
+          </Button>
+          <Button danger loading={recalculating} onClick={handleRecalculate}>
+            重算分数
+          </Button>
+        </Space>
+      </div>
+
+      {/* 卡片布局 */}
+      <Row gutter={[20, 20]}>
+        {/* 第一排：Y轴 + 阈值 */}
+        <Col xs={24} md={12}>
+          <Card title={<><FlagOutlined style={{ marginRight: 6, color: '#1890ff' }} />Y 轴指标</>}
+            size="small" style={cardStyle} bodyStyle={{ padding: '20px 24px 24px' }}>
+            <Form form={form}>
+              <Form.Item name="y_axis_type">
+                <Radio.Group buttonStyle="solid" size="middle">
+                  <Radio.Button value="review_count">检视次数</Radio.Button>
+                  <Radio.Button value="error_score">出错评分</Radio.Button>
+                  <Radio.Button value="merged_pr_count">PR合并数</Radio.Button>
+                  <Radio.Button value="code_additions">代码行数</Radio.Button>
+                </Radio.Group>
+              </Form.Item>
+            </Form>
+          </Card>
+        </Col>
+        <Col xs={24} md={12}>
+          <Card title={<><StarOutlined style={{ marginRight: 6, color: '#faad14' }} />角色标签阈值</>}
+            size="small" style={cardStyle} bodyStyle={{ padding: '20px 24px 24px' }}>
+            <Form form={form}>
+              <Form.Item label="明星分数阈值" name="star_threshold" style={sliderFormItemStyle}>
+                <Slider min={0} max={100} step={5}
+                  marks={{ 0: '0', 50: '50', 100: '100' }}
+                  tooltip={{ formatter: (v) => (v ?? 0).toFixed(0) }} />
+              </Form.Item>
+              <Form.Item label="活跃分数阈值" name="active_threshold" style={sliderFormItemStyle}>
+                <Slider min={0} max={50} step={5}
+                  marks={{ 0: '0', 25: '25', 50: '50' }}
+                  tooltip={{ formatter: (v) => (v ?? 0).toFixed(0) }} />
+              </Form.Item>
+              <Form.Item label="最大容错分数" name="max_error_score" style={{ marginBottom: 0 }}>
+                <Slider min={0} max={10} step={0.5}
+                  marks={{ 0: '0', 5: '5', 10: '10' }}
+                  tooltip={{ formatter: (v) => (v ?? 0).toFixed(1) }} />
+              </Form.Item>
+            </Form>
+          </Card>
+        </Col>
+
+        {/* 第二排：7维权重（全宽，标签有足够空间） */}
+        <Col xs={24}>
+          <Card title={<><TrophyOutlined style={{ marginRight: 6, color: '#fa8c16' }} />贡献分数权重（7维，合计建议 ≈ 100）</>}
+            size="small" style={cardStyle} bodyStyle={{ padding: '16px 24px 16px' }}>
+            <Form form={form} layout="inline">
+              {WEIGHT_DIMENSIONS.map((dw, idx) => (
+                <Form.Item key={dw.key} label={dw.label} name={dw.key}
+                  style={{ marginBottom: 6, display: 'flex', width: '100%', alignItems: 'center' }}>
+                  <Slider style={{ flex: 1, margin: '0 8px' }} min={dw.min} max={dw.max} step={dw.step}
+                    tooltip={{ formatter: (v) => (v ?? 0).toFixed(0) }} />
+                </Form.Item>
+              ))}
+            </Form>
+          </Card>
+        </Col>
+      </Row>
+    </Spin>
+  )
+}
+
+/* ------------------------------------------------------------------ */
+/*                     分析设置 — 权重版本管理                        */
+/* ------------------------------------------------------------------ */
+
+function ContributorBoardSettingsPage() {
+  const [activeSubTab, setActiveSubTab] = useState('current')
+  const [activeVersion, setActiveVersion] = useState<ScoringVersion | null>(null)
+  const [versions, setVersions] = useState<ScoringVersion[]>([])
+  const [versionsTotal, setVersionsTotal] = useState(0)
+  const [snapshots, setSnapshots] = useState<ScoreSnapshot[]>([])
+  const [snapshotsTotal, setSnapshotsTotal] = useState(0)
+  const [audits, setAudits] = useState<ScoreUpdateAudit[]>([])
+  const [auditsTotal, setAuditsTotal] = useState(0)
+  const [loading, setLoading] = useState(true)
+  const [calculating, setCalculating] = useState(false)
+  const [aiCalculating, setAiCalculating] = useState(false)
+  const [exporting, setExporting] = useState(false)
+  const [applying, setApplying] = useState<number | null>(null)
+  const [settings, setSettings] = useState<SettingsType | null>(null)
+  const [selectedForCompare, setSelectedForCompare] = useState<number | null>(null)
+  const [comparingVersion, setComparingVersion] = useState<number | null>(null)
+  const [compareResult, setCompareResult] = useState<VersionCompareResult | null>(null)
+  const [selectedSnapshot, setSelectedSnapshot] = useState<ScoreSnapshot | null>(null)
+  const [aiReporting, setAiReporting] = useState(false)
+  const [aiReport, setAiReport] = useState<any>(null)
+  const [reportLoading, setReportLoading] = useState(false)
+  const [aiReports, setAiReports] = useState<AIReportListItem[]>([])
+  const [selectedReport, setSelectedReport] = useState<AIReportDetailType | null>(null)
+  const [reportsPage, setReportsPage] = useState(1)
+  const [manualWeights, setManualWeights] = useState<Record<string, number>>({})
+  const [applyMode, setApplyMode] = useState<'draft' | 'apply' | null>(null)
+  const [savingWeights, setSavingWeights] = useState(false)
+  const [llmProviders, setLlmProviders] = useState<LLMProvider[]>([])
+  const [modelSelectOpen, setModelSelectOpen] = useState(false)
+  const [pendingAction, setPendingAction] = useState<'ai-weights' | 'ai-report' | null>(null)
+  const [selectedModel, setSelectedModel] = useState<string | null>(null)
+  const [comprehensivePdfOpen, setComprehensivePdfOpen] = useState(false)
+  const [comprehensivePdfExporting, setComprehensivePdfExporting] = useState(false)
+  const [pdfPeriodRange, setPdfPeriodRange] = useState<[dayjs.Dayjs | null, dayjs.Dayjs | null] | null>(null)
+  const [pdfTopN, setPdfTopN] = useState(10)
+  const [pdfQuadrantFilter, setPdfQuadrantFilter] = useState<string>('')
+
+  useEffect(() => {
+    loadAll().then()
+    loadLlmProviders().then()
+  }, [])
+
+  useEffect(() => {
+    window.addEventListener('settings-updated', loadAll)
+    return () => window.removeEventListener('settings-updated', loadAll)
+  }, [])
+
+  const loadAll = async () => {
+    try {
+      const [av, vs, ss, au, st, reports] = await Promise.all([
+        getActiveScoringVersion().catch(() => null),
+        listScoringVersions().catch(() => ({ versions: [], total: 0 })),
+        listScoreSnapshots().catch(() => ({ snapshots: [], total: 0 })),
+        listScoreAuditLogs().catch(() => ({ audits: [], total: 0 })),
+        getContributorBoardSettings().catch(() => null),
+        listAIReports({ skip: 0, limit: 50 }).catch(() => ({ reports: [], total: 0 })),
+      ])
+      setActiveVersion(av)
+      setVersions(vs.versions)
+      setVersionsTotal(vs.total)
+      setSnapshots(ss.snapshots)
+      setSnapshotsTotal(ss.total)
+      setAudits(au.audits)
+      setAuditsTotal(au.total)
+      setSettings(st)
+      setAiReports(reports.reports)
+      if (st) {
+        setManualWeights({ ...st.scoring_weights } as Record<string, number>)
+      }
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const loadLlmProviders = async () => {
+    try {
+      const providers = await getLLMProviders()
+      setLlmProviders(providers)
+    } catch {
+      setLlmProviders([])
+    }
+  }
+
+  const handleAutoWeights = async () => {
+    try {
+      setCalculating(true)
+      const result = await calculateAutoWeights() as AutoWeightsResult
+      // 自动创建版本记录
+      await createScoringVersion({
+        method: 'auto',
+        weights: result.weights as Record<string, number>,
+        data_summary: result.data_summary,
+        confidence_score: result.confidence,
+        description: `自动算权 (置信度: ${result.confidence.toFixed(2)})`,
+        apply_immediately: false,
+      })
+      message.success(`自动算权完成 (置信度: ${result.confidence.toFixed(2)})，已创建新版本（草稿）`)
+      await loadAll()
+    } catch {
+      message.error('自动算权失败')
+    } finally {
+      setCalculating(false)
+    }
+  }
+
+  const handleAIWeightsClick = () => {
+    setPendingAction('ai-weights')
+    setSelectedModel(null)
+    setModelSelectOpen(true)
+  }
+
+  const handleAIWeights = async (model: string | null, provider?: string | null) => {
+    try {
+      setAiCalculating(true)
+      const result = await aiAnalyzeWeights({ model, provider }) as AutoWeightsResult
+      const aiModel = result.data_summary?.ai_model || '默认'
+      const aiAnalysis = result.data_summary?.ai_analysis || ''
+      if (aiAnalysis) {
+        const isMarkdown = /\n|^- |###|\*\*/.test(aiAnalysis)
+        Modal.info({
+          title: 'AI 评权分析结果',
+          content: (
+            <div style={{ maxHeight: '60vh', overflowY: 'auto' }}>
+              {isMarkdown ? (
+                <MarkdownRenderer content={aiAnalysis} />
+              ) : (
+                <Paragraph style={{ whiteSpace: 'pre-wrap', fontSize: 13, marginBottom: 0 }}>{aiAnalysis}</Paragraph>
+              )}
+            </div>
+          ),
+          width: 720,
+          footer: null,
+          closable: true,
+        })
+      }
+      // 自动创建版本记录
+      await createScoringVersion({
+        method: 'ai',
+        weights: result.weights as Record<string, number>,
+        data_summary: result.data_summary,
+        confidence_score: result.confidence,
+        ai_prompt: result.data_summary?.ai_prompt as any,
+        ai_response: aiAnalysis as any,
+        ai_model: aiModel as any,
+        description: `AI 评权 (模型: ${aiModel}, 置信度: ${result.confidence.toFixed(2)})`,
+        apply_immediately: false,
+      })
+      message.success(`AI 评权完成 (置信度: ${result.confidence.toFixed(2)}, 模型: ${aiModel})，已创建新版本（草稿）`)
+      await loadAll()
+    } catch (e: any) {
+      const msg = e.response?.data?.msg || 'AI 评权失败，请检查 LLM 配置'
+      message.error(msg)
+    } finally {
+       setAiCalculating(false)
+    }
+  }
+
+  const handleGenerateAIReportClick = () => {
+    setPendingAction('ai-report')
+    setSelectedModel(null)
+    setModelSelectOpen(true)
+  }
+
+  const handleGenerateAIReport = async (model: string | null, provider?: string | null) => {
+    try {
+      setAiReporting(true)
+      setAiReport(null)
+      const report = await generateAIReport({ report_type: 'adhoc', model, provider }) as AIReportListItem
+      message.success(`AI 综合分析报告生成成功 (报告: ${report.report_name})`)
+      await loadAll()
+    } catch (e: any) {
+      const msg = e.response?.data?.detail || 'AI 报告生成失败，请检查 LLM 配置'
+      message.error(msg)
+    } finally {
+      setAiReporting(false)
+    }
+  }
+
+  const handleLoadReportDetail = async (reportId: number) => {
+    try {
+      setReportLoading(true)
+      const detail = await getAIReportDetail(reportId) as AIReportDetailType
+      setSelectedReport(detail)
+    } catch {
+      message.error('加载报告详情失败')
+    } finally {
+      setReportLoading(false)
+    }
+  }
+
+  const handleExportByVersion = async (versionId: number, format: 'pdf') => {
+    try {
+      setExporting(true)
+      const blob = await exportPdfByVersion(versionId)
+      const filename = `contributor_report_${new Date().toISOString().slice(0, 10)}.pdf`
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = filename
+      a.click()
+      URL.revokeObjectURL(url)
+      message.success('PDF 报告导出成功')
+    } catch {
+      message.error('导出失败')
+    } finally {
+      setExporting(false)
+    }
+  }
+
+  const handleExportComprehensivePdf = async () => {
+    try {
+      setComprehensivePdfExporting(true)
+      const blob = await exportComprehensivePdf({
+        period_start: pdfPeriodRange?.[0]?.format('YYYY-MM-DD') || null,
+        period_end: pdfPeriodRange?.[1]?.format('YYYY-MM-DD') || null,
+        top_n: pdfTopN,
+        quadrant_filter: pdfQuadrantFilter || null,
+      })
+      const filename = `comprehensive_report_${new Date().toISOString().slice(0, 10)}.pdf`
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = filename
+      a.click()
+      URL.revokeObjectURL(url)
+      message.success('综合 PDF 报告导出成功')
+      setComprehensivePdfOpen(false)
+    } catch {
+      message.error('导出综合 PDF 失败')
+    } finally {
+      setComprehensivePdfExporting(false)
+    }
+  }
+
+  const handleApply = async (versionId: number) => {
+    try {
+      setApplying(versionId)
+      await applyScoringVersion(versionId)
+      message.success('版本应用成功，已重新计算所有分数')
+      await loadAll()
+    } catch {
+      message.error('应用失败')
+    } finally {
+      setApplying(null)
+    }
+  }
+
+  const handleRollback = async (versionId: number) => {
+    try {
+      setApplying(versionId)
+      await rollbackScoringVersion(versionId)
+      message.success('回滚成功，已重新计算所有分数')
+      await loadAll()
+    } catch {
+      message.error('回滚失败')
+    } finally {
+      setApplying(null)
+    }
+  }
+
+  const handleRecalculate = async () => {
+    try {
+      await recalculateScores()
+      message.success('分数重算完成')
+      await loadAll()
+    } catch {
+      message.error('重算失败')
+    }
+  }
+
+  const handleCompare = async () => {
+    if (!selectedForCompare || !comparingVersion || selectedForCompare === comparingVersion) return
+    try {
+      const result = await compareScoringVersions(selectedForCompare, comparingVersion)
+      setCompareResult(result)
+    } catch {
+      message.error('对比失败')
+    }
+  }
+
+  const handleConfirmSaveWeights = async () => {
+    try {
+      setSavingWeights(true)
+      const applyImmediately = applyMode === 'apply'
+      const normalized = normalizeWeights(manualWeights)
+      await createScoringVersion({
+        method: 'manual',
+        weights: normalized as Record<string, number>,
+        description: '手动调整权重（归一化）',
+        apply_immediately: applyImmediately,
+      })
+      if (applyImmediately) {
+        message.success('权重修改已创建新版本并立即应用')
+      } else {
+        message.success('权重修改已保存为新版本（草稿），可在版本历史中应用生效')
+      }
+      setApplyMode(null)
+      await loadAll()
+    } catch {
+      message.error('保存失败')
+    } finally {
+      setSavingWeights(false)
+    }
+  }
+
+  const handleSaveWeights = () => {
+    setApplyMode('draft')
+  }
+
+  if (loading) return <Spin size="large" />
+
+  return (
+    <Spin tip="加载中" spinning={calculating}>
+      <Title level={4} style={{ marginBottom: 16 }}>
+        <SettingOutlined style={{ marginRight: 8, color: '#5b46f5' }} />
+        贡献者分析设置
+      </Title>
+
+      <Tabs activeKey={activeSubTab} onChange={setActiveSubTab}>
+        {/* Tab 1: 当前权重 */}
+        <Tabs.TabPane tab="当前权重" key="current">
+          <Row gutter={[20, 16]}>
+            <Col xs={24} md={12}>
+              <Card title="生效版本信息" size="small">
+                {activeVersion ? (
+                  <Descriptions column={1} size="small" bordered>
+                    <Descriptions.Item label="版本">{activeVersion.version}</Descriptions.Item>
+                    <Descriptions.Item label="确定方式">
+                       <Tag color={METHOD_CONFIG[activeVersion.method]?.color || 'default'}>
+                         {METHOD_CONFIG[activeVersion.method]?.emoji || ''} {METHOD_CONFIG[activeVersion.method]?.label || activeVersion.method}
+                      </Tag>
+                    </Descriptions.Item>
+                    <Descriptions.Item label="置信度">
+                      {activeVersion.confidence_score ? (
+                        <Progress percent={Math.round(activeVersion.confidence_score * 100)} size="small" />
+                      ) : <Text type="secondary">N/A</Text>}
+                    </Descriptions.Item>
+                    <Descriptions.Item label="操作人">{activeVersion.activated_by || 'N/A'}</Descriptions.Item>
+                    <Descriptions.Item label="生效时间">{formatTimezone(activeVersion.activated_at)}</Descriptions.Item>
+                    <Descriptions.Item label="说明">{activeVersion.description || '-'}</Descriptions.Item>
+                  </Descriptions>
+                ) : (
+                  <Empty description="暂无生效版本" />
+                )}
+              </Card>
+             </Col>
+              <Col xs={24} md={12}>
+               <Card title="权重配置" size="small">
+                 {activeVersion ? (() => {
+                    const entries = Object.entries(activeVersion.weights)
+                    const maxVal = Math.max(...entries.map(([, v]) => Math.abs(v as number)))
+                    return (
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                        {entries.map(([key, value]) => (
+                          <div key={key} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                            <Text style={{ width: 72, flexShrink: 0, fontSize: 12 }}>{WEIGHT_LABELS[key as keyof typeof WEIGHT_LABELS] || key}</Text>
+                            <div style={{ flex: 1, background: '#f0f0f0', borderRadius: 4, height: 16, overflow: 'hidden' }}>
+                              <div style={{ width: `${maxVal > 0 ? (Math.abs(value as number) / maxVal) * 100 : 0}%`, background: `linear-gradient(90deg, #722ed1, #b745d3)`, height: '100%', borderRadius: 4, minWidth: 2 }} />
+                            </div>
+                            <Text strong style={{ width: 56, textAlign: 'right', flexShrink: 0, fontSize: 12 }}>
+                              {typeof value === 'number' ? `${(value * 100).toFixed(1)}%` : value}
+                            </Text>
+                          </div>
+                        ))}
+                      </div>
+                    )
+                  })() : <Empty />}
+               </Card>
+             </Col>
+           </Row>
+
+          <Row gutter={16} style={{ marginTop: 16 }}>
+            <Col span={12}>
+              <Card size="small" styles={{ body: { padding: '12px 16px' } }}>
+                <Space>
+                  <Button type="primary" onClick={handleAutoWeights} loading={calculating}>
+                    自动算权
+                  </Button>
+                  <Button onClick={handleAIWeightsClick} loading={aiCalculating} style={{ background: 'linear-gradient(135deg, #722ed1 0%, #b745d3 100%)', border: 'none', color: '#fff' }}>
+                    AI 评权
+                  </Button>
+                  <Button onClick={handleRecalculate} danger ghost>
+                    仅重算分数
+                  </Button>
+                  <Button onClick={handleGenerateAIReportClick} loading={aiReporting} type="primary" style={{ background: 'linear-gradient(135deg, #722ed1 0%, #b745d3 100%)', border: 'none' }}>
+                    📑 AI 综合报告
+                  </Button>
+                </Space>
+                <div style={{ marginTop: 8, fontSize: 12, color: '#999' }}>
+                  自动算权基于熵权法，AI 评权调用大模型分析数据分布，AI 综合报告生成多周期决策分析
+                </div>
+              </Card>
+            </Col>
+            <Col span={12}>
+              <Card size="small" styles={{ body: { padding: '12px 16px' } }}>
+                <Space>
+                  <Text strong>当前版本</Text>
+                  <Tag color="green">{activeVersion?.version || 'N/A'}</Tag>
+                  {activeVersion && <Tag color={METHOD_CONFIG[activeVersion.method]?.color}>{METHOD_CONFIG[activeVersion.method]?.emoji} {METHOD_CONFIG[activeVersion.method]?.label}</Tag>}
+                </Space>
+                <div style={{ marginTop: 8, fontSize: 12, color: '#999' }}>
+                  {activeVersion?.activated_at ? `生效于 ${activeVersion.activated_at.slice(0, 10)}` : '尚未生效'}
+                </div>
+              </Card>
+            </Col>
+          </Row>
+
+            {settings && (
+              <Card title="手动调整权重" extra={<Text type="secondary" style={{ fontSize: 12 }}>* 量纲：绝对分值（0-100 分制），所有维度建议合计≈100</Text>} size="small" style={{ marginTop: 16 }}>
+               <Row gutter={[16, 16]}>
+                 {WEIGHT_DIMENSIONS.map(dw => (
+                   <Col span={12} key={dw.key}>
+                     <div style={{ marginBottom: 4 }}>
+                       <Text style={{ fontWeight: 500 }}>{dw.label}权重</Text>
+                       <Text strong style={{ marginLeft: 8, fontSize: 14 }}>
+                         {manualWeights[dw.key]?.toFixed(2) ?? settings.scoring_weights[dw.key]}
+                       </Text>
+                     </div>
+                     <Slider value={manualWeights[dw.key] ?? settings.scoring_weights[dw.key]} min={dw.min} max={dw.max} step={dw.step}
+                       onChange={v => setManualWeights(prev => ({ ...prev, [dw.key]: v }))}
+                       tooltip={{ formatter: (val) => `${val}` }} />
+                   </Col>
+                 ))}
+               </Row>
+               <div style={{ marginTop: 12, textAlign: 'center' }}>
+                 <Button type="primary" onClick={handleSaveWeights}>
+                   保存修改 — 创建新版本
+                 </Button>
+                 <Text style={{ marginLeft: 16, color: '#999', fontSize: 12 }}>
+                   保存后将创建新的手动权重版本（草稿），可在版本历史中应用生效
+                 </Text>
+               </div>
+             </Card>
+            )}
+
+          <Modal
+            title="确认保存权重"
+            open={applyMode !== null}
+            onCancel={() => setApplyMode(null)}
+            footer={[
+              <Button key="draft" onClick={() => { setApplyMode('draft'); handleConfirmSaveWeights(); }}>仅创建（草稿）</Button>,
+              <Button key="apply" type="primary" onClick={() => { setApplyMode('apply'); handleConfirmSaveWeights(); }} loading={savingWeights}>
+                立即应用
+              </Button>,
+            ]}>
+            <div style={{ marginBottom: 12 }}>
+              <Radio.Group value={applyMode} onChange={e => setApplyMode(e.target.value)}>
+                <Radio.Button value="draft">仅创建 — 新版本保存为草稿，不立即生效</Radio.Button>
+                <Radio.Button value="apply">立即应用 — 新版本立即生效，自动重算所有分数</Radio.Button>
+              </Radio.Group>
+            </div>
+            {applyMode === 'draft' ? (
+              <Alert message="仅创建" description="新版本将保存为草稿状态，不会立即生效。您可以在「版本历史」Tab 中对比和应用。" type="info" showIcon />
+            ) : (
+              <Alert message="立即应用" description="新版本将立即成为生效版本，当前版本将被归档。系统将自动重算所有贡献者的分数并生成快照。" type="warning" showIcon />
+            )}
+          </Modal>
+
+          {/* 模型选择弹窗 */}
+          <Modal
+            title={pendingAction === 'ai-weights' ? '选择 AI 模型 - AI 评权' : '选择 AI 模型 - 生成报告'}
+            open={modelSelectOpen}
+            onCancel={() => setModelSelectOpen(false)}
+            footer={[
+              <Button key="cancel" onClick={() => setModelSelectOpen(false)}>取消</Button>,
+              <Button
+                key="confirm"
+                type="primary"
+                loading={pendingAction === 'ai-weights' ? aiCalculating : aiReporting}
+                disabled={!selectedModel && llmProviders.length > 0}
+                onClick={() => {
+                  setModelSelectOpen(false)
+                  // 下拉值格式为 'provider::model'，解析后分别作为 provider/model 传给后端
+                  let parsedModel: string | null = null
+                  let parsedProvider: string | null = null
+                  if (selectedModel) {
+                    const sep = selectedModel.lastIndexOf('::')
+                    parsedProvider = sep > 0 ? selectedModel.slice(0, sep) : null
+                    parsedModel = sep > 0 ? selectedModel.slice(sep + 2) : selectedModel
+                  }
+                  if (pendingAction === 'ai-weights') {
+                    handleAIWeights(parsedModel, parsedProvider)
+                  } else if (pendingAction === 'ai-report') {
+                    handleGenerateAIReport(parsedModel, parsedProvider)
+                  }
+                }}
+              >
+                确认执行
+              </Button>,
+            ]}
+          >
+            <div style={{ marginBottom: 16 }}>
+              <Text type="secondary">选择一个可用的大模型执行操作。未选择时将使用系统默认激活的模型。</Text>
+            </div>
+            {llmProviders.length === 0 ? (
+              <Alert
+                message="无可用的 LLM 提供商"
+                description="请先在「系统配置 → LLM 配置」中添加并启用至少一个 LLM 提供商。"
+                type="warning"
+                showIcon
+              />
+            ) : (
+              <Select
+                style={{ width: '100%' }}
+                placeholder="选择模型（留空使用默认激活模型）"
+                value={selectedModel || undefined}
+                onChange={v => setSelectedModel(v || null)}
+                allowClear
+              >
+                {llmProviders.filter(p => p.enabled && p.api_key_configured).map((p, idx) => (
+                  <Select.Option key={`${p.provider}-${idx}`} value={`${p.provider}::${p.default_model}`}>
+                    <Space>
+                      <Tag color={p.is_active ? 'gold' : 'blue'}>
+                        {p.display_name}
+                      </Tag>
+                      <Text type="secondary">{p.default_model}</Text>
+                      {p.is_active && <Tag color="gold">默认</Tag>}
+                    </Space>
+                  </Select.Option>
+                ))}
+              </Select>
+            )}
+            {llmProviders.filter(p => p.enabled && p.api_key_configured).length === 0 && llmProviders.length > 0 && (
+              <Alert
+                message="没有已启用且配置 API Key 的模型"
+                description="所有已配置的模型都未启用或未配置 API Key，请先在「系统配置 → LLM 配置」中完善配置。"
+                type="error"
+                showIcon
+                style={{ marginTop: 12 }}
+              />
+            )}
+          </Modal>
+        </Tabs.TabPane>
+
+        {/* Tab 2: 版本历史 */}
+        <Tabs.TabPane tab="版本历史" key="versions">
+          <div style={{ marginBottom: 12 }}>
+            <Select value={selectedForCompare} placeholder="选择基准版本" allowClear style={{ width: 180, marginRight: 8 }}
+              onChange={v => setSelectedForCompare(v)}>
+              {versions.map(v => <Select.Option key={v.id} value={v.id}>{v.version} ({v.method})</Select.Option>)}
+            </Select>
+            <Select value={comparingVersion} placeholder="选择对比版本" allowClear style={{ width: 180, marginRight: 8 }}
+              onChange={v => setComparingVersion(v)}>
+              {versions.map(v => <Select.Option key={v.id} value={v.id}>{v.version} ({v.method})</Select.Option>)}
+            </Select>
+            <Button onClick={handleCompare}>对比</Button>
+          </div>
+
+          {compareResult && (
+            <Card title={`对比: ${compareResult.version_a.version} vs ${compareResult.version_b.version}`} size="small" style={{ marginBottom: 16 }}
+              extra={<Button size="small" onClick={() => setCompareResult(null)}>关闭</Button>}>
+              <Descriptions column={4} size="small" bordered>
+                  {Object.entries(compareResult.weight_diff).map(([key, diff]) => (
+                    <Descriptions.Item key={key} label={WEIGHT_LABELS[key as keyof typeof WEIGHT_LABELS] || key}>
+                      {diff.from} → {diff.to} ({diff.change_pct > 0 ? '+' : ''}{diff.change_pct.toFixed(1)}%)
+                    </Descriptions.Item>
+                  ))}
+              </Descriptions>
+              {compareResult.score_impact?.quadrant_changes && compareResult.score_impact.quadrant_changes.length > 0 && (
+                <div style={{ marginTop: 8 }}>
+                  <Text strong>象限变动 ({compareResult.score_impact.quadrant_changes.length} 人):</Text>
+                  <div style={{ marginTop: 4 }}>
+                    {compareResult.score_impact.quadrant_changes.map((c: any, i: number) => (
+                      <Tag key={i}>{c.login}: {c.from} → {c.to}</Tag>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </Card>
+          )}
+
+          <Timeline
+            items={versions.map(v => ({
+              color: v.status === 'active' ? 'green' : 'gray',
+              children: (
+                <div>
+                  <Space>
+                    <Text strong>{v.version}</Text>
+                    <Tag color={v.status === 'active' ? 'green' : v.status === 'draft' ? 'orange' : 'default'}>{v.status}</Tag>
+                     <Tag color={METHOD_CONFIG[v.method]?.color || 'default'}>
+                       {METHOD_CONFIG[v.method]?.emoji || ''} {METHOD_CONFIG[v.method]?.label || v.method}
+                    </Tag>
+                    {v.confidence_score != null && <Text type="secondary">置信度: {v.confidence_score.toFixed(2)}</Text>}
+                  </Space>
+                  <div style={{ marginTop: 4, marginBottom: 4 }}>
+                    <Text type="secondary">{v.created_by}</Text>
+                    <Text type="secondary" style={{ marginLeft: 8 }}>{formatTimezone(v.created_at)}</Text>
+                    {v.description && <Text style={{ marginLeft: 8 }}>{v.description}</Text>}
+                  </div>
+                  <Space size="small" style={{ marginBottom: 8 }}>
+                    {v.status !== 'active' && (
+                      <Button size="small" onClick={() => handleRollback(v.id)} loading={applying === v.id}>
+                        {v.status === 'draft' ? '应用' : '回滚'}
+                      </Button>
+                    )}
+                     <Button size="small" type="link" onClick={() => handleExportByVersion(v.id, 'pdf')}>导出 PDF</Button>
+                    <Button size="small" type="link" onClick={() => generateScoreSnapshot(v.id).then(r => { if (r) { message.success('快照生成成功'); loadAll(); } })}>生成快照</Button>
+                  </Space>
+                  {v.ai_response ? (() => {
+                    const isMarkdown = /\n|^- |###|\*\*/.test(v.ai_response)
+                    const preview = v.ai_response.slice(0, 80)
+                    const hasMore = v.ai_response.length > 80
+                    return (
+                      <div style={{ marginTop: 8, padding: '8px 12px', background: '#f5f5f5', borderRadius: 4, fontSize: 12 }}>
+                        <Space style={{ width: '100%', justifyContent: 'space-between' }}>
+                          <Text strong style={{ fontSize: 12 }}>AI 分析</Text>
+                          <Button
+                            type="link"
+                            size="small"
+                            style={{ padding: 0, fontSize: 12 }}
+                            onClick={() => {
+                              Modal.info({
+                                title: `AI 分析 — ${v.version}`,
+                                width: 720,
+                                content: (
+                                  <div style={{ maxHeight: '60vh', overflowY: 'auto' }}>
+                                    {isMarkdown ? (
+                                      <MarkdownRenderer content={v.ai_response!} />
+                                    ) : (
+                                      <Paragraph style={{ whiteSpace: 'pre-wrap', fontSize: 13, marginBottom: 0 }}>{v.ai_response}</Paragraph>
+                                    )}
+                                  </div>
+                                ),
+                                footer: null,
+                                closable: true,
+                              })
+                            }}
+                          >
+                            查看详情 →
+                          </Button>
+                        </Space>
+                        <div style={{ marginTop: 4, color: '#555', lineHeight: 1.6 }}>
+                          {preview}{hasMore ? '…' : ''}
+                        </div>
+                      </div>
+                    )
+                  })() : null}
+                </div>
+              ),
+            }))}
+          />
+        </Tabs.TabPane>
+
+        {/* Tab 3: 分数快照 */}
+        <Tabs.TabPane tab="分数快照" key="snapshots">
+          <div style={{ marginBottom: 12 }}>
+            <Space>
+              <Button size="small" onClick={() => activeVersion && handleExportByVersion(activeVersion.id, 'pdf')} loading={exporting}>
+                导出 PDF (当前版本)
+              </Button>
+            </Space>
+          </div>
+          <Table
+            dataSource={snapshots}
+            rowKey="id"
+            size="small"
+            pagination={{ pageSize: 10, showSizeChanger: true }}
+            columns={[
+              { title: 'ID', dataIndex: 'id', width: 60 },
+              { title: '日期', width: 180, render: (r: ScoreSnapshot) => formatTimezone(r.created_at) || (r.snapshot_date || '-') },
+              { title: '贡献者数', dataIndex: 'contributor_count', width: 100 },
+              { title: '均值', render: (r: ScoreSnapshot) => r.statistics?.score_mean?.toFixed?.(1) || '-', width: 80 },
+              { title: '操作人', dataIndex: 'created_by', width: 100 },
+              {
+                title: '操作',
+                width: 80,
+                render: (r: ScoreSnapshot) => (
+                  <Button size="small" onClick={() => setSelectedSnapshot(r)}>查看</Button>
+                ),
+              },
+            ]}
+          />
+          {selectedSnapshot && (
+            <Card title={`快照 ${selectedSnapshot.snapshot_date}`} size="small" style={{ marginTop: 16 }}
+              extra={<Button size="small" onClick={() => setSelectedSnapshot(null)}>关闭</Button>}>
+              <Descriptions column={3} size="small" bordered>
+                <Descriptions.Item label="贡献者数">{selectedSnapshot.contributor_count}</Descriptions.Item>
+                <Descriptions.Item label="分数均值">
+                  {selectedSnapshot.statistics?.score_mean?.toFixed(1)}
+                </Descriptions.Item>
+                <Descriptions.Item label="四象限分布">
+                  {selectedSnapshot.statistics?.quadrant_distribution &&
+                    Object.entries(selectedSnapshot.statistics.quadrant_distribution as Record<string, number>).map(([k, v]) => (
+                      <Tag key={k} color={quadrantColors[k] || 'default'}>
+                        {quadrantLabels[k] || k}: {v}
+                      </Tag>
+                    ))
+                  }
+                </Descriptions.Item>
+              </Descriptions>
+              <Divider />
+              <Table
+                dataSource={selectedSnapshot.scores}
+                rowKey="login"
+                size="small"
+                pagination={{ pageSize: 10 }}
+                columns={[
+                  { title: '用户', dataIndex: 'login', width: 180 },
+                  { title: '分数', dataIndex: 'score', width: 100, sorter: (a: any, b: any) => a.score - b.score, render: (v: number) => Number(v).toFixed(2) },
+                  { title: '错误分', dataIndex: 'error_score', width: 100 },
+                  { title: '象限', dataIndex: 'quadrant', width: 100, render: (q: string) => <Tag color={quadrantColors[q]}>{quadrantLabels[q] || q}</Tag> },
+                ]}
+              />
+            </Card>
+          )}
+        </Tabs.TabPane>
+
+        {/* Tab 4: 审计日志 */}
+        <Tabs.TabPane tab="审计日志" key="audit">
+          <Table
+            dataSource={audits}
+            rowKey="id"
+            size="small"
+            pagination={{ pageSize: 10, showSizeChanger: true }}
+            columns={[
+              { title: 'ID', dataIndex: 'id', width: 60 },
+              { title: '操作', dataIndex: 'action', width: 180, render: (a: string) => {
+                  const map: Record<string, {color: string, label: string}> = {
+                    'create_version': {color: 'blue', label: '创建版本'},
+                    'apply_version': {color: 'green', label: '应用版本'},
+                    'rollback_version': {color: 'orange', label: '回滚版本'},
+                    'generate_snapshot': {color: 'purple', label: '生成快照'},
+                  }
+                  const info = map[a] || {color: 'default', label: a}
+                  return <Tag color={info.color}>{info.label}</Tag>
+                }},
+              { title: '操作人', dataIndex: 'created_by', width: 100 },
+              { title: '详情', dataIndex: 'summary', ellipsis: true },
+              {
+                title: '最大变动',
+                dataIndex: 'max_weight_shift',
+                width: 100,
+                render: (v: number | null) => v != null
+                  ? <Tag color={v > 30 ? 'red' : v > 15 ? 'orange' : 'green'}>{v.toFixed(1)}%</Tag>
+                  : '-',
+              },
+              { title: '时间', dataIndex: 'created_at', render: (v: string) => formatTimezone(v), width: 180 },
+            ]}
+          />
+        </Tabs.TabPane>
+
+        {/* Tab 5: AI 综合报告 */}
+        <Tabs.TabPane tab="AI 综合报告" key="ai-report">
+          <Card style={{ marginBottom: 16 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <div>
+                <Text strong>生成 AI 综合分析报告</Text>
+                <div style={{ fontSize: 12, color: '#999' }}>
+                  基于多周期四象限数据，调用大模型生成团队健康度分析和决策建议
+                </div>
+              </div>
+              <Space>
+                <Button icon={<FilePdfOutlined style={{ color: '#722ed1' }} />} onClick={() => setComprehensivePdfOpen(true)}>
+                  导出综合 PDF
+                </Button>
+                <Button type="primary" onClick={handleGenerateAIReportClick} loading={aiReporting}
+                  style={{ background: 'linear-gradient(135deg, #722ed1 0%, #b745d3 100%)', border: 'none' }}>
+                  生成新报告
+                </Button>
+              </Space>
+            </div>
+          </Card>
+
+          <Spin spinning={reportLoading}>
+            {selectedReport ? (
+              <div>
+                <Button size="small" onClick={() => setSelectedReport(null)} style={{ marginBottom: 12 }}>
+                  ← 返回列表
+                </Button>
+
+                <Descriptions bordered column={3} size="small" style={{ marginBottom: 16 }}>
+                  <Descriptions.Item label="报告名称">
+                    <Text strong>{selectedReport.report_name}</Text>
+                  </Descriptions.Item>
+                  <Descriptions.Item label="报告类型">
+                    <Tag>{selectedReport.report_type || 'adhoc'}</Tag>
+                  </Descriptions.Item>
+                  <Descriptions.Item label="模型">
+                    <Tag color="purple">{selectedReport.llm_model || 'N/A'}</Tag>
+                  </Descriptions.Item>
+                  <Descriptions.Item label="置信度">
+                    {selectedReport.confidence_overall != null ? (
+                      <Progress percent={Math.round(selectedReport.confidence_overall * 100)} size="small" />
+                    ) : <Text type="secondary">N/A</Text>}
+                  </Descriptions.Item>
+                  <Descriptions.Item label="操作人">
+                    {selectedReport.generated_by || 'N/A'}
+                  </Descriptions.Item>
+                  <Descriptions.Item label="生成时间">
+                    {formatTimezone(selectedReport.generated_at) || 'N/A'}
+                  </Descriptions.Item>
+                </Descriptions>
+
+                {/* 风险管理 + Executive Summary */}
+                <div style={{ display: 'flex', gap: 12, marginBottom: 16, flexWrap: 'wrap' }}>
+                  {selectedReport.risk_level && (
+                    <Tag color={selectedReport.risk_level === 'low' ? 'green' : selectedReport.risk_level === 'medium' ? 'orange' : 'red'}
+                      style={{ fontSize: 14, padding: '4px 12px' }}>
+                      风险等级: {selectedReport.risk_level === 'low' ? '低' : selectedReport.risk_level === 'medium' ? '中' : '高'}
+                    </Tag>
+                  )}
+                  {selectedReport.confidence_overall != null && (
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                      <Text type="secondary" style={{ fontSize: 13 }}>置信度</Text>
+                      <Progress percent={Math.round(selectedReport.confidence_overall * 100)} size="small" style={{ width: 80 }} />
+                    </div>
+                  )}
+                </div>
+
+                {selectedReport.executive_summary && (
+                  <Alert
+                    message="Executive Summary"
+                    description={selectedReport.executive_summary}
+                    type="info"
+                    showIcon
+                    style={{ marginBottom: 16 }}
+                  />
+                )}
+
+                {/* 5 维结构化分析卡片 */}
+                {(() => {
+                  const dimensions: Array<{ key: string; title: string; icon: React.ReactNode; color: string; data?: AIAnalysisDimension | null }> = [
+                    { key: 'team_health', title: '团队健康度', icon: <HeartOutlined />, color: '#1890ff', data: selectedReport.team_health },
+                    { key: 'core_contributors', title: '核心贡献者', icon: <TeamOutlined />, color: '#52c41a', data: selectedReport.core_contributors },
+                    { key: 'new_contributors', title: '新晋贡献者', icon: <RocketOutlined />, color: '#722ed1', data: selectedReport.new_contributors },
+                    { key: 'improvement_areas', title: '改进方向', icon: <WarningOutlined />, color: '#faad14', data: selectedReport.improvement_areas },
+                  ]
+                  const visibleDims = dimensions.filter(d => d.data?.content)
+                  return visibleDims.length > 0 ? (
+                    <Row gutter={[16, 16]} style={{ marginBottom: 16 }}>
+                      {visibleDims.map(dim => (
+                        <Col xs={24} md={12} key={dim.key}>
+                          <Card size="small" style={{ height: '100%', borderTop: `3px solid ${dim.color}` }}
+                            title={<span style={{ color: dim.color }}><Space>{dim.icon}{dim.title}</Space></span>}>
+                            {dim.data!.metrics && Object.keys(dim.data!.metrics).length > 0 && (
+                              <div style={{ marginBottom: 10, display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+                                {Object.entries(dim.data!.metrics).map(([mk, mv]) => (
+                                  <Tag key={mk} color={dim.color === '#faad14' ? 'gold' : 'blue'} style={{ borderRadius: 4 }}>
+                                    {mk}: <Text strong style={{ fontSize: 13 }}>{typeof mv === 'number' ? mv : String(mv)}</Text>
+                                  </Tag>
+                                ))}
+                              </div>
+                            )}
+                            <MarkdownRenderer content={dim.data!.content} maxHeight={200} />
+                          </Card>
+                        </Col>
+                      ))}
+                    </Row>
+                  ) : null
+                })()}
+
+                {/* Top 贡献者表格 */}
+                {selectedReport.top_contributors && selectedReport.top_contributors.length > 0 && (
+                  <Card title={<span><TrophyOutlined /> Top {selectedReport.top_contributors.length} 贡献者明细</span>} size="small" style={{ marginBottom: 16 }}>
+                    <Table
+                      dataSource={selectedReport.top_contributors}
+                      rowKey="login"
+                      size="small"
+                      pagination={false}
+                      columns={[
+                        {
+                          title: '排名', width: 60,
+                          render: (_: unknown, __: AITopContributor, idx: number) => (
+                            <span style={{ fontWeight: 'bold', color: idx < 3 ? '#fa8c16' : '#999' }}>#{idx + 1}</span>
+                          ),
+                        },
+                        { title: '用户', dataIndex: 'login', width: 150, render: (v: string) => <Text strong>{v}</Text> },
+                        {
+                          title: '分数', dataIndex: 'score', width: 80,
+                          render: (v: number) => <Text strong style={{ color: v >= 70 ? '#52c41a' : v >= 40 ? '#1890ff' : '#faad14' }}>{v}</Text>,
+                        },
+                        {
+                          title: '象限', dataIndex: 'quadrant', width: 100,
+                          render: (q: string) => q ? <Tag color={quadrantColors[q]}>{quadrantLabels[q] || q}</Tag> : '-',
+                        },
+                        { title: 'PR', dataIndex: 'pr_merged', width: 60, render: (v: number | null) => v ?? '-' },
+                        { title: '提交', dataIndex: 'commit_count', width: 60, render: (v: number | null) => v ?? '-' },
+                        { title: 'AI 客观评价', dataIndex: 'evaluation', ellipsis: true },
+                      ]}
+                    />
+                  </Card>
+                )}
+
+                {/* 四象限分析（兼容旧数据 / LLM 额外返回） */}
+                {selectedReport.quadrant_analysis && (() => {
+                  const qa = selectedReport.quadrant_analysis as Record<string, any>
+                  const rows = qa.quadrants ? Object.entries(qa.quadrants).map(([k, v]) => (
+                    { key: k, quadrant: quadrantLabels[k] || k, count: v as number, pct: qa.total ? `${((v as number) / qa.total * 100).toFixed(1)}%` : '-' }
+                  )) : []
+                  const trends: Array<{ period: string; distribution: Record<string, number> }> = qa.trends || []
+                  return (
+                    <Card title="四象限分析" size="small" style={{ marginBottom: 16 }}>
+                      {qa.summary && <MarkdownRenderer content={qa.summary} />}
+                      {rows.length > 0 && (
+                        <Table
+                          dataSource={rows}
+                          rowKey="key"
+                          size="small"
+                          pagination={false}
+                          style={{ marginTop: 12 }}
+                          columns={[
+                            { title: '象限', dataIndex: 'quadrant', render: (v: string, r) => <Tag color={quadrantColors[r.key]}>{v}</Tag> },
+                            { title: '人数', dataIndex: 'count' },
+                            { title: '占比', dataIndex: 'pct' },
+                          ]}
+                        />
+                      )}
+                      {trends.length > 1 && (
+                        <div style={{ marginTop: 12 }}>
+                          <Text strong style={{ fontSize: 13 }}>趋势变化</Text>
+                          {trends.map((t, i) => {
+                            const total = Object.values(t.distribution).reduce((a: number, b: number) => a + (b || 0), 0)
+                            return (
+                              <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 12, marginTop: 8, fontSize: 12 }}>
+                                <Text type="secondary" style={{ width: 90, flexShrink: 0 }}>{t.period}</Text>
+                                <div style={{ flex: 1, display: 'flex', gap: 3 }}>
+                                  {Object.entries(t.distribution).map(([qkey, v]) => {
+                                    const pct = total ? (v / total * 100) : 0
+                                    return (
+                                      <div key={qkey} title={`${quadrantLabels[qkey] || qkey}: ${v} (${pct.toFixed(1)}%)`} style={{ flex: pct ? Math.max(pct, 4) : 0.5, height: 18, background: quadrantColors[qkey] || '#d9d9d9', borderRadius: 2, minWidth: 4 }} />
+                                    )
+                                  })}
+                                </div>
+                              </div>
+                            )
+                          })}
+                        </div>
+                      )}
+                    </Card>
+                  )
+                })()}
+
+                {/* 决策建议 */}
+                {selectedReport.recommendations && selectedReport.recommendations.length > 0 && (
+                  <Card title="决策建议" size="small">
+                    {selectedReport.recommendations.map((rec: Record<string, any> | string, i: number) => {
+                      const text = typeof rec === 'string' ? rec : (rec?.description || rec?.title || JSON.stringify(rec))
+                      const isMarkdown = /\n|^- |\*\*|###/.test(text)
+                      return (
+                        <div key={i} style={{ padding: '10px 14px', background: '#f5f0ff', borderRadius: 6, marginBottom: 10, display: 'flex', gap: 10, alignItems: 'flex-start' }}>
+                          <div style={{
+                            width: 24, height: 24, borderRadius: '50%',
+                            background: 'linear-gradient(135deg, #722ed1, #b745d3)',
+                            color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center',
+                            fontSize: 12, fontWeight: 'bold', flexShrink: 0
+                          }}>{i + 1}</div>
+                          <div style={{ flex: 1 }}>
+                            {isMarkdown ? (
+                              <MarkdownRenderer content={text} />
+                            ) : (
+                              <Text style={{ fontSize: 13 }}>{text}</Text>
+                            )}
+                          </div>
+                        </div>
+                      )
+                    })}
+                  </Card>
+                )}
+
+                {/* Markdown 完整报告正文（放在最后） */}
+                {selectedReport.report_content && (
+                  <Card title="完整报告正文" size="small" style={{ marginTop: 16 }}>
+                    <MarkdownRenderer content={selectedReport.report_content} maxHeight={800} />
+                  </Card>
+                )}
+              </div>
+            ) : (
+              <Table
+                dataSource={aiReports}
+                rowKey="id"
+                size="small"
+                pagination={{ pageSize: 10 }}
+                columns={[
+                  { title: '报告名称', dataIndex: 'report_name', width: 200 },
+                  { title: '类型', dataIndex: 'report_type', width: 100 },
+                  {
+                    title: '置信度',
+                    dataIndex: 'confidence_overall',
+                    width: 120,
+                    render: (v: number | null) => v != null
+                      ? <Progress percent={Math.round(v * 100)} size="small" />
+                      : '-',
+                  },
+                  { title: '模型', dataIndex: 'llm_model', width: 120 },
+                  { title: '操作人', dataIndex: 'generated_by', width: 100 },
+                  { title: '生成时间', render: (_: unknown, r: AIReportListItem) => formatTimezone(r.generated_at), width: 180 },
+                  {
+                    title: '操作',
+                    render: (_: unknown, r: AIReportListItem) => (
+                      <Space>
+                        <Button size="small" type="link" onClick={() => handleLoadReportDetail(r.id)}>查看</Button>
+                      </Space>
+                    ),
+                    width: 120,
+                  },
+                ]}
+              />
+            )}
+          </Spin>
+
+          {/* 综合 PDF 导出 Modal */}
+          <Modal
+            title={<span><FilePdfOutlined style={{ color: '#722ed1', marginRight: 6 }} />导出综合 PDF 报告</span>}
+            open={comprehensivePdfOpen}
+            onOk={handleExportComprehensivePdf}
+            confirmLoading={comprehensivePdfExporting}
+            onCancel={() => setComprehensivePdfOpen(false)}
+            okText="导出"
+            cancelText="取消"
+            width={480}
+          >
+            <div style={{ padding: '8px 0' }}>
+              <div style={{ marginBottom: 16 }}>
+                <Text strong style={{ display: 'block', marginBottom: 6 }}>时间范围（可选）</Text>
+                <DatePicker.RangePicker
+                  value={pdfPeriodRange}
+                  onChange={(range) => setPdfPeriodRange(range as [dayjs.Dayjs | null, dayjs.Dayjs | null] | null)}
+                  style={{ width: '100%' }}
+                  placeholder={['开始日期', '结束日期']}
+                />
+                <div style={{ fontSize: 12, color: '#999', marginTop: 4 }}>留空表示全量数据</div>
+              </div>
+              <div style={{ marginBottom: 16 }}>
+                <Text strong style={{ display: 'block', marginBottom: 6 }}>Top N</Text>
+                <InputNumber
+                  value={pdfTopN}
+                  onChange={(v) => setPdfTopN(v ?? 10)}
+                  min={1}
+                  max={50}
+                  style={{ width: '100%' }}
+                />
+              </div>
+              <div>
+                <Text strong style={{ display: 'block', marginBottom: 6 }}>象限筛选（可选，逗号分隔）</Text>
+                <Input
+                  value={pdfQuadrantFilter}
+                  onChange={(e) => setPdfQuadrantFilter(e.target.value)}
+                  placeholder="如 INCENTIVE,ENCOURAGE；留空表示全部"
+                />
+                <div style={{ fontSize: 12, color: '#999', marginTop: 4 }}>
+                  可选值: INCENTIVE / ENCOURAGE / IMPROVE / REPLACE
+                </div>
+              </div>
+            </div>
+          </Modal>
+        </Tabs.TabPane>
+      </Tabs>
+    </Spin>
+  )
+}
+
+/* ------------------------------------------------------------------ */
+/*                          贡献者详情页                              */
+/* ------------------------------------------------------------------ */
+
+function ContributorDetailPage() {
+  const navigate = useNavigate()
+  const { login } = useParams<{ login: string }>()
+  const [referrerTab, setReferrerTab] = useState<string | null>(null)
+  const [referrerRepo, setReferrerRepo] = useState<string | null>(null)
+  const [detail, setDetail] = useState<ContributorDetail | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [policy, setPolicy] = useState<PolicyResult | null>(null)
+  const [trend, setTrend] = useState<ExtendedTrend | null>(null)
+  const [heatmap, setHeatmap] = useState<HeatmapType | null>(null)
+  const [distribution, setDistribution] = useState<DistributionType | null>(null)
+  const [timeline, setTimeline] = useState<TimelineType | null>(null)
+  const [heatmapLoading, setHeatmapLoading] = useState(false)
+  const [distLoading, setDistLoading] = useState(false)
+  const [timelineLoading, setTimelineLoading] = useState(false)
+
+  useEffect(() => {
+    try {
+      setReferrerTab(sessionStorage.getItem('cb_last_tab'))
+      setReferrerRepo(sessionStorage.getItem('cb_last_repo'))
+    } catch { /* ignore */ }
+    loadAll()
+  }, [login])
+
+  const loadAll = async () => {
+    if (!login) return
+    setLoading(true)
+    try {
+      const [detailData, policyData, trendData, heatmapData, distData, timelineData] = await Promise.all([
+        getContributorDetail(login, 30).catch(() => null),
+        getContributorPolicy(login).catch(() => null),
+        getExtendedTrend(login).catch(() => null),
+        getContributorHeatmap(login).catch(() => null),
+        getContributorDistribution(login).catch(() => null),
+        getContributorTimeline(login).catch(() => null),
+      ])
+      setDetail(detailData)
+      setPolicy(policyData)
+      setTrend(trendData)
+      if (heatmapData) setHeatmap(heatmapData)
+      if (distData) setDistribution(distData)
+      if (timelineData) setTimeline(timelineData)
+    } catch {
+      message.error('加载贡献者详情失败')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const loadHeatmap = async () => {
+    if (!login) return
+    setHeatmapLoading(true)
+    try {
+      setHeatmap(await getContributorHeatmap(login))
+    } catch { /* ignore */ } finally {
+      setHeatmapLoading(false)
+    }
+  }
+
+  const loadDistribution = async () => {
+    if (!login) return
+    setDistLoading(true)
+    try {
+      setDistribution(await getContributorDistribution(login))
+    } catch { /* ignore */ } finally {
+      setDistLoading(false)
+    }
+  }
+
+  const loadTimeline = async () => {
+    if (!login) return
+    setTimelineLoading(true)
+    try {
+      setTimeline(await getContributorTimeline(login))
+    } catch { /* ignore */ } finally {
+      setTimelineLoading(false)
+    }
+  }
+
+  if (loading) return <Spin size="large" />
+
+  if (!detail) {
+    return <Empty description={`未找到贡献者: ${login}`} />
+  }
+
+  return (
+    <div>
+      <Row gutter={[16, 0]} style={{ marginBottom: 16 }}>
+        <Col span={22}>
+          <Button onClick={() => {
+            const params = new URLSearchParams()
+            if (referrerTab && referrerTab !== 'quadrant') params.set('tab', referrerTab)
+            if (referrerRepo) params.set('repo', referrerRepo)
+            navigate(`/contributor-board${params.toString() ? '?' + params.toString() : ''}`)
+          }} style={{ marginBottom: 8 }}>← 返回看板</Button>
+        </Col>
+      </Row>
+
+      <Card title={<Space><Avatar src={detail.avatar_url} size="large" icon={<GithubOutlined />} /> {detail.login} {detail.is_bot && <Tag color="purple">Bot</Tag>} {detail.company && <Tag color="blue">{detail.company}</Tag>}</Space>}>
+        <Descriptions bordered column={2}>
+          <Descriptions.Item label="姓名">{detail.name || '-'}</Descriptions.Item>
+          <Descriptions.Item label="邮箱">{detail.emails?.[0] || detail.email || '-'}</Descriptions.Item>
+          <Descriptions.Item label="首次贡献">{formatTimezone(detail.first_contribution_at, 'YYYY-MM-DD')}</Descriptions.Item>
+          <Descriptions.Item label="最近贡献">{formatTimezone(detail.last_contribution_at, 'YYYY-MM-DD')}</Descriptions.Item>
+          <Descriptions.Item label="工号">{detail.employee_id ? <Tag color="cyan">{detail.employee_id}</Tag> : '-'}</Descriptions.Item>
+          <Descriptions.Item label="类型">{detail.is_community ? <Tag color="blue">社区贡献者</Tag> : <Tag color="green">内部开发者</Tag>}{detail.is_bot && <Tag color="purple" style={{ marginLeft: 8 }}>机器人</Tag>}</Descriptions.Item>
+          <Descriptions.Item label="角色标签">
+            {detail.role_types && detail.role_types.length > 0 ? (
+              <Space>
+                {detail.role_types.map((role) => (
+                  <Tag key={role} color={roleColors[role] || 'default'}>
+                    {roleLabels[role] || role}
+                  </Tag>
+                ))}
+              </Space>
+            ) : (
+              <Tag color="default">未分配角色</Tag>
+            )}
+          </Descriptions.Item>
+          <Descriptions.Item label="象限">{detail.quadrant ? <Tag color={quadrantColors[detail.quadrant]}>{quadrantLabels[detail.quadrant] || detail.quadrant}</Tag> : '-'}</Descriptions.Item>
+        </Descriptions>
+      </Card>
+
+      <Row gutter={[16, 16]} style={{ marginTop: 16 }}>
+        <Col span={6}>
+          <Card>
+            <Statistic title="合并 PR" value={detail.merged_pr_count} valueStyle={{ color: '#5b46f5' }} />
+          </Card>
+        </Col>
+        <Col span={6}>
+          <Card>
+            <Statistic title="未合并 PR" value={detail.pending_pr_count} valueStyle={{ color: '#fa8c16' }} />
+          </Card>
+        </Col>
+        <Col span={6}>
+          <Card>
+            <Statistic title="代码添加" value={detail.code_additions} suffix="行" valueStyle={{ color: '#52c41a' }} />
+          </Card>
+        </Col>
+        <Col span={6}>
+          <Card>
+            <Statistic title="代码删除" value={detail.code_deletions} suffix="行" valueStyle={{ color: '#ff4d4f' }} />
+          </Card>
+        </Col>
+        <Col span={6}>
+          <Card>
+            <Statistic title="Review 数" value={detail.review_count} valueStyle={{ color: '#1890ff' }} />
+          </Card>
+        </Col>
+        <Col span={6}>
+          <Card>
+            <Statistic title="贡献分数" value={detail.contribution_score.toFixed(1)} valueStyle={{ color: '#fa8c16' }} />
+          </Card>
+        </Col>
+      </Row>
+
+      {(detail.ci_failure_count || detail.first_review_hours_avg != null || detail.merge_hours_avg != null || detail.ci_duration_hours_avg != null) && (
+        <Card size="small" title={<><ClockCircleOutlined style={{ marginRight: 6, color: '#1890ff' }} />PR 效率（来自 PR 流水线）</>} style={{ marginTop: 16, borderRadius: 12 }} bodyStyle={{ padding: '16px 20px' }}>
+          <Row gutter={[16, 16]}>
+            {detail.ci_failure_count != null && (
+              <Col span={6}>
+                <Statistic title="CI 失败" value={detail.ci_failure_count} suffix="次" valueStyle={{ color: detail.ci_failure_count > 0 ? '#ff4d4f' : '#52c41a' }} />
+              </Col>
+            )}
+            {detail.first_review_hours_avg != null && (
+              <Col span={6}>
+                <Statistic title="首次 Review 响应" value={detail.first_review_hours_avg} suffix="h" precision={1} valueStyle={{ color: '#1890ff' }} />
+              </Col>
+            )}
+            {detail.merge_hours_avg != null && (
+              <Col span={6}>
+                <Statistic title="平均合并时长" value={detail.merge_hours_avg} suffix="h" precision={1} valueStyle={{ color: '#722ed1' }} />
+              </Col>
+            )}
+            {detail.ci_duration_hours_avg != null && (
+              <Col span={6}>
+                <Statistic title="CI 执行时长" value={detail.ci_duration_hours_avg} suffix="h" precision={2} valueStyle={{ color: '#fa8c16' }} />
+              </Col>
+            )}
+          </Row>
+        </Card>
+      )}
+
+      {policy && policy.policies.length > 0 && (
+        <>
+          {/* ── 自动化策略面板 ── */}
+          <Card
+            style={{
+              marginTop: 16,
+              borderRadius: 12,
+              borderTop: '3px solid',
+              borderImage: 'linear-gradient(90deg, #722ed1, #b745d3) 1',
+              overflow: 'hidden',
+            }}
+            title={
+              <Space>
+                <RocketOutlined style={{ color: '#722ed1', fontSize: 18 }} />
+                <span style={{ fontWeight: 600, fontSize: 15 }}>自动化策略中心</span>
+                <Tag
+                  color={
+                    policy.has_critical ? '#ff4d4f' : policy.has_warning ? '#faad14' : '#722ed1'
+                  }
+                  style={{ fontWeight: 500 }}
+                >
+                  {policy.has_critical ? '需立即关注' : policy.has_warning ? '有待改进' : '运行良好'}
+                </Tag>
+              </Space>
+            }
+            extra={
+              <Space size="small">
+                <Tag color="blue" style={{ border: 'none' }}>
+                  自动 {policy.auto_count}
+                </Tag>
+                <Tag color="purple" style={{ border: 'none' }}>
+                  建议 {policy.suggestion_count}
+                </Tag>
+                {policy.alert_count > 0 && (
+                  <Tag color="red" style={{ border: 'none' }}>
+                    告警 {policy.alert_count}
+                  </Tag>
+                )}
+              </Space>
+            }
+          >
+            <Space direction="vertical" style={{ width: '100%' }} size="middle">
+              {/* 告警区域 */}
+              {policy.policies.filter(p => p.execution === 'alert').length > 0 && (
+                <div>
+                  <div style={{ fontSize: 12, fontWeight: 600, color: '#ff4d4f', marginBottom: 6 }}>
+                    <CloseCircleOutlined /> 需关注 ({policy.alert_count})
+                  </div>
+                  <Row gutter={[8, 8]}>
+                    {policy.policies.filter(p => p.execution === 'alert').map((p, i) => (
+                      <Col span={12} key={`alert-${i}`}>
+                        <div style={{
+                          padding: '8px 12px', borderRadius: 6,
+                          background: '#fff2f0', border: '1px solid #ffccc7',
+                        }}>
+                          <Space size={4} style={{ fontSize: 12 }}>
+                            <CloseCircleOutlined style={{ color: '#ff4d4f' }} />
+                            <span style={{ fontWeight: 500, flex: 1 }}>{p.description}</span>
+                            <Tag color="error" style={{ fontSize: 10, lineHeight: '16px' }}>{p.impact_level}</Tag>
+                          </Space>
+                          <div style={{ fontSize: 11, color: '#8c8c8c', marginTop: 4, paddingLeft: 18 }}>{p.reason}</div>
+                        </div>
+                      </Col>
+                    ))}
+                  </Row>
+                </div>
+              )}
+
+              {/* 自动执行区域 */}
+              {policy.policies.filter(p => p.execution === 'auto').length > 0 && (
+                <div>
+                  <div style={{ fontSize: 12, fontWeight: 600, color: '#52c41a', marginBottom: 6 }}>
+                    <CheckCircleOutlined /> 已自动执行 ({policy.auto_count})
+                  </div>
+                  <Row gutter={[8, 8]}>
+                    {policy.policies.filter(p => p.execution === 'auto').map((p, i) => (
+                      <Col span={12} key={`auto-${i}`}>
+                        <div style={{
+                          padding: '8px 12px', borderRadius: 6,
+                          background: '#f6ffed', border: '1px solid #d9f7be',
+                        }}>
+                          <Space size={4} style={{ fontSize: 12 }}>
+                            <CheckCircleOutlined style={{ color: '#52c41a' }} />
+                            <span style={{ fontWeight: 500, flex: 1 }}>{p.description}</span>
+                            <Tag color="success" style={{ fontSize: 10, lineHeight: '16px' }}>自动</Tag>
+                          </Space>
+                          <div style={{ fontSize: 11, color: '#8c8c8c', marginTop: 4, paddingLeft: 18 }}>{p.reason}</div>
+                        </div>
+                      </Col>
+                    ))}
+                  </Row>
+                </div>
+              )}
+
+              {/* 建议执行区域 */}
+              {policy.policies.filter(p => p.execution === 'suggestion').length > 0 && (
+                <div>
+                  <div style={{ fontSize: 12, fontWeight: 600, color: '#722ed1', marginBottom: 6 }}>
+                    <FlagOutlined /> 推荐建议 ({policy.suggestion_count})
+                  </div>
+                  <Row gutter={[8, 8]}>
+                    {policy.policies.filter(p => p.execution === 'suggestion').map((p, i) => (
+                      <Col span={12} key={`sug-${i}`}>
+                        <div style={{
+                          padding: '8px 12px', borderRadius: 6,
+                          background: '#faf5ff', border: '1px solid #d3adf7',
+                        }}>
+                          <Space size={4} style={{ fontSize: 12 }}>
+                            <StarOutlined style={{ color: '#722ed1' }} />
+                            <span style={{ fontWeight: 500, flex: 1 }}>{p.description}</span>
+                            <Tag color={
+                              p.impact_level === '高' ? 'error' : p.impact_level === '中' ? 'warning' : 'default'
+                            } style={{ fontSize: 10, lineHeight: '16px' }}>{p.impact_level}</Tag>
+                            <Button size="small" type="primary" style={{
+                              height: 20, padding: '0 6px', fontSize: 11,
+                              background: '#722ed1', borderColor: '#722ed1',
+                            }}>采纳</Button>
+                          </Space>
+                          <div style={{ fontSize: 11, color: '#8c8c8c', marginTop: 4, paddingLeft: 18 }}>{p.reason}</div>
+                        </div>
+                      </Col>
+                    ))}
+                  </Row>
+                </div>
+              )}
+
+              {/* 兜底 info */}
+              {policy.policies.filter(p => !['alert', 'auto', 'suggestion'].includes(p.execution)).length > 0 && (
+                <div>
+                  <div style={{ fontSize: 12, fontWeight: 600, color: '#1890ff', marginBottom: 6 }}>
+                    <CheckCircleOutlined /> 其他
+                  </div>
+                  <Row gutter={[8, 8]}>
+                    {policy.policies.filter(p => !['alert', 'auto', 'suggestion'].includes(p.execution)).map((p, i) => (
+                      <Col span={12} key={`other-${i}`}>
+                        <div style={{
+                          padding: '8px 12px', borderRadius: 6,
+                          background: '#f0f5ff', border: '1px solid #b6e0ff',
+                        }}>
+                          <Space size={4} style={{ fontSize: 12 }}>
+                            <CheckCircleOutlined style={{ color: '#1890ff' }} />
+                            <span style={{ fontWeight: 500, flex: 1 }}>{p.description}</span>
+                            <Tag color="blue" style={{ fontSize: 10, lineHeight: '16px' }}>信息</Tag>
+                          </Space>
+                          <div style={{ fontSize: 11, color: '#8c8c8c', marginTop: 4, paddingLeft: 18 }}>{p.reason}</div>
+                        </div>
+                      </Col>
+                    ))}
+                  </Row>
+                </div>
+              )}
+            </Space>
+          </Card>
+        </>
+      )}
+
+      <Divider />
+
+      <Row gutter={[16, 16]}>
+        <Col span={12}>
+          <Card title="提交量趋势">
+            <div style={{ height: 350 }}>
+              {trend?.commit_trend && trend.commit_trend.length > 0 ? (
+                <EChartsBarChart data={trend.commit_trend} />
+              ) : (
+                <Empty description="暂无趋势数据" image={Empty.PRESENTED_IMAGE_SIMPLE} />
+              )}
+            </div>
+          </Card>
+        </Col>
+
+        <Col span={12}>
+          <Card title="Review 趋势">
+            <div style={{ height: 350 }}>
+              {trend?.review_trend && trend.review_trend.length > 0 ? (
+                <EChartsLineChart
+                  data={trend.review_trend}
+                  series={[
+                    { name: 'Review 数', dataKey: 'review_count', color: '#1890ff' },
+                    { name: 'Approval 数', dataKey: 'approval_count', color: '#722ed1' },
+                  ]}
+                />
+              ) : (
+                <Empty description="暂无趋势数据" image={Empty.PRESENTED_IMAGE_SIMPLE} />
+              )}
+            </div>
+          </Card>
+        </Col>
+
+        <Col span={24}>
+          <Card title="多维分数趋势">
+            <div style={{ height: 350 }}>
+              {trend?.score_trend && trend.score_trend.length > 0 ? (
+                <EChartsLineChart
+                  data={trend.score_trend}
+                  series={[
+                    { name: '贡献分数', dataKey: 'contribution_score', color: '#52c41a' },
+                    { name: '出错分数', dataKey: 'error_score', color: '#ff4d4f' },
+                    { name: '检视次数', dataKey: 'review_count', color: '#1890ff' },
+                    { name: 'PR合并数', dataKey: 'merged_pr_count', color: '#722ed1' },
+                    { name: '代码行数', dataKey: 'code_additions', color: '#fa8c16' },
+                  ]}
+                />
+              ) : (
+                <Empty description="暂无趋势数据" image={Empty.PRESENTED_IMAGE_SIMPLE} />
+              )}
+            </div>
+          </Card>
+        </Col>
+      </Row>
+
+      {/* ===== 贡献活动热力图 ===== */}
+      <Card
+        title="贡献活动热力图"
+        extra={<Button size="small" onClick={loadHeatmap} loading={heatmapLoading}>刷新</Button>}
+        style={{ marginTop: 16 }}
+      >
+        <div style={{ height: 260 }}>
+          {heatmap?.heatmap_data && heatmap.heatmap_data.length > 0 ? (
+            <ContributorHeatmapChart data={heatmap.heatmap_data} />
+          ) : (
+            <Empty description="暂无热力图数据" image={Empty.PRESENTED_IMAGE_SIMPLE} />
+          )}
+        </div>
+      </Card>
+
+      {/* ===== 模块分布 + 提交类型分布 ===== */}
+      <Row gutter={[16, 16]} style={{ marginTop: 16 }}>
+        <Col span={12}>
+          <Card
+            title="模块贡献分布"
+            extra={<Button size="small" onClick={loadDistribution} loading={distLoading}>刷新</Button>}
+          >
+            <div style={{ height: 350 }}>
+              {distribution?.modules && distribution.modules.length > 0 ? (
+                <EChartsPieChart
+                  data={distribution.modules.map(m => ({
+                    name: m.module,
+                    value: m.commit_count,
+                  }))}
+                />
+              ) : (
+                <Empty description="暂无模块分布数据" image={Empty.PRESENTED_IMAGE_SIMPLE} />
+              )}
+            </div>
+          </Card>
+        </Col>
+
+        <Col span={12}>
+          <Card title="提交类型分布">
+            <div style={{ height: 350 }}>
+              {distribution?.type_distribution && distribution.type_distribution.length > 0 ? (
+                <CommitTypeBarChart data={distribution.type_distribution} />
+              ) : (
+                <Empty description="暂无类型分布数据" image={Empty.PRESENTED_IMAGE_SIMPLE} />
+              )}
+            </div>
+          </Card>
+        </Col>
+      </Row>
+
+      {/* ===== 贡献时间线 ===== */}
+      <Card
+        title="最近提交活动 (Timeline)"
+        extra={<Button size="small" onClick={loadTimeline} loading={timelineLoading}>刷新</Button>}
+        style={{ marginTop: 16 }}
+      >
+        {timeline?.commits && timeline.commits.length > 0 ? (
+          <Timeline
+            mode="left"
+            items={timeline.commits.map(c => ({
+              color: classificationColors[c.classification] || 'gray',
+              children: (
+                <div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
+                    <Tag color={classificationColors[c.classification] || 'default'}>
+                      {classificationLabels[c.classification] || c.classification}
+                    </Tag>
+                    {c.module && <Tag>{c.module}</Tag>}
+                    <Text code style={{ fontSize: 12 }}>{c.commit_hash.slice(0, 8)}</Text>
+                  </div>
+                  <Text strong>{c.message}</Text>
+                  <div style={{ marginTop: 4 }}>
+                    <Text type="secondary" style={{ fontSize: 12 }}>
+                      {c.committed_at
+                        ? `${formatTimezone(c.committed_at, 'YYYY-MM-DD HH:mm')} · `
+                        : ''}
+                      {c.files_changed > 0 && `${c.files_changed} files · `}
+                      +{c.code_additions}/-{c.code_deletions}
+                    </Text>
+                  </div>
+                </div>
+              ),
+            }))}
+          />
+        ) : (
+          <Empty description="暂无时间线数据" image={Empty.PRESENTED_IMAGE_SIMPLE} />
+        )}
+      </Card>
+    </div>
+  )
+}
+
+/* ------------------------------------------------------------------ */
+/*                       手动同步 子组件                              */
+/* ------------------------------------------------------------------ */
+
+const { RangePicker } = DatePicker
+
+function ManualSyncPanel({ selectedRepo }: { selectedRepo?: string }) {
+  const [syncMode, setSyncMode] = useState<'full' | 'incremental' | 'range'>('incremental')
+  const [singleDate, setSingleDate] = useState<dayjs.Dayjs | null>(null)
+  const [dateRange, setDateRange] = useState<[dayjs.Dayjs, dayjs.Dayjs] | null>(null)
+  const [targetRepo, setTargetRepo] = useState<string | undefined>(selectedRepo)
+  const [syncLoading, setSyncLoading] = useState(false)
+  const [currentRecord, setCurrentRecord] = useState<SyncRecord | null>(null)
+  const [syncProgress, setSyncProgress] = useState(0)
+  const [syncProgressMsg, setSyncProgressMsg] = useState('')
+  const [repos, setRepos] = useState<string[]>([])
+  const pollTimerRef = useRef<ReturnType<typeof setInterval> | null>(null)
+  const pollMetaRef = useRef<{
+    recordId: number
+    startedAt: number
+    lastProgress: number
+    stagnantTicks: number
+    inFlight: boolean
+  } | null>(null)
+
+  const stopPoll = useCallback(() => {
+    if (pollTimerRef.current) { clearInterval(pollTimerRef.current); pollTimerRef.current = null }
+    pollMetaRef.current = null
+  }, [])
+
+  const tickPoll = useCallback(async () => {
+    const meta = pollMetaRef.current
+    if (!meta) return
+    // 防重复请求：上一次 HTTP 还没返回则跳过本次 tick
+    if (meta.inFlight) return
+
+    // 总超时：60 分钟没有任何 tick 成功视为停滞，停止轮询并提示手动刷新
+    if (Date.now() - meta.startedAt > 60 * 60 * 1000) {
+      stopPoll()
+      message.warning('同步进度轮询超时已停止，请手动刷新查看')
+      return
+    }
+
+    // 动态间隔：早期快、中期中、尾部慢、无进展时拉长
+    let delayMs: number
+    if (meta.stagnantTicks >= 6) delayMs = 30_000
+    else if (meta.lastProgress < 20) delayMs = 3_000
+    else if (meta.lastProgress < 80) delayMs = 5_000
+    else delayMs = 10_000
+
+    const elapsed = Date.now() - meta.startedAt
+    if (elapsed < delayMs) return
+
+    meta.inFlight = true
+    meta.startedAt = Date.now() // 滑动窗口：每次成功 tick 重置计时
+    try {
+      const status = await getSyncStatus(meta.recordId)
+      setCurrentRecord(status)
+      setSyncProgress(status.progress_percent || 0)
+      setSyncProgressMsg(status.progress_message || '')
+
+      if ((status.progress_percent || 0) > meta.lastProgress) {
+        meta.lastProgress = status.progress_percent || 0
+        meta.stagnantTicks = 0
+      } else {
+        meta.stagnantTicks += 1
+      }
+
+      if (['completed', 'failed', 'cancelled'].includes(status.status)) {
+        stopPoll()
+        setSyncLoading(false)
+        message.success(status.status === 'completed' ? '同步完成' : '同步失败')
+        setCurrentRecord(null)
+        setSyncProgress(0)
+        setSyncProgressMsg('')
+        window.dispatchEvent(new Event('settings-updated'))
+        window.dispatchEvent(new Event('sync-history-refresh'))
+      }
+    } catch { /* polling error: 静默重试 */ } finally {
+      meta.inFlight = false
+    }
+  }, [stopPoll])
+
+  const startPollSync = useCallback((recordId: number) => {
+    // 重置元信息：启动时间、上次进度、无进展计数、是否在途请求
+    pollMetaRef.current = {
+      recordId,
+      startedAt: Date.now(),
+      lastProgress: 0,
+      stagnantTicks: 0,
+      inFlight: false,
+    }
+    if (pollTimerRef.current) { clearInterval(pollTimerRef.current); pollTimerRef.current = null }
+    // 立即拉一次，避免第一次要等到 interval 第一次 tick
+    void tickPoll()
+    pollTimerRef.current = setInterval(() => { void tickPoll() }, 1000)
+  }, [tickPoll])
+
+  useEffect(() => {
+    setTargetRepo(selectedRepo)
+  }, [selectedRepo])
+
+  useEffect(() => {
+    const init = async () => {
+      try {
+        const data = await getReposList()
+        setRepos(data.repos ?? [])
+      } catch { /* ignore */ }
+
+      // 检查是否有正在运行的同步任务，刷新后恢复进度条
+      try {
+        const history = await getSyncHistory({ limit: 1, offset: 0 })
+        const running = history.records?.find((r: SyncRecord) => r.status === 'running' || r.status === 'pending')
+        if (running) {
+          setCurrentRecord(running)
+          setSyncProgress(running.progress_percent)
+          setSyncProgressMsg(running.progress_message || '')
+          setSyncLoading(true)
+          startPollSync(running.id)
+        }
+      } catch { /* ignore */ }
+    }
+    init()
+    return () => {
+      stopPoll()
+    }
+  }, [startPollSync, stopPoll])
+
+  const handleSync = async () => {
+    if (syncLoading) return
+    if (syncMode === 'incremental' && !singleDate) { message.warning('请选择起始日期'); return }
+    if (syncMode === 'range' && (!dateRange || !dateRange[0] || !dateRange[1])) { message.warning('请选择完整的时间范围'); return }
+
+    setSyncLoading(true)
+    try {
+      const result = await syncContributors({
+        fullResync: syncMode === 'full',
+        repoName: targetRepo || undefined,
+        sinceDate: syncMode === 'range' ? dateRange?.[0]?.format('YYYY-MM-DD') : singleDate?.format('YYYY-MM-DD'),
+        untilDate: syncMode === 'range' ? dateRange?.[1]?.format('YYYY-MM-DD') : undefined,
+      })
+      if (result.record_id) {
+        startPollSync(result.record_id)
+        message.success('同步已触发，后台执行中...')
+      } else { message.warning('同步触发失败'); setSyncLoading(false) }
+    } catch (err: unknown) {
+      const msg = typeof err === 'object' && err && 'detail' in err ? (err as { detail: string }).detail : '同步触发失败'
+      message.error(msg)
+      setSyncLoading(false)
+    }
+  }
+
+  const [clearing, setClearing] = useState(false)
+
+  const handleClearData = () => {
+    if (clearing || isRunning) return
+    Modal.confirm({
+      title: '清除贡献者采集数据？',
+      icon: <WarningOutlined />,
+      content: (
+        <div style={{ fontSize: 13, lineHeight: 1.7 }}>
+          <p style={{ margin: '0 0 8px' }}>将彻底清空以下已采集数据（排行榜、四象限、贡献者详情、热力图、时间线），评分设置与权重版本会保留：</p>
+          <ul style={{ margin: 0, paddingLeft: 18, color: '#666' }}>
+            <li>贡献者画像 / 排行 / 四象限</li>
+            <li>日度 PR 明细（详情页趋势等）</li>
+            <li>日度 commit 明细（热力图 / 模块分布 / 时间线）</li>
+            <li>贡献者身份表 + 同步历史</li>
+          </ul>
+          <p style={{ margin: '10px 0 0', color: '#cf1322' }}>此为不可逆操作，清除后请重新触发全量同步。</p>
+        </div>
+      ),
+      okText: '确认清除',
+      okButtonProps: { danger: true },
+      cancelText: '取消',
+      onOk: async () => {
+        setClearing(true)
+        try {
+          await clearSyncData()
+          message.success('已清除全部贡献者采集数据，请重新触发全量同步。')
+          // 刷新排行榜/统计、四象限、设置、同步历史
+          window.dispatchEvent(new Event('settings-updated'))
+          window.dispatchEvent(new Event('sync-history-refresh'))
+          // 重置本面板状态
+          setSyncMode('full')
+          setSingleDate(null)
+          setDateRange(null)
+        } catch (err: unknown) {
+          const msg = typeof err === 'object' && err && 'detail' in err ? (err as { detail: string }).detail : '清除失败'
+          message.error(msg)
+        } finally {
+          setClearing(false)
+        }
+      },
+    })
+  }
+
+  const [backfilling, setBackfilling] = useState(false)
+
+  const handleDailyBackfill = () => {
+    if (backfilling || isRunning) return
+    Modal.confirm({
+      title: '补录日度明细数据？',
+      icon: <WarningOutlined />,
+      content: (
+        <div style={{ fontSize: 13, lineHeight: 1.7 }}>
+          <p style={{ margin: '0 0 8px' }}>仅重新拉取并写入日度 PR / commit 明细（热力图、模块分布、时间线、趋势的数据源），不会修改排行榜数据。</p>
+          <p style={{ margin: '0', color: '#fa8c16' }}>
+            注意：需要拉取约 2 × PR 数次 GitHub API，全量约 5 小时（受 5000/h 限额约束）。
+          </p>
+        </div>
+      ),
+      okText: '开始补录',
+      cancelText: '取消',
+      onOk: async () => {
+        setBackfilling(true)
+        try {
+          const res = await triggerDailyBackfill({
+            full_resync: syncMode === 'full',
+            since_date: syncMode === 'incremental' && singleDate ? singleDate.format('YYYY-MM-DD') : (syncMode === 'range' && dateRange ? dateRange[0].format('YYYY-MM-DD') : null),
+            until_date: syncMode === 'range' && dateRange ? dateRange[1].format('YYYY-MM-DD') : null,
+            repo_name: targetRepo || null,
+          })
+          message.success(`日度明细补录已启动，任务 ID: ${res.record_id}`)
+          setSyncLoading(true)
+          setCurrentRecord({ id: res.record_id, status: 'running', progress_percent: 5, progress_message: '日度明细补录中...' } as any)
+          startPollSync(res.record_id)
+        } catch (err: unknown) {
+          const msg = typeof err === 'object' && err && 'detail' in err ? (err as { detail: string }).detail : '启动补录失败'
+          message.error(msg)
+        } finally {
+          setBackfilling(false)
+        }
+      },
+    })
+  }
+
+  const [cancelling, setCancelling] = useState(false)
+
+  const isRunning = currentRecord?.status === 'running' || currentRecord?.status === 'pending'
+
+  const handleCancel = async () => {
+    if (!currentRecord || cancelling) return
+    setCancelling(true)
+    try {
+      await cancelSync(currentRecord.id)
+      message.success('同步任务已取消')
+      if (pollTimerRef.current) clearInterval(pollTimerRef.current)
+      pollTimerRef.current = null
+      setSyncLoading(false)
+      setCurrentRecord(null)
+      setSyncProgress(0)
+      setSyncProgressMsg('')
+    } catch {
+      message.error('取消失败')
+    } finally {
+      setCancelling(false)
+    }
+  }
+
+  const cardStyle = {
+    background: '#fff',
+    borderRadius: 12,
+    boxShadow: '0 1px 4px rgba(0,0,0,0.06)',
+    border: '1px solid #f0f0f0',
+  }
+
+  const itemCards = [
+    {
+      title: <><CloudUploadOutlined style={{ marginRight: 6, color: '#1890ff' }} />同步模式</>,
+      children: (
+        <Radio.Group
+          value={syncMode}
+          onChange={(e) => { if (!isRunning) setSyncMode(e.target.value) }}
+          disabled={isRunning}
+          optionType="button"
+          buttonStyle="solid"
+          size="middle"
+        >
+          <Radio.Button value="full">全量</Radio.Button>
+          <Radio.Button value="incremental">增量</Radio.Button>
+          <Radio.Button value="range">范围</Radio.Button>
+        </Radio.Group>
+      ),
+    },
+    {
+      title: <><CalendarOutlined style={{ marginRight: 6, color: '#52c41a' }} />{syncMode === 'incremental' ? '起始日期' : syncMode === 'full' ? '说明' : '时间范围'}</>,
+      children: syncMode === 'full' ? (
+        <Alert message="从 2024-01-01 开始拉取所有 PR 数据，耗时较长" type="info" showIcon style={{ fontSize: 13 }} />
+      ) : syncMode === 'incremental' ? (
+        <DatePicker
+          value={singleDate}
+          onChange={setSingleDate}
+          placeholder="选择起始日期"
+          style={{ width: 220 }}
+          disabledDate={(current) => current && current > dayjs().endOf('day')}
+        />
+      ) : (
+        <RangePicker
+          value={dateRange}
+          onChange={(dates) => setDateRange(dates as [dayjs.Dayjs, dayjs.Dayjs] | null)}
+          placeholder={['起始日期', '截止日期']}
+          style={{ width: 340 }}
+        />
+      ),
+    },
+    {
+      title: <><GithubOutlined style={{ marginRight: 6, color: '#722ed1' }} />目标仓库</>,
+      extra: (
+        <Space>
+          <Button
+            danger
+            icon={<DeleteOutlined />}
+            loading={clearing}
+            disabled={isRunning}
+            onClick={handleClearData}
+          >
+            清除并重置
+          </Button>
+          <Button
+            icon={<ClockCircleOutlined />}
+            loading={backfilling}
+            disabled={isRunning}
+            onClick={handleDailyBackfill}
+          >
+            补录日度明细
+          </Button>
+          <Button
+            type="primary"
+            icon={<CloudUploadOutlined />}
+            loading={syncLoading && !currentRecord}
+            disabled={isRunning}
+            onClick={handleSync}
+          >
+            {isRunning ? '同步中' : '开始'}
+          </Button>
+        </Space>
+      ),
+      children: (
+        <Select
+          allowClear
+          placeholder="选择仓库（留空则同步全部）"
+          value={targetRepo}
+          onChange={setTargetRepo}
+          style={{ width: '100%' }}
+          options={repos.map(r => ({ label: r, value: r }))}
+          suffixIcon={<SearchOutlined />}
+        />
+      ),
+    },
+  ]
+
+  return (
+    <div>
+      <Row gutter={[16, 16]}>
+        {itemCards.map((card, i) => (
+          <Col xs={24} md={8} key={i}>
+            <Card size="small" title={card.title} extra={card.extra} style={cardStyle} bodyStyle={{ padding: '16px 20px' }}>
+              {card.children}
+            </Card>
+          </Col>
+        ))}
+      </Row>
+
+      {(currentRecord && (currentRecord.status === 'running' || currentRecord.status === 'pending')) && (
+        <Card size="small" style={{ ...cardStyle, marginTop: 16 }} bodyStyle={{ padding: '16px 20px' }}
+          extra={
+            <Button danger size="small" icon={<StopOutlined />} loading={cancelling} onClick={handleCancel}>
+              终止同步
+            </Button>
+          }>
+          <Space style={{ marginBottom: 6 }}>
+            {currentRecord.status === 'running'
+              ? <Tag color="processing"><ClockCircleOutlined /> 执行中</Tag>
+              : <Tag color="default"><ClockCircleOutlined /> 等待中</Tag>}
+            {currentRecord.contributors_synced > 0 && (
+              <Text type="secondary" style={{ fontSize: 12 }}>
+                {currentRecord.contributors_synced} 贡献者 · {currentRecord.commits_classified} 提交
+              </Text>
+            )}
+          </Space>
+          <Progress
+            percent={Math.round(syncProgress)}
+            status="active"
+            strokeColor={{ '0%': '#108ee9', '100%': '#87d068' }}
+            size="small"
+          />
+          {syncProgressMsg && (
+            <Text type="secondary" style={{ fontSize: 11, display: 'block', marginTop: 4 }}>{syncProgressMsg}</Text>
+          )}
+        </Card>
+      )}
+    </div>
+  )
+}
+
+/* ------------------------------------------------------------------ */
+/*                        同步记录历史 Tab                              */
+/* ------------------------------------------------------------------ */
+
+function SyncHistoryTab() {
+  const [retryingId, setRetryingId] = useState<number | null>(null)
+  const [records, setRecords] = useState<SyncRecord[]>([])
+  const [total, setTotal] = useState(0)
+  const [loading, setLoading] = useState(false)
+  const [pagination, setPagination] = useState({ current: 1, pageSize: 20 })
+  const [filterStatus, setFilterStatus] = useState<string | null>(null)
+  const [filterRepo, setFilterRepo] = useState<string | null>(null)
+  const [repos, setRepos] = useState<string[]>([])
+  const [detailRecord, setDetailRecord] = useState<SyncRecord | null>(null)
+  const [cancellingId, setCancellingId] = useState<number | null>(null)
+  const [summary, setSummary] = useState<SyncSummary | null>(null)
+
+  useEffect(() => {
+    const init = async () => {
+      try {
+        const data = await getReposList()
+        setRepos(data.repos ?? [])
+      } catch { /* ignore */ }
+    }
+    init()
+  }, [])
+
+  const loadHistory = async () => {
+    setLoading(true)
+    try {
+      const offset = (pagination.current - 1) * pagination.pageSize
+      const result = await getSyncHistory({
+        limit: pagination.pageSize,
+        offset,
+        repo_name: filterRepo,
+        status: filterStatus,
+      })
+      setRecords(result.records)
+      setTotal(result.total)
+    } catch { /* ignore */ } finally {
+      setLoading(false)
+    }
+  }
+
+  const loadSummary = async () => {
+    try {
+      const data = await getSyncSummary({ repo_name: filterRepo })
+      setSummary(data)
+    } catch { /* ignore */ }
+  }
+
+  const handleCancel = async (recordId: number) => {
+    if (cancellingId) return
+    setCancellingId(recordId)
+    try {
+      await cancelSync(recordId)
+      message.success('同步任务已取消')
+      loadHistory()
+    } catch {
+      message.error('取消失败')
+    } finally {
+      setCancellingId(null)
+    }
+  }
+
+  const toSyncDateParam = (value: string | null | undefined) => {
+    if (!value || value === '-') return undefined
+    const formatted = formatTimezone(value, 'YYYY-MM-DD')
+    return dayjs(formatted).isValid() ? formatted : undefined
+  }
+
+  const handleRetry = async (r: SyncRecord) => {
+    if (retryingId) return
+    setRetryingId(r.id)
+    try {
+      const sinceDate = toSyncDateParam(r.since_date)
+      const untilDate = toSyncDateParam(r.until_date)
+      const fullResync = r.sync_type === 'full'
+      const result = await syncContributors({
+        fullResync,
+        repoName: r.repo_name || undefined,
+        sinceDate,
+        untilDate,
+      })
+      if (result.record_id) {
+        message.success('重试已触发，后台执行中...')
+        loadHistory()
+      } else {
+        message.warning('重试触发失败')
+      }
+    } catch (err: unknown) {
+      const msg = typeof err === 'object' && err && 'detail' in err ? (err as { detail: string }).detail : '重试失败'
+      message.error(msg)
+    } finally {
+      setRetryingId(null)
+    }
+  }
+
+  const [refreshTrigger, setRefreshTrigger] = useState(0)
+
+  useEffect(() => {
+    loadHistory()
+    loadSummary()
+  }, [filterRepo, filterStatus, pagination.current, pagination.pageSize, refreshTrigger])
+
+  useEffect(() => {
+    const handler = () => {
+      setRefreshTrigger(t => t + 1)
+    }
+    window.addEventListener('sync-history-refresh', handler)
+    return () => window.removeEventListener('sync-history-refresh', handler)
+  }, [])
+
+  const statusConfig: Record<string, { color: string; label: string; icon: JSX.Element | null }> = {
+    pending: { color: 'default', label: '等待中', icon: <ClockCircleOutlined /> },
+    running: { color: 'processing', label: '执行中', icon: <ClockCircleOutlined /> },
+    completed: { color: 'success', label: '成功', icon: <CheckCircleOutlined /> },
+    failed: { color: 'error', label: '失败', icon: <CloseCircleOutlined /> },
+    partial: { color: 'warning', label: '部分成功', icon: <FlagOutlined /> },
+    cancelled: { color: 'orange', label: '已取消', icon: <StopOutlined /> },
+  }
+
+  const syncTypeConfig: Record<string, { color: string; label: string; icon: JSX.Element }> = {
+    full: { color: 'blue', label: '全量', icon: <ReloadOutlined /> },
+    incremental: { color: 'green', label: '增量', icon: <CalendarOutlined /> },
+    range: { color: 'orange', label: '范围', icon: <ColumnHeightOutlined /> },
+  }
+
+  const columns = [
+    {
+      title: 'ID',
+      dataIndex: 'id',
+      key: 'id',
+      width: 60,
+      align: 'center' as const,
+    },
+    {
+      title: '状态',
+      dataIndex: 'status',
+      key: 'status',
+      width: 100,
+      render: (status: string) => {
+        const cfg = statusConfig[status] || { color: 'default', label: status, icon: null }
+        return <Tag color={cfg.color}>{cfg.icon} {cfg.label}</Tag>
+      },
+    },
+    {
+      title: '同步类型',
+      dataIndex: 'sync_type',
+      key: 'sync_type',
+      width: 90,
+      render: (v: string) => {
+        const cfg = syncTypeConfig[v] || { color: 'default', label: v || '全量', icon: <ReloadOutlined /> }
+        return <Tag color={cfg.color} style={{ margin: 0 }}>{cfg.icon} {cfg.label}</Tag>
+      },
+    },
+    {
+      title: '来源',
+      dataIndex: 'trigger_source',
+      key: 'trigger_source',
+      width: 90,
+      render: (v: string) => {
+        const map: Record<string, { color: string; label: string }> = {
+          manual: { color: 'blue', label: '手动' },
+          scheduled_full: { color: 'cyan', label: '定时全量' },
+          scheduled_incremental: { color: 'purple', label: '定时增量' },
+        }
+        const cfg = map[v ?? ''] || { color: 'default', label: v ?? '其他' }
+        return <Tag color={cfg.color} style={{ margin: 0 }}>{cfg.label}</Tag>
+      },
+    },
+    {
+      title: '仓库',
+      dataIndex: 'repo_name',
+      key: 'repo_name',
+      width: 180,
+      render: (v: string | null) => v || '全部仓库',
+    },
+    {
+      title: '时间范围',
+      key: 'date_range',
+      width: 200,
+      render: (_: unknown, r: SyncRecord) => {
+        if (r.sync_type === 'full') {
+          return '2024-01-01 ~ 至今'
+        }
+        if (r.until_date) {
+          return `${formatTimezone(r.since_date, 'YYYY-MM-DD')} ~ ${formatTimezone(r.until_date, 'YYYY-MM-DD')}`
+        }
+        return `${formatTimezone(r.since_date, 'YYYY-MM-DD')} ~ 至今`
+      },
+    },
+    {
+      title: '进度',
+      key: 'progress',
+      width: 120,
+      render: (_: unknown, r: SyncRecord) => (
+        <div>
+          <Progress percent={Math.round(r.progress_percent)} size="small"
+            status={r.status === 'failed' ? 'exception' : r.status === 'cancelled' ? 'normal' : r.status === 'completed' ? 'success' : r.status === 'partial' ? 'normal' : 'active'} />
+          {r.progress_message && <div style={{ fontSize: 11, color: '#999' }}>{r.progress_message}</div>}
+        </div>
+      ),
+    },
+    {
+      title: 'PR数',
+      dataIndex: 'total_prs_scanned',
+      key: 'total_prs_scanned',
+      width: 70,
+      align: 'right' as const,
+      render: (v: number) => v || '-',
+    },
+    {
+      title: '贡献者',
+      dataIndex: 'contributors_synced',
+      key: 'contributors_synced',
+      width: 80,
+      align: 'right' as const,
+    },
+    {
+      title: '提交数',
+      dataIndex: 'commits_classified',
+      key: 'commits_classified',
+      width: 80,
+      align: 'right' as const,
+    },
+    {
+      title: '耗时',
+      key: 'duration',
+      width: 80,
+      align: 'right' as const,
+      render: (_: unknown, r: SyncRecord) => r.duration_seconds > 0 ? `${(r.duration_seconds / 60).toFixed(1)}min` : '-',
+    },
+    {
+      title: '时间',
+      key: 'created_at',
+      width: 150,
+      render: (_: unknown, r: SyncRecord) => formatTimezone(r.created_at, 'YYYY-MM-DD HH:mm'),
+    },
+    {
+      title: '操作',
+      key: 'action',
+      width: 140,
+      fixed: 'right' as const,
+      render: (_: unknown, r: SyncRecord) => {
+        const errors = typeof r.errors === 'string' ? (r.errors ? JSON.parse(r.errors) : []) : (r.errors || [])
+        return (
+          <Space size="small">
+            {errors.length > 0 && (
+              <Tag color="blue" style={{ cursor: 'pointer', margin: 0, lineHeight: '22px' }} onClick={() => setDetailRecord(r)}>
+                <EyeOutlined /> 错误
+              </Tag>
+            )}
+            {(r.status === 'running' || r.status === 'pending') && (
+              <Tag color="red" style={{ cursor: 'pointer', margin: 0, lineHeight: '22px' }} onClick={() => handleCancel(r.id)}>
+                <DeleteOutlined /> 终止
+              </Tag>
+            )}
+            {(r.status === 'failed' || r.status === 'partial') && (
+              <Tag color="orange" style={{ cursor: 'pointer', margin: 0, lineHeight: '22px' }} onClick={() => handleRetry(r)}>
+                <ReloadOutlined /> 重试
+              </Tag>
+            )}
+          </Space>
+        )
+      },
+    },
+  ]
+
+  return (
+    <div>
+      {/* 统计卡片 */}
+      {summary && (
+        <Row gutter={16} style={{ marginBottom: 20 }}>
+          <Col span={6}>
+            <Card size="small" styles={{ body: { padding: '12px 16px' } }}>
+              <Statistic title="总同步次数" value={summary.total_syncs} suffix="次" valueStyle={{ color: '#1890ff' }} />
+            </Card>
+          </Col>
+          <Col span={6}>
+            <Card size="small" styles={{ body: { padding: '12px 16px' } }}>
+              <Statistic title="成功次数" value={summary.completed_count} suffix="次" valueStyle={{ color: '#52c41a' }} />
+            </Card>
+          </Col>
+          <Col span={6}>
+            <Card size="small" styles={{ body: { padding: '12px 16px' } }}>
+              <Statistic title="失败次数" value={summary.failed_count} suffix="次" valueStyle={{ color: summary.failed_count > 0 ? '#ff4d4f' : '#999' }} />
+            </Card>
+          </Col>
+          <Col span={6}>
+            <Card size="small" styles={{ body: { padding: '12px 16px' } }}>
+              <Statistic title="正在运行" value={summary.running_count} suffix="个" valueStyle={{ color: summary.running_count > 0 ? '#faad14' : '#999' }} />
+            </Card>
+          </Col>
+          <Col span={6}>
+            <Card size="small" styles={{ body: { padding: '12px 16px' } }}>
+              <Statistic title="扫描 PR 总计" value={summary.total_prs_scanned} precision={0} />
+            </Card>
+          </Col>
+          <Col span={6}>
+            <Card size="small" styles={{ body: { padding: '12px 16px' } }}>
+              <Statistic title="贡献者总计" value={summary.total_contributors} precision={0} />
+            </Card>
+          </Col>
+          <Col span={6}>
+            <Card size="small" styles={{ body: { padding: '12px 16px' } }}>
+              <Statistic title="提交总计" value={summary.total_commits} precision={0} />
+            </Card>
+          </Col>
+          <Col span={6}>
+            <Card size="small" styles={{ body: { padding: '12px 16px' } }}>
+              <Statistic title="上次同步" value={summary.last_sync_at ? fromTimezoneNow(summary.last_sync_at) : '无记录'} valueStyle={{ fontSize: 13, color: summary.last_sync_status === 'completed' ? '#52c41a' : '#999' }} />
+            </Card>
+          </Col>
+        </Row>
+      )}
+
+      <div style={{ marginBottom: 16, display: 'flex', gap: 12, alignItems: 'center' }}>
+        <Button onClick={() => { loadHistory(); loadSummary() }} icon={<ReloadOutlined />}>刷新</Button>
+        <Select
+          placeholder="选择仓库"
+          allowClear
+          showSearch
+          style={{ width: 200 }}
+          value={filterRepo}
+          onChange={(v) => { setFilterRepo(v); setPagination(p => ({ ...p, current: 1 })) }}
+          options={[
+            { label: '全部仓库', value: null },
+            ...repos.map(r => ({ label: r, value: r })),
+          ]}
+        />
+        <Select
+          allowClear
+          placeholder="状态过滤"
+          style={{ width: 140 }}
+          value={filterStatus}
+          onChange={(v) => { setFilterStatus(v); setPagination(p => ({ ...p, current: 1 })) }}
+          options={[
+            { label: '等待中', value: 'pending' },
+            { label: '执行中', value: 'running' },
+            { label: '成功', value: 'completed' },
+            { label: '失败', value: 'failed' },
+            { label: '部分成功', value: 'partial' },
+            { label: '已取消', value: 'cancelled' },
+          ]}
+        />
+        <Text type="secondary">共 {total} 条记录</Text>
+      </div>
+      {total === 0 && !loading && (
+        <Empty
+          description="暂无同步记录，请先执行数据同步以采集贡献者数据"
+          image={Empty.PRESENTED_IMAGE_SIMPLE}
+          style={{ padding: '20px 0' }}
+        />
+      )}
+      {total > 0 && (
+        <Table
+          columns={columns}
+          dataSource={records}
+          loading={loading}
+          rowKey="id"
+          pagination={{
+            ...pagination,
+            total,
+            showSizeChanger: true,
+            showTotal: () => `共 ${total} 条`,
+            onChange: (page, size) => setPagination({ current: page, pageSize: size }),
+          }}
+          size="small"
+        />
+      )}
+
+      <Modal
+        title={<><CloudUploadOutlined /> 同步记录详情</>}
+        open={!!detailRecord}
+        onCancel={() => setDetailRecord(null)}
+        footer={[<Button key="close" onClick={() => setDetailRecord(null)}>关闭</Button>]}
+        width={700}
+      >
+        {detailRecord && (
+          <div>
+            <Descriptions bordered size="small" column={2}>
+              <Descriptions.Item label="状态">
+                {(() => {
+                  const cfg = statusConfig[detailRecord.status] || { color: 'default', label: detailRecord.status, icon: null }
+                  return <Tag color={cfg.color}>{cfg.icon} {cfg.label}</Tag>
+                })()}
+              </Descriptions.Item>
+              <Descriptions.Item label="同步类型">
+                {(() => {
+                  const cfg = syncTypeConfig[detailRecord.sync_type] || { color: 'default', label: detailRecord.sync_type || '全量', icon: <ReloadOutlined /> }
+                  return <Tag color={cfg.color}>{cfg.icon} {cfg.label}</Tag>
+                })()}
+              </Descriptions.Item>
+              <Descriptions.Item label="仓库">
+                {detailRecord.repo_name || '全部仓库'}
+              </Descriptions.Item>
+              <Descriptions.Item label="来源">
+                {detailRecord.trigger_source === 'manual' ? <Tag color="blue">手动</Tag>
+                  : detailRecord.trigger_source === 'scheduled_full' ? <Tag color="cyan">定时全量</Tag>
+                  : detailRecord.trigger_source === 'scheduled_incremental' ? <Tag color="purple">定时增量</Tag>
+                  : detailRecord.trigger_source}
+              </Descriptions.Item>
+              <Descriptions.Item label="时间范围">
+                {detailRecord.sync_type === 'full' ? '2024-01-01 ~ 至今'
+                  : detailRecord.until_date
+                    ? `${formatTimezone(detailRecord.since_date, 'YYYY-MM-DD')} ~ ${formatTimezone(detailRecord.until_date, 'YYYY-MM-DD')}`
+                    : `${formatTimezone(detailRecord.since_date, 'YYYY-MM-DD')} ~ 至今`}
+              </Descriptions.Item>
+              <Descriptions.Item label="扫描 PR 数">
+                {detailRecord.total_prs_scanned || '-'}
+              </Descriptions.Item>
+              <Descriptions.Item label="创建时间">
+                {formatTimezone(detailRecord.created_at)}
+              </Descriptions.Item>
+              <Descriptions.Item label="开始时间">
+                {formatTimezone(detailRecord.started_at)}
+              </Descriptions.Item>
+              <Descriptions.Item label="完成时间">
+                {formatTimezone(detailRecord.completed_at)}
+              </Descriptions.Item>
+              <Descriptions.Item label="耗时">
+                {detailRecord.duration_seconds > 0 ? `${(detailRecord.duration_seconds / 60).toFixed(1)} min` : '-'}
+              </Descriptions.Item>
+              <Descriptions.Item label="贡献者数">
+                {detailRecord.contributors_synced}
+              </Descriptions.Item>
+              <Descriptions.Item label="提交数">
+                {detailRecord.commits_classified}
+              </Descriptions.Item>
+              <Descriptions.Item label="构建计划数">
+                {detailRecord.build_plans_created}
+              </Descriptions.Item>
+              <Descriptions.Item label="进度">
+                <Progress percent={Math.round(detailRecord.progress_percent)} size="small"
+                  status={detailRecord.status === 'failed' ? 'exception' : detailRecord.status === 'cancelled' ? 'normal' : detailRecord.status === 'completed' ? 'success' : detailRecord.status === 'partial' ? 'normal' : 'active'} />
+              </Descriptions.Item>
+            </Descriptions>
+
+            {(() => {
+              const errors = typeof detailRecord.errors === 'string' ? (detailRecord.errors ? JSON.parse(detailRecord.errors) : []) : (detailRecord.errors || [])
+              if (errors.length > 0) {
+                return (
+                  <div style={{ marginTop: 16 }}>
+                    <Text strong>错误信息 ({errors.length})：</Text>
+                    <div style={{ marginTop: 8 }}>
+                      {errors.map((err: string, i: number) => (
+                        <Alert key={i} message={err} type="error" showIcon style={{ marginBottom: 4 }} />
+                      ))}
+                    </div>
+                  </div>
+                )
+              }
+              return null
+            })()}
+          </div>
+        )}
+      </Modal>
+    </div>
+  )
+}
+
+/* ------------------------------------------------------------------ */
+/*                       定时设置 子组件                              */
+/* ------------------------------------------------------------------ */
+
+function ScheduleSettingsPanel() {
+  const [scheduleForm] = Form.useForm()
+  const [schedule, setSchedule] = useState<ContributorSyncScheduleConfig | null>(null)
+  const [scheduleLoading, setScheduleLoading] = useState(true)
+  const [scheduleSaving, setScheduleSaving] = useState(false)
+  const [cronModalOpen, setCronModalOpen] = useState(false)
+
+  useEffect(() => {
+    let cancelled = false
+    const load = async () => {
+      setScheduleLoading(true)
+      try {
+        const data = await getSyncSchedule()
+        if (!cancelled) {
+          setSchedule(data)
+          scheduleForm.setFieldValue('scheduled_enabled', data.enabled)
+          scheduleForm.setFieldValue('scheduled_full_cron', data.full_cron)
+          scheduleForm.setFieldValue('scheduled_incremental_interval', data.incremental_interval_minutes)
+        }
+      } catch { /* ignore */ } finally {
+        if (!cancelled) setScheduleLoading(false)
+      }
+    }
+    load()
+    return () => { cancelled = true }
+  }, [scheduleForm])
+
+  const handleScheduleSave = async () => {
+    try {
+      const values = await scheduleForm.validateFields()
+      setScheduleSaving(true)
+      await updateSyncSchedule({
+        enabled: values.scheduled_enabled,
+        full_cron: values.scheduled_full_cron,
+        incremental_interval_minutes: values.scheduled_incremental_interval,
+      })
+      message.success('定时同步设置已保存，Scheduler 将在下次重载时生效')
+      window.dispatchEvent(new CustomEvent('settings-updated'))
+      const data = await getSyncSchedule()
+      setSchedule(data)
+    } catch (err) {
+      message.error('保存定时同步设置失败')
+    } finally {
+      setScheduleSaving(false)
+    }
+  }
+
+  const cardStyle = {
+    background: '#fff',
+    borderRadius: 12,
+    boxShadow: '0 1px 4px rgba(0,0,0,0.06)',
+    border: '1px solid #f0f0f0',
+  }
+
+  const cronToText = (expr: string) => {
+    const p = expr.split(' ')
+    if (p.length !== 5) return expr
+    const [min, hour, day, _month, dow] = p
+    if (dow !== '*') {
+      const dayNames = ['周日', '周一', '周二', '周三', '周四', '周五', '周六']
+      const days = dow.split(',').map(n => parseInt(n)).map(n => dayNames[n] || n).join('、')
+      return `每周${days} ${parseInt(hour)}:${parseInt(min).toString().padStart(2, '0')}`
+    }
+    if (day !== '*') return `每月${day}日 ${parseInt(hour)}:${parseInt(min).toString().padStart(2, '0')}`
+    return `每天 ${parseInt(hour)}:${parseInt(min).toString().padStart(2, '0')}`
+  }
+
+  return (
+    <Spin spinning={scheduleLoading}>
+      <Card size="small" style={cardStyle} bodyStyle={{ padding: '24px 32px' }}
+        title={
+          <Space>
+            <ClockCircleOutlined style={{ color: '#722ed1', fontSize: 18 }} />
+            <span style={{ fontWeight: 600 }}>定时同步设置</span>
+          </Space>
+        }
+        extra={
+          <Space>
+            <Form form={scheduleForm} style={{ marginBottom: 0 }}>
+              <Form.Item name="scheduled_enabled" valuePropName="checked" style={{ marginBottom: 0 }}>
+                <Switch size="small" checkedChildren="开" unCheckedChildren="关" />
+              </Form.Item>
+            </Form>
+            <Text type="secondary" style={{ fontSize: 12 }}>启用定时</Text>
+          </Space>
+        }
+      >
+        <Descriptions bordered size="small" column={1}
+          style={{ marginBottom: 0 }}
+        >
+          <Descriptions.Item label={
+            <Space><RocketOutlined style={{ color: '#fa8c16' }} /><span>全量同步时间</span></Space>
+          }>
+            <Space>
+              <Tag color="purple" style={{ padding: '4px 12px', fontSize: 13 }}>{cronToText(schedule?.full_cron || '0 2 * * *')}</Tag>
+              <Text type="secondary" style={{ fontSize: 11 }}>{schedule?.full_cron || '0 2 * * *'}</Text>
+              <Button type="link" size="small" onClick={() => setCronModalOpen(true)}>修改</Button>
+            </Space>
+          </Descriptions.Item>
+          <Descriptions.Item label={
+            <Space><ReloadOutlined style={{ color: '#13c2c2' }} /><span>增量同步间隔</span></Space>
+          }>
+            <Space>
+              <Form form={scheduleForm}>
+                <Form.Item name="scheduled_incremental_interval" style={{ marginBottom: 0, display: 'inline-block' }}>
+                  <InputNumber min={30} max={1440} step={30} style={{ width: 140 }} addonAfter="分钟" />
+                </Form.Item>
+              </Form>
+              <Text type="secondary" style={{ fontSize: 11 }}>
+                当前 {(schedule?.incremental_interval_minutes ?? 360) / 60} 小时
+              </Text>
+            </Space>
+          </Descriptions.Item>
+        </Descriptions>
+
+        <Divider style={{ margin: '16px 0' }} />
+
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <Text type="secondary" style={{ fontSize: 12 }}>
+            修改后需保存并等待下次 Scheduler 重载生效
+          </Text>
+          <Button type="primary" loading={scheduleSaving} onClick={handleScheduleSave}>
+            保存设置
+          </Button>
+        </div>
+      </Card>
+
+      <CronModal
+        open={cronModalOpen}
+        cron={schedule?.full_cron || '0 2 * * *'}
+        onChange={(newCron) => {
+          scheduleForm.setFieldValue('scheduled_full_cron', newCron)
+        }}
+        onClose={() => setCronModalOpen(false)}
+      />
+    </Spin>
+  )
+}
+
+/* ------------------------------------------------------------------ */
+/*                          数据同步 Tab（含子Tab）                    */
+/* ------------------------------------------------------------------ */
+
+function SyncTab({ selectedRepo }: { selectedRepo?: string }) {
+  return (
+    <Card size="small" bordered={false} style={{ borderRadius: 12 }} bodyStyle={{ padding: '0 0 0 0' }}>
+      <Tabs
+        tabPosition="left"
+        destroyInactiveTabPane
+        items={[
+          {
+            key: 'manual',
+            label: <span><CloudUploadOutlined /> 手动同步</span>,
+            children: <ManualSyncPanel selectedRepo={selectedRepo} />,
+          },
+          {
+            key: 'history',
+            label: <span><ReloadOutlined /> 同步记录</span>,
+            children: <SyncHistoryTab />,
+          },
+          {
+            key: 'schedule',
+            label: <span><ClockCircleOutlined /> 定时设置</span>,
+            children: <ScheduleSettingsPanel />,
+          },
+        ]}
+      />
+    </Card>
+  )
+}
+
+/* ------------------------------------------------------------------ */
+/*                           主页面组件                                */
+/* ------------------------------------------------------------------ */
+
+let _pollTimer: ReturnType<typeof setInterval> | null = null
+
+function ContributorBoard() {
+   const navigate = useNavigate()
+   const searchParams = new URLSearchParams(window.location.search)
+    const [activeTab, setActiveTab] = useState<'quadrant' | 'ranking' | 'sync' | 'settings'>(
+     (searchParams.get('tab') as any) || 'quadrant'
+    )
+   const [selectedRepo, setSelectedRepo] = useState<string | undefined>(
+     searchParams.get('repo') || undefined
+   )
+   const [repos, setRepos] = useState<string[]>([])
+
+   const loadRepos = async () => {
+    try {
+      const data = await getReposList()
+      setRepos(data.repos ?? [])
+    } catch { /* ignore */ }
+  }
+
+   const tabRef = useRef(activeTab)
+   const [settingsRefreshTrigger, setSettingsRefreshTrigger] = useState(0)
+
+   useEffect(() => {
+    tabRef.current = activeTab
+   }, [activeTab])
+
+   useEffect(() => {
+    const handler = () => setSettingsRefreshTrigger(t => t + 1)
+    window.addEventListener('settings-updated', handler)
+    return () => window.removeEventListener('settings-updated', handler)
+   }, [])
+
+   useEffect(() => {
+    loadRepos()
+   }, [])
+
+    const updateUrlState = (tab: string, repo: string | undefined) => {
+     const params = new URLSearchParams()
+     if (tab && tab !== 'quadrant') params.set('tab', tab)
+     if (repo) params.set('repo', repo)
+     const query = params.toString()
+     navigate(`/contributor-board${query ? '?' + query : ''}`, { replace: true })
+    }
+
+   useEffect(() => {
+    updateUrlState(activeTab, selectedRepo)
+   }, [selectedRepo])
+
+    const tabItems = [
+    {
+      key: 'quadrant',
+      label: <><GithubOutlined /> 四象限看板</>,
+      children: <QuadrantTab refreshKey={settingsRefreshTrigger} selectedRepo={selectedRepo} />,
+    },
+    {
+      key: 'ranking',
+      label: <><TrophyOutlined /> 排行榜</>,
+      children: <RankingTab loading={false} selectedRepo={selectedRepo} />,
+    },
+    {
+      key: 'sync',
+      label: <><CloudUploadOutlined /> 数据同步</>,
+      children: <SyncTab selectedRepo={selectedRepo} />,
+    },
+    {
+      key: 'settings',
+      label: <><ToolOutlined /> 分析设置</>,
+      children: <ContributorBoardSettingsPage />,
+    },
+   ]
+
+    return (
+     <div className="stripe-project-page">
+        <div className="stripe-page-header">
+          <Title level={3} className="stripe-page-title">
+            <GithubOutlined className="stripe-page-icon" />
+            贡献者与提交分析
+          </Title>
+          <Text className="stripe-page-description">
+            贡献者与提交分析
+          </Text>
+        </div>
+
+        {repos.length === 0 && (
+          <Result
+            status="warning"
+            title="暂无贡献者数据"
+            subTitle="首次使用请先执行全量数据同步，采集 GitHub PR/提交数据后即可使用分析功能"
+            extra={<Button type="primary" onClick={() => { setActiveTab('sync'); updateUrlState('sync', undefined) }}>前往数据同步</Button>}
+            style={{ padding: '40px 0' }}
+          />
+      )}
+
+        {repos.length > 0 && (
+         <div style={{ marginBottom: 12, display: 'flex', gap: 12, alignItems: 'center' }}>
+           <Select
+             allowClear
+             placeholder="选择仓库（影响所有 Tab）"
+             value={selectedRepo}
+             onChange={setSelectedRepo}
+             style={{ width: 260 }}
+             options={repos.map(r => ({ label: r, value: r }))}
+             suffixIcon={<SearchOutlined />}
+           />
+         </div>
+       )}
+
+       <Tabs
+        activeKey={activeTab}
+        items={tabItems}
+        destroyInactiveTabPane
+        onChange={(key) => {
+          setActiveTab(key as typeof activeTab)
+          updateUrlState(key, selectedRepo)
+        }}
+       />
+      </div>
+    )
+}
+
+/* ------------------------------------------------------------------ */
+/*                  贡献者详情页 — 图表组件                              */
+/* ------------------------------------------------------------------ */
+
+function EChartsBarChart({ data }: { data: Array<{ date: string; merged_pr_count: number; code_additions: number; code_deletions: number }> }) {
+  const ref = useRef<HTMLDivElement>(null)
+  const chartRef = useRef<echarts.ECharts | null>(null)
+
+  useEffect(() => {
+    if (!ref.current) return
+    chartRef.current = echarts.init(ref.current)
+    const dates = data.map(d => d.date)
+    const values = data.map(d => d.merged_pr_count)
+    chartRef.current.setOption({
+      tooltip: { trigger: 'axis' },
+      grid: { left: 40, right: 20, top: 30, bottom: 30 },
+      xAxis: { type: 'category', data: dates, axisLabel: { fontSize: 11 } },
+      yAxis: { type: 'value' },
+      series: [{ type: 'bar', data: values, itemStyle: { color: '#1890ff' } }],
+    })
+    const onResize = () => chartRef.current?.resize()
+    window.addEventListener('resize', onResize)
+    return () => { window.removeEventListener('resize', onResize); chartRef.current?.dispose(); chartRef.current = null }
+  }, [data])
+
+  return <div ref={ref} style={{ width: '100%', height: '100%' }} />
+}
+
+function EChartsLineChart<T extends { date: string }>({ data, series }: {
+  data: T[]
+  series: Array<{ name: string; dataKey: string; color: string }>
+}) {
+  const ref = useRef<HTMLDivElement>(null)
+  const chartRef = useRef<echarts.ECharts | null>(null)
+
+  useEffect(() => {
+    if (!ref.current) return
+    chartRef.current = echarts.init(ref.current)
+    const dates = data.map(d => d.date)
+    chartRef.current.setOption({
+      tooltip: { trigger: 'axis' },
+      legend: { data: series.map(s => s.name), top: 0, textStyle: { fontSize: 11 } },
+      grid: { left: 40, right: 20, top: 35, bottom: 30 },
+      xAxis: { type: 'category', data: dates, axisLabel: { fontSize: 11 } },
+      yAxis: { type: 'value' },
+      series: series.map(s => ({
+        name: s.name,
+        type: 'line' as const,
+        data: data.map(d => Number((d as Record<string, unknown>)[s.dataKey] ?? 0)),
+        smooth: true,
+        lineStyle: { color: s.color },
+        itemStyle: { color: s.color },
+      })),
+    })
+    const onResize = () => chartRef.current?.resize()
+    window.addEventListener('resize', onResize)
+    return () => { window.removeEventListener('resize', onResize); chartRef.current?.dispose(); chartRef.current = null }
+  }, [data, series])
+
+  return <div ref={ref} style={{ width: '100%', height: '100%' }} />
+}
+
+function EChartsPieChart({ data }: { data: Array<{ name: string; value: number }> }) {
+  const ref = useRef<HTMLDivElement>(null)
+  const chartRef = useRef<echarts.ECharts | null>(null)
+
+  useEffect(() => {
+    if (!ref.current) return
+    chartRef.current = echarts.init(ref.current)
+    chartRef.current.setOption({
+      tooltip: { trigger: 'item', formatter: '{b}: {c} ({d}%)' },
+      legend: { orient: 'vertical', right: 10, top: 'center', textStyle: { fontSize: 11 } },
+      series: [{
+        type: 'pie' as const,
+        radius: ['35%', '65%'],
+        center: ['40%', '50%'],
+        data,
+        label: { fontSize: 11 },
+      }],
+    })
+    const onResize = () => chartRef.current?.resize()
+    window.addEventListener('resize', onResize)
+    return () => { window.removeEventListener('resize', onResize); chartRef.current?.dispose(); chartRef.current = null }
+  }, [data])
+
+  return <div ref={ref} style={{ width: '100%', height: '100%' }} />
+}
+
+function CommitTypeBarChart({ data }: { data: Array<{ commit_type: string; count: number }> }) {
+  const ref = useRef<HTMLDivElement>(null)
+  const chartRef = useRef<echarts.ECharts | null>(null)
+
+  useEffect(() => {
+    if (!ref.current) return
+    chartRef.current = echarts.init(ref.current)
+    const sorted = [...data].sort((a, b) => b.count - a.count)
+    chartRef.current.setOption({
+      tooltip: { trigger: 'axis' },
+      grid: { left: 80, right: 20, top: 20, bottom: 30 },
+      xAxis: { type: 'value' },
+      yAxis: { type: 'category', data: sorted.map(d => d.commit_type), axisLabel: { fontSize: 11 } },
+      series: [{
+        type: 'bar' as const,
+        data: sorted.map(d => d.count),
+        itemStyle: { color: '#722ed1' },
+        label: { show: true, position: 'right' as const, fontSize: 11 },
+      }],
+    })
+    const onResize = () => chartRef.current?.resize()
+    window.addEventListener('resize', onResize)
+    return () => { window.removeEventListener('resize', onResize); chartRef.current?.dispose(); chartRef.current = null }
+  }, [data])
+
+  return <div ref={ref} style={{ width: '100%', height: '100%' }} />
+}
+
+function ContributorHeatmapChart({ data }: { data: Array<{ date: string; commit_count: number; weekDay: number }> }) {
+  const ref = useRef<HTMLDivElement>(null)
+  const chartRef = useRef<echarts.ECharts | null>(null)
+
+  useEffect(() => {
+    if (!ref.current) return
+    chartRef.current = echarts.init(ref.current)
+    const heatData = data.map(d => [d.weekDay, new Date(d.date).getMonth(), d.commit_count] as [number, number, number])
+    const maxVal = Math.max(...heatData.map(d => d[2]), 1)
+    chartRef.current.setOption({
+      tooltip: {
+        formatter: (params: { value: [number, number, number] }) => {
+          const [wd, m, cnt] = params.value
+          return `${wd} 周 / ${m + 1} 月<br/>贡献 ${cnt} 次`
+        },
+      },
+      grid: { left: 40, right: 20, top: 20, bottom: 30 },
+      xAxis: { type: 'category', data: Array.from({ length: 53 }, (_, i) => `W${i + 1}`), axisLabel: { fontSize: 10 } },
+      yAxis: {
+        type: 'category' as const,
+        data: ['1月','2月','3月','4月','5月','6月','7月','8月','9月','10月','11月','12月'],
+        axisLabel: { fontSize: 10 },
+      },
+      visualMap: { min: 0, max: maxVal, calculable: true, orient: 'horizontal' as const, left: 'center', bottom: 0, textStyle: { fontSize: 10 } },
+      series: [{
+        type: 'heatmap' as const,
+        data: heatData,
+        label: { show: false },
+      }],
+    })
+    const onResize = () => chartRef.current?.resize()
+    window.addEventListener('resize', onResize)
+    return () => { window.removeEventListener('resize', onResize); chartRef.current?.dispose(); chartRef.current = null }
+  }, [data])
+
+  return <div ref={ref} style={{ width: '100%', height: '100%' }} />
+}
+
+export { ContributorDetailPage }
+export default ContributorBoard
