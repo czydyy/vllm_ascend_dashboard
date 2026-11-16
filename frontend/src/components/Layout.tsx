@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { Outlet, useLocation, useNavigate } from 'react-router-dom'
 import {
   Avatar,
+  Breadcrumb,
   Button,
   Drawer,
   Dropdown,
@@ -32,6 +33,7 @@ import {
   ReadOutlined,
   RightOutlined,
   SearchOutlined,
+  ScheduleOutlined,
   SendOutlined,
   SettingOutlined,
 } from '@ant-design/icons'
@@ -55,6 +57,18 @@ const primaryNavigation: NavigationItem[] = [
       { key: '/project', icon: <GithubOutlined />, label: '项目动态' },
       { key: '/pr-pipeline', icon: <PullRequestOutlined />, label: 'PR 流水线' },
       { key: '/ci', icon: <CheckCircleOutlined />, label: 'CI 运行' },
+      {
+        key: '/daily-pipeline',
+        icon: <ScheduleOutlined />,
+        label: 'Daily流水线',
+        children: [
+          { key: '/daily-pipeline/overview', label: '概览' },
+          { key: '/daily-pipeline/cases', label: 'daily用例' },
+          { key: '/daily-pipeline/trigger', label: '流水线触发' },
+          { key: '/daily-pipeline/collection', label: '流水线采集' },
+          { key: '/daily-pipeline/issue-tracking', label: '问题跟踪' },
+        ],
+      },
       { key: '/release-management', icon: <CloudUploadOutlined />, label: '发布件管理' },
     ],
   },
@@ -103,6 +117,13 @@ const routeMeta = [
   { prefix: '/project', title: '项目动态', section: '研发交付' },
   { prefix: '/contributor-board', title: '贡献者分析', section: '研发交付' },
   { prefix: '/ci', title: 'CI 运行', section: '研发交付' },
+  { prefix: '/daily-pipeline/overview', title: 'Daily流水线 · 概览', section: '研发交付' },
+  { prefix: '/daily-pipeline/cases', title: 'Daily流水线 · daily用例', section: '研发交付' },
+  { prefix: '/daily-pipeline/trigger', title: 'Daily流水线 · 流水线触发', section: '研发交付' },
+  { prefix: '/daily-pipeline/collection', title: 'Daily流水线 · 流水线采集', section: '研发交付' },
+  { prefix: '/daily-pipeline/issue-tracking', title: 'Daily流水线 · 问题跟踪', section: '研发交付' },
+  { prefix: '/daily-pipeline/processing-progress', title: 'Daily流水线 · 处理进展', section: '研发交付' },
+  { prefix: '/daily-pipeline', title: 'Daily流水线', section: '研发交付' },
   { prefix: '/release-management', title: '发布件管理', section: '研发交付' },
   { prefix: '/logs', title: '日志中心', section: '资源与响应' },
   { prefix: '/user-stats', title: '用户统计', section: '管理中心' },
@@ -159,10 +180,12 @@ function Layout() {
     return items
   }, [hasAdminRole, isSuperAdmin])
   const selectedKey = getSelectedNavigation(location.pathname)
-  const currentPage = routeMeta.find((item) => location.pathname.startsWith(item.prefix)) || {
+  const currentPage = routeMeta.find((item) => item.prefix === selectedKey) || {
     title: '运营总览',
     section: '社区运维',
   }
+  const breadcrumbItems = [currentPage.section, ...currentPage.title.split(' · ')]
+    .map((title) => ({ title }))
 
   const handleLogout = async () => {
     try {
@@ -219,6 +242,7 @@ function Layout() {
           <Menu
             theme="dark"
             mode="inline"
+            defaultOpenKeys={location.pathname.startsWith('/daily-pipeline') ? ['/daily-pipeline'] : []}
             selectedKeys={[selectedKey]}
             items={navigationItems}
             onClick={handleNavigate}
@@ -263,8 +287,7 @@ function Layout() {
               <BrandMark />
             </div>
             <div className="page-context">
-              <span>{currentPage.section}</span>
-              <strong>{currentPage.title}</strong>
+              <Breadcrumb items={breadcrumbItems} />
             </div>
           </div>
 
@@ -293,7 +316,13 @@ function Layout() {
           </Space>
         </Header>
 
-        <Content id="main-content" className="app-content">
+        <Content
+          id="main-content"
+          className={['/daily-pipeline/overview', '/daily-pipeline/cases', '/daily-pipeline/trigger', '/daily-pipeline/collection', '/daily-pipeline/issue-tracking', '/daily-pipeline/processing-progress']
+            .includes(location.pathname.replace(/\/+$/, '')) || location.pathname.startsWith('/daily-pipeline/cases/') || location.pathname.startsWith('/daily-pipeline/collection/runs/') || location.pathname.startsWith('/daily-pipeline/issue-tracking/')
+            ? 'app-content app-content-wide'
+            : 'app-content'}
+        >
           <Outlet />
         </Content>
       </AntLayout>
@@ -308,6 +337,7 @@ function Layout() {
       >
         <Menu
           mode="inline"
+          defaultOpenKeys={location.pathname.startsWith('/daily-pipeline') ? ['/daily-pipeline'] : []}
           selectedKeys={[selectedKey]}
           items={navigationItems}
           onClick={handleNavigate}
