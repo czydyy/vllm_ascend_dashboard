@@ -23,6 +23,7 @@ from infrastructure.persistence.models.test_board import (  # noqa: E402
     TestRun,
     TestSuiteSnapshot,
 )
+
 from tests.mysql_test_db import create_test_engine, reset_tables  # noqa: E402
 
 

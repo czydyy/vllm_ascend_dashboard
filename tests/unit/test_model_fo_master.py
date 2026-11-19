@@ -16,9 +16,6 @@ import io
 from datetime import date
 
 import pytest
-from openpyxl import Workbook
-from sqlalchemy.ext.asyncio import AsyncSession
-
 from api.v1.ci import (
     _MODEL_FO_MASTER_IMPORT_HEADERS,
     _build_job_model_fo_map,
@@ -26,10 +23,12 @@ from api.v1.ci import (
     _parse_model_fo_master_xlsx,
 )
 from infrastructure.persistence.models import CIJob, ModelFoMaster, NightlyTestCase
+from openpyxl import Workbook
 from reporting.ci_daily_report_builder import (
     CIDailyReportBuilder,
     _parse_model_and_yaml,
 )
+from sqlalchemy.ext.asyncio import AsyncSession
 
 # ---------------------------------------------------------------------------
 # Helpers

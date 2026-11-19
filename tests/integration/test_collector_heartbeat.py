@@ -5,10 +5,9 @@ import json
 import uuid
 
 import pytest
-from sqlalchemy import text
-
 from collector.worker import CollectorWorker
 from infrastructure.db.base import SessionLocal, engine
+from sqlalchemy import text
 
 
 @pytest.mark.asyncio

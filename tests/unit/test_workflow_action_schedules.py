@@ -3,11 +3,14 @@ from types import SimpleNamespace
 
 import httpx
 import pytest
-from pydantic import ValidationError
-
 from infrastructure.persistence.models import User
+from pydantic import ValidationError
 from scheduler.service import DataSyncScheduler
-from workflow_actions.schedule_schemas import WorkflowScheduleCreate, cron_preview, cron_trigger
+from workflow_actions.schedule_schemas import (
+    WorkflowScheduleCreate,
+    cron_preview,
+    cron_trigger,
+)
 from workflow_actions.schedules import (
     ScheduleRunningError,
     create_schedule,

@@ -1,11 +1,10 @@
 from types import SimpleNamespace
 
 import pytest
-from pydantic import ValidationError
-
 from contracts.schemas.issue_diagnosis import IssueDiagnosisRequest
 from failure_analysis.issue_diagnosis_service import IssueDiagnosisService
 from infrastructure.clients import llm_client as llm_client_module
+from pydantic import ValidationError
 
 
 def test_pr_request_requires_pr_number():

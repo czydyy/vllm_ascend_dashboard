@@ -2,7 +2,6 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
 import pytest
-
 from infrastructure.persistence.models import CIJob
 from pr_pipeline.pr_pipeline_service import PRPipelineService
 

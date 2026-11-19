@@ -4,10 +4,9 @@ from __future__ import annotations
 import json
 
 import pytest
-from sqlalchemy import text
-
 from infrastructure.db.base import SessionLocal, engine
 from scheduler.service import DataSyncScheduler
+from sqlalchemy import text
 
 
 @pytest.mark.asyncio

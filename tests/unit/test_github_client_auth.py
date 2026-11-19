@@ -6,7 +6,10 @@ import pytest
 
 @pytest.mark.asyncio
 async def test_github_client_surfaces_http_401_as_authentication_error():
-    from infrastructure.clients.github_client import GitHubAuthenticationError, GitHubClient
+    from infrastructure.clients.github_client import (
+        GitHubAuthenticationError,
+        GitHubClient,
+    )
 
     client = GitHubClient("test-token")
     request = httpx.Request("GET", "https://api.github.com/user")

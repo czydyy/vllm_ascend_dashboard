@@ -2,10 +2,9 @@ import asyncio
 from datetime import UTC, datetime, timedelta, timezone
 from types import SimpleNamespace
 
-from sqlalchemy.exc import OperationalError
-
 from collector.nightly_data import NightlyDataCollector
 from infrastructure.persistence.models import DailyFailureRecord
+from sqlalchemy.exc import OperationalError
 from tooling.parsers.nightly_config_parser import NightlyConfigParser
 
 

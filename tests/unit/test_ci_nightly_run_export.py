@@ -1,9 +1,8 @@
 from datetime import datetime
 from io import BytesIO
 
-from openpyxl import load_workbook
-
 from api.v1.ci import _build_nightly_runs_xlsx, _nightly_export_run_time_bounds
+from openpyxl import load_workbook
 
 
 def test_nightly_run_export_dates_use_shanghai_day_boundaries():

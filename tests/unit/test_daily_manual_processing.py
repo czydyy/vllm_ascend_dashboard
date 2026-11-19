@@ -9,7 +9,9 @@ from api.v1.daily_pipeline import router
 from daily_pipeline.tracking import DailyTrackingService, ManualInputError, current_node
 from fastapi import FastAPI
 from infrastructure.db.base import get_db
-from infrastructure.persistence.models import DailyPipelineProcessNodeExecution as Execution
+from infrastructure.persistence.models import (
+    DailyPipelineProcessNodeExecution as Execution,
+)
 
 
 def objects(stage="classify", status="pending", category=None):

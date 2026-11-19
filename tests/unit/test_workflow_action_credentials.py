@@ -2,14 +2,13 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
 import pytest
-from fastapi import HTTPException
-from sqlalchemy import create_engine
-from sqlalchemy.orm import Session
-
 from api.v1.project_dashboard import get_dashboard_config, update_dashboard_config
 from contracts.schemas import ProjectDashboardConfigUpdate
+from fastapi import HTTPException
 from infrastructure.core.config import settings
 from infrastructure.persistence.models import ProjectDashboardConfig, User
+from sqlalchemy import create_engine
+from sqlalchemy.orm import Session
 from workflow_actions.credentials import (
     CREDENTIAL_CONFIG_KEY,
     clear_github_token,

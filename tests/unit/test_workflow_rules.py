@@ -4,7 +4,6 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock
 
 import pytest
-
 from collector.ci import CICollector
 from contracts.schemas import CIJobResponse, CIResultResponse, WorkflowConfigResponse
 from infrastructure.persistence.models import CIJob

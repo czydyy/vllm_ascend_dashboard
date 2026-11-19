@@ -1,7 +1,6 @@
 from datetime import UTC, datetime, timedelta
 
 import pytest
-
 from infrastructure.clients.github_client import GitHubClient
 
 

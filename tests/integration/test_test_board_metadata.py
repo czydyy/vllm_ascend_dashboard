@@ -20,14 +20,14 @@ os.environ.setdefault("GITHUB_OWNER", "vllm-ascend")
 os.environ.setdefault("GITHUB_REPO", "vllm-ascend")
 
 import pytest
-from sqlalchemy import select, text
-from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
-from tests.conftest import make_test_case, make_test_run
-from tests.mysql_test_db import create_test_engine, reset_tables
-
 from contracts.schemas.test_board import TestCaseResponse, TestCaseUpdateRequest
 from infrastructure.persistence.models.test_board import TestCase as _TC
+from sqlalchemy import select, text
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from tooling.analytics.test_health_calculator import TestHealthCalculator
+
+from tests.conftest import make_test_case, make_test_run
+from tests.mysql_test_db import create_test_engine, reset_tables
 
 
 class TestFlakyManualProtection:
@@ -268,11 +268,10 @@ async def app_client(rich_db):
     使用专用 MySQL rich_db fixture。采用最小 FastAPI app（仅挂载 test_board 路由），
     避免 api.main 的中间件触发 MySQL 连接。
     """
-    from fastapi import FastAPI
-    from httpx import ASGITransport, AsyncClient
-
     from api.deps import get_current_user, get_db
     from api.v1.test_board import router as test_board_router
+    from fastapi import FastAPI
+    from httpx import ASGITransport, AsyncClient
     from infrastructure.persistence.models import User
 
     app = FastAPI()
@@ -412,7 +411,11 @@ class TestPatchEndpoint:
 async def rich_db():
     """Dedicated MySQL fixture for test-board metadata tests."""
     from infrastructure.persistence.models import CIResult, JobOwner
-    from infrastructure.persistence.models.test_board import TestCase, TestRun, TestSuiteSnapshot
+    from infrastructure.persistence.models.test_board import (
+        TestCase,
+        TestRun,
+        TestSuiteSnapshot,
+    )
 
     engine = create_test_engine()
     await reset_tables(engine, [

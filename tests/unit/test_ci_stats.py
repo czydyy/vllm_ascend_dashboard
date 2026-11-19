@@ -4,8 +4,6 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
 import pytest
-from sqlalchemy.dialects import mysql
-
 from api.v1.ci import (
     _apply_benchmark_config,
     _benchmark_config_reference,
@@ -23,6 +21,7 @@ from api.v1.ci import (
     list_runs,
 )
 from contracts.schemas import CIStats
+from sqlalchemy.dialects import mysql
 
 
 @pytest.mark.asyncio

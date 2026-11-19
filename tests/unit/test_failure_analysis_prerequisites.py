@@ -2,7 +2,6 @@ import subprocess
 from pathlib import Path
 
 import pytest
-
 from agent import agent_tools
 from failure_analysis.failure_analysis import FailureAnalysisService
 from infrastructure.clients import github_cache

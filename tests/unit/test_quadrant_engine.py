@@ -1,6 +1,5 @@
 """Verify score and review-ratio quadrant classification."""
 import pytest
-
 from contributor_board.quadrant_engine import (
     QuadrantPoint,
     calculate_quadrants,

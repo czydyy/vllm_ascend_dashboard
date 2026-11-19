@@ -18,8 +18,8 @@ from infrastructure.persistence.models import (
     ProjectDashboardConfig,
 )
 from infrastructure.persistence.models.daily_summary import LLMProviderConfig
-from infrastructure.storage.failure_analysis_file_store import FailureAnalysisFileStore
 from infrastructure.storage.artifact_lifecycle import release_artifacts_after_analysis
+from infrastructure.storage.failure_analysis_file_store import FailureAnalysisFileStore
 
 logger = logging.getLogger(__name__)
 _BACKGROUND_TASKS: set[asyncio.Task] = set()

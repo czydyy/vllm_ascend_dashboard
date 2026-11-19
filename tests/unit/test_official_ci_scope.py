@@ -1,8 +1,7 @@
 from types import SimpleNamespace
 
-from sqlalchemy.dialects import mysql
-
 from infrastructure.persistence.models import CIResult
+from sqlalchemy.dialects import mysql
 from tooling.official_ci_scope import build_official_ci_filter
 
 

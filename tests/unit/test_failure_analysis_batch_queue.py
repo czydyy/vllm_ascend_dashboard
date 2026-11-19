@@ -2,7 +2,6 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
 import pytest
-
 from failure_analysis.failure_analysis import FailureAnalysisService
 
 

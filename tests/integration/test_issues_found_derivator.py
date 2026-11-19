@@ -19,14 +19,14 @@ os.environ.setdefault("GITHUB_OWNER", "vllm-ascend")
 os.environ.setdefault("GITHUB_REPO", "vllm-ascend")
 
 import pytest
-from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
-from tests.conftest import make_test_case, make_test_run
-from tests.mysql_test_db import create_test_engine, reset_tables
-
 from contracts.schemas.test_board import TestCaseResponse
 from infrastructure.persistence.models import PullRequest
 from infrastructure.persistence.models.test_board import TestCase, TestRun
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from test_board.issues_found_derivator import IssuesFoundDerivator
+
+from tests.conftest import make_test_case, make_test_run
+from tests.mysql_test_db import create_test_engine, reset_tables
 
 
 def _make_run(

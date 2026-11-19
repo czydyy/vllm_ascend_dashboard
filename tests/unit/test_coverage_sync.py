@@ -5,7 +5,6 @@ from types import SimpleNamespace
 
 import pytest
 from coverage import CoverageData
-
 from test_board import coverage_sync
 
 
