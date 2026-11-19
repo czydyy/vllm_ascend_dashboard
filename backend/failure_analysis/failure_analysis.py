@@ -19,6 +19,7 @@ from infrastructure.persistence.models import (
 )
 from infrastructure.persistence.models.daily_summary import LLMProviderConfig
 from infrastructure.storage.failure_analysis_file_store import FailureAnalysisFileStore
+from infrastructure.storage.artifact_lifecycle import release_artifacts_after_analysis
 
 logger = logging.getLogger(__name__)
 _BACKGROUND_TASKS: set[asyncio.Task] = set()
@@ -283,6 +284,7 @@ class FailureAnalysisService:
                 return value
         return self._get_default_prompt()
 
+    @release_artifacts_after_analysis
     async def analyze_failed_job(self, job_id: int, db: AsyncSession, force: bool = False, triggered_by: str = "manual"):
         stmt = select(CIJob).where(CIJob.job_id == job_id)
         result = await db.execute(stmt)
