@@ -22,14 +22,59 @@ if not application_root.is_dir():
     application_root = repository_root
 sys.path.insert(0, str(application_root))
 
+from infrastructure.db.base import SessionLocal, engine
+
 from database.bootstrap import create_tables_with_latest_schema
 from database.migrations.ci_npu_facts import run as migrate_ci_npu_facts
 from database.migrations.ci_npu_queue_snapshot_physical_running import (
     run as migrate_ci_npu_queue_snapshot_physical_running,
 )
 from database.migrations.ci_npu_queue_snapshots import run as migrate_ci_npu_queue_snapshots
+from database.migrations.contributor_ai_report import run as migrate_contributor_ai_report
+from database.migrations.contributor_board import run as migrate_contributor_board
+from database.migrations.contributor_board_enhancements import (
+    run as migrate_contributor_board_enhancements,
+)
+from database.migrations.contributor_board_refactor import run as migrate_contributor_board_refactor
+from database.migrations.contributor_board_repo_name import (
+    run as migrate_contributor_board_repo_name,
+)
+from database.migrations.contributor_board_settings import run as migrate_contributor_board_settings
+from database.migrations.contributor_metrics_add_commit_count import run as migrate_commit_count
+from database.migrations.contributor_metrics_pr_efficiency import run as migrate_pr_efficiency
+from database.migrations.contributor_scoring_version import (
+    run as migrate_contributor_scoring_version,
+)
+from database.migrations.contributor_sync_checkpoint import (
+    run as migrate_contributor_sync_checkpoint,
+)
+from database.migrations.contributor_sync_checkpoint_kind import (
+    run as migrate_contributor_sync_checkpoint_kind,
+)
+from database.migrations.contributor_sync_records import run as migrate_contributor_sync_records
+from database.migrations.daily_pipeline_case_counts import run as migrate_daily_case_counts
+from database.migrations.daily_pipeline_collection import run as migrate_daily_collection
+from database.migrations.daily_pipeline_config import run as migrate_daily_pipeline_config
+from database.migrations.daily_pipeline_manual_processing import (
+    run as migrate_daily_manual_processing,
+)
+from database.migrations.daily_pipeline_scheduled_tasks import (
+    run as migrate_daily_pipeline_schedules,
+)
+from database.migrations.daily_pipeline_tracking import run as migrate_daily_tracking
+from database.migrations.daily_pipeline_retryable_nodes import run as migrate_daily_retryable_nodes
+from database.migrations.daily_pipeline_merged_pr import run as migrate_daily_merged_pr
+from database.migrations.daily_pipeline_notifications import run as migrate_daily_notifications
+from database.migrations.daily_pipeline_issue_reopen import run as migrate_daily_issue_reopen
+from database.migrations.daily_pipeline_trigger_history import run as migrate_daily_trigger_history
 from database.migrations.github_workflow_run_metadata import (
     run as migrate_github_workflow_run_metadata,
+)
+from database.migrations.image_build_plans_files_changed import (
+    run as migrate_image_build_plans_files_changed,
+)
+from database.migrations.image_build_plans_reasoning import (
+    run as migrate_image_build_plans_reasoning,
 )
 from database.migrations.model_fo_mapping_seed import run as migrate_model_fo_mapping_seed
 from database.migrations.mysql_schema import migrate as migrate_mysql_schema
@@ -39,31 +84,22 @@ from database.migrations.npu_occupancy_current_snapshot import (
 )
 from database.migrations.npu_occupancy_pod_lookup import run as migrate_npu_occupancy_pod_lookup
 from database.migrations.process_runtime import run as migrate_process_runtime
+from database.migrations.release_analysis_task_columns import (
+    run as migrate_release_analysis_task_columns,
+)
+from database.migrations.release_build_groups_columns import (
+    run as migrate_release_build_groups_columns,
+)
+from database.migrations.release_third_party_repository_url import (
+    run as migrate_release_third_party_repository_url,
+)
 from database.migrations.resource_metrics_query_indexes import (
     run as migrate_resource_metrics_query_indexes,
 )
 from database.migrations.resource_pod_timeline import run as migrate_resource_pod_timeline
 from database.migrations.service_permissions import run as migrate_service_permissions
 from database.migrations.task_queue import run as migrate_phase_a
-from database.migrations.contributor_board import run as migrate_contributor_board
-from database.migrations.contributor_board_enhancements import run as migrate_contributor_board_enhancements
-from database.migrations.contributor_board_settings import run as migrate_contributor_board_settings
-from database.migrations.contributor_metrics_add_commit_count import run as migrate_commit_count
-from database.migrations.contributor_metrics_pr_efficiency import run as migrate_pr_efficiency
-from database.migrations.contributor_board_repo_name import run as migrate_contributor_board_repo_name
-from database.migrations.contributor_sync_checkpoint import run as migrate_contributor_sync_checkpoint
-from database.migrations.contributor_sync_checkpoint_kind import run as migrate_contributor_sync_checkpoint_kind
-from database.migrations.contributor_sync_records import run as migrate_contributor_sync_records
-from database.migrations.image_build_plans_reasoning import run as migrate_image_build_plans_reasoning
-from database.migrations.image_build_plans_files_changed import run as migrate_image_build_plans_files_changed
 from database.migrations.test_board_data import run as migrate_test_board_data
-from database.migrations.contributor_scoring_version import run as migrate_contributor_scoring_version
-from database.migrations.contributor_ai_report import run as migrate_contributor_ai_report
-from database.migrations.contributor_board_refactor import run as migrate_contributor_board_refactor
-from database.migrations.release_analysis_task_columns import run as migrate_release_analysis_task_columns
-from database.migrations.release_build_groups_columns import run as migrate_release_build_groups_columns
-from database.migrations.release_third_party_repository_url import run as migrate_release_third_party_repository_url
-from infrastructure.db.base import SessionLocal, engine
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
 logger = logging.getLogger("database_migration")
@@ -82,6 +118,17 @@ async def migrate() -> None:
     users_before = await _user_count()
     # phase_a creates migration_history first, so it must run before other migrations
     await migrate_phase_a()
+    await migrate_daily_pipeline_schedules()
+    await migrate_daily_pipeline_config()
+    await migrate_daily_trigger_history()
+    await migrate_daily_collection()
+    await migrate_daily_case_counts()
+    await migrate_daily_tracking()
+    await migrate_daily_merged_pr()
+    await migrate_daily_manual_processing()
+    await migrate_daily_notifications()
+    await migrate_daily_issue_reopen()
+    await migrate_daily_retryable_nodes()
     await migrate_mysql_schema()
     await migrate_process_runtime()
     model_fo_result = await migrate_model_fo_mapping_seed()
@@ -119,7 +166,7 @@ async def migrate() -> None:
             f"User count changed during migration: {users_before} -> {users_after}"
         )
     logger.info(
-        "Migration completed; users=%d permissions=%s test_board=%s contributor_board=%s enhancements=%s settings=%s commit_count=%s pr_efficiency=%s repo_name=%s sync_checkpoint=%s sync_records=%s build_plan_reasoning=%s build_plan_files_changed=%s scoring_version=%s ai_report=%s contributor_refactor=%s release_task=%s release_groups=%s release_tp_url=%s",
+        "Migration completed; users=%d model_fo=%s permissions=%s test_board=%s contributor_board=%s enhancements=%s settings=%s commit_count=%s pr_efficiency=%s repo_name=%s sync_checkpoint=%s sync_records=%s build_plan_reasoning=%s build_plan_files_changed=%s scoring_version=%s ai_report=%s contributor_refactor=%s release_task=%s release_groups=%s release_tp_url=%s",
         users_after,
         permission_result,
         test_board_result,
