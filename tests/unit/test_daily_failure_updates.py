@@ -2,9 +2,10 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
 import pytest
+from fastapi.routing import APIRoute
+
 from api.v1.ci import batch_update_failure_status, router, update_failure_status
 from contracts.schemas import DailyFailureBatchUpdateRequest, DailyFailureUpdateRequest
-from fastapi.routing import APIRoute
 
 
 def _record(record_id: int, owner: str | None):

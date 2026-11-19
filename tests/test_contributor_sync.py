@@ -112,8 +112,9 @@ async def check_database_state():
     print("\n检查数据库状态...")
 
     try:
-        from infrastructure.db.base import SessionLocal
         from sqlalchemy import text
+
+        from infrastructure.db.base import SessionLocal
 
         async with SessionLocal() as db:
             # 检查 background_task_records 表

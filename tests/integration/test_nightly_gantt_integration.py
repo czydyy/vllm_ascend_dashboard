@@ -6,6 +6,7 @@
 from datetime import UTC, datetime
 
 import pytest
+
 from nightly_gantt.nightly_gantt_service import NightlyGanttService
 
 

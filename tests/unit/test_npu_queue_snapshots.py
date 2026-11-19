@@ -1,12 +1,7 @@
 from datetime import UTC, datetime
 from types import SimpleNamespace
 
-from npu_queue.service import (
-    _ci_wait_state,
-    _minutes,
-    _queue_delay_dates,
-    _queue_delay_window,
-)
+from npu_queue.service import _ci_wait_state, _minutes, _queue_delay_dates, _queue_delay_window
 from npu_queue.snapshots import (
     current_counts,
     physical_queue_detail_from_metrics,

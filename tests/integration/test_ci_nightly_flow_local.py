@@ -12,12 +12,17 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
 import pytest
+from database.migrations.task_queue import COLLECTION_TASKS_DDL
+from dotenv import dotenv_values
+from sqlalchemy import select, text
+from sqlalchemy.engine import make_url
+from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
+
 from api.v1.ci import list_daily_failures, list_jobs_by_run
 from collector.ci import CICollector
 from collector.executor import CollectorRunner
 from collector.nightly_data import NightlyDataCollector
 from contracts.schemas import CIResultResponse
-from dotenv import dotenv_values
 from failure_analysis.failure_analysis import FailureAnalysisService
 from infrastructure.core.config import settings
 from infrastructure.persistence.models import (
@@ -29,11 +34,6 @@ from infrastructure.persistence.models import (
     NightlyTestCase,
     WorkflowConfig,
 )
-from sqlalchemy import select, text
-from sqlalchemy.engine import make_url
-from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
-
-from database.migrations.task_queue import COLLECTION_TASKS_DDL
 
 
 def _local_engine():

@@ -4,6 +4,7 @@ import asyncio
 from types import SimpleNamespace
 
 import pytest
+
 from agent import agent_service, agent_tools
 from agent.agent_runtime import recover_tool_calls
 from agent.agent_service import AgentService, AgentTask

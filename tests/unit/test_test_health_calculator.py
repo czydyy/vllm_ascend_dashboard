@@ -2,6 +2,7 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock
 
 import pytest
+
 from tooling.analytics.test_health_calculator import TestHealthCalculator
 
 

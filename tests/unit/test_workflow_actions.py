@@ -3,11 +3,12 @@ from unittest.mock import AsyncMock, MagicMock
 
 import httpx
 import pytest
+from fastapi import FastAPI
+from pydantic import ValidationError
+
 from api.deps import get_current_user, get_db
 from api.v1.workflow_actions import router
-from fastapi import FastAPI
 from infrastructure.persistence.models import User, WorkflowActionSchedule
-from pydantic import ValidationError
 from workflow_actions.schemas import (
     WorkflowActionPermissionCreate,
     WorkflowActionPermissionUpdate,

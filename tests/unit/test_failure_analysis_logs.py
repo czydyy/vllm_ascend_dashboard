@@ -4,6 +4,7 @@ from unittest.mock import AsyncMock
 from zipfile import ZipFile
 
 import pytest
+
 from failure_analysis.failure_analysis import FailureAnalysisService
 from infrastructure.clients import github_cache
 from infrastructure.clients.claude_code_cli import ClaudeCodeCLI

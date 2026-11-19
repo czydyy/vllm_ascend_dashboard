@@ -1,6 +1,7 @@
 from types import SimpleNamespace
 
 import pytest
+
 from collector.ci import CICollector
 
 

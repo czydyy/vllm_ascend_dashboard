@@ -9,6 +9,7 @@ VersionQualityFileStore 和 HTML 净化/提取的单元测试。
 import asyncio
 
 import pytest
+
 from infrastructure.storage.version_quality_file_store import (
     VersionQualityFileStore,
     _sanitize_component,

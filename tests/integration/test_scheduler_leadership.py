@@ -4,6 +4,7 @@ from __future__ import annotations
 import uuid
 
 import pytest
+
 from scheduler.leadership import SchedulerLeaderLease
 
 

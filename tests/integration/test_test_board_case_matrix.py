@@ -10,10 +10,11 @@ os.environ.setdefault("GITHUB_REPO", "vllm-ascend")
 
 import pytest
 import pytest_asyncio
-from api.deps import get_current_user
-from api.v1.test_board import router as test_board_router
 from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
+
+from api.deps import get_current_user
+from api.v1.test_board import router as test_board_router
 from infrastructure.persistence.models import User
 from tooling.analytics.test_case_matrix_service import (
     get_case_feature_matrix,

@@ -4,6 +4,7 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
 import pytest
+
 from collector.ci import CICollector, CIWorkflowCollectionError
 from infrastructure.tasks.sync_progress import SyncProgress
 

@@ -5,7 +5,6 @@ def test_concurrent_analysis_keeps_artifacts_until_last_reader_exits(tmp_path, m
     import asyncio
     import sys
     from types import SimpleNamespace
-
     from infrastructure.storage import artifact_lifecycle as lifecycle
 
     # Model flock's shared/exclusive conflict on Windows as well as Linux.
@@ -74,7 +73,6 @@ def test_only_consumed_artifacts_removed_reports_and_unused_runs_preserved(tmp_p
 def test_symlink_run_never_followed(tmp_path):
     # Symlinks require special privileges on Windows; coverage runs on Linux too.
     import os
-
     import pytest
     if os.name == "nt":
         pytest.skip("Windows symlink privileges unavailable")

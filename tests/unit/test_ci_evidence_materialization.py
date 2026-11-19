@@ -5,6 +5,7 @@ import zipfile
 from types import SimpleNamespace
 
 import pytest
+
 from collector.ci import CICollector
 from infrastructure.core.config import settings
 
