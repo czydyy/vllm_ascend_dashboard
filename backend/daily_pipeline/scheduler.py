@@ -23,6 +23,7 @@ from daily_pipeline.recommendation_events import watch_daily_recommendations
 from daily_pipeline.tracking import DailyTrackingService
 from daily_pipeline.trigger_config import TRIGGER_TASK
 from daily_pipeline.version_resolution import advance_version_flow, version_work_ids
+from daily_pipeline.workflow_config import sync_daily_workflow
 from infrastructure.clients.daily_pipeline_scheduler import (
     COLLECTION_PURPOSE,
     PROCESSING_PURPOSE,
@@ -105,8 +106,12 @@ async def task_execution(task_key: str):
 
 async def refresh_daily_catalog():
     async with task_execution(CATALOG_TASK):
-        async with SessionLocal() as db:
-            await DailyCaseService(DailyCaseRepository(db)).refresh_catalog()
+        try:
+            async with SessionLocal() as db:
+                await DailyCaseService(DailyCaseRepository(db)).refresh_catalog()
+        finally:
+            async with task_execution("sync_daily_workflow"), SessionLocal() as db:
+                await sync_daily_workflow(db)
 
 
 async def trigger_scheduled_pipeline(cron: str):

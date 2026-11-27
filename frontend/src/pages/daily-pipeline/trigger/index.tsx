@@ -2,7 +2,7 @@ import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { Button, ConfigProvider, Form, Input, Modal, Space, Spin, message } from 'antd'
 import { isAxiosError } from 'axios'
 import { ApiOutlined, PlayCircleOutlined, ReloadOutlined, SaveOutlined } from '@ant-design/icons'
-import { useDailyCases, useDailySchedulePreview, useDailyTriggerConfig, useSaveDailyTriggerConfig, useTestDailyTriggerConnection, useTriggerDailyPipeline } from '../../../hooks/useDailyPipeline'
+import { useDailyCases, useDailySchedulePreview, useDailyTriggerConfig, useSaveDailyTriggerConfig, useSyncDailyTriggerWorkflow, useTestDailyTriggerConnection, useTriggerDailyPipeline } from '../../../hooks/useDailyPipeline'
 import type { DailyTriggerConfigInput } from '../../../types/dailyPipeline'
 import { useDailyRefreshFeedback } from '../shared/useDailyRefreshFeedback'
 import { useDailyTabOpening } from '../shared/useDailyTabOpening'
@@ -10,14 +10,16 @@ import { useDailyQueryError } from '../shared/useDailyQueryError'
 import CronExpressionInput from './CronExpressionInput'
 import DailyTriggerPreview from './DailyTriggerPreview'
 import DailyTriggerHistory from './DailyTriggerHistory'
+import DailyWorkflowFields from './DailyWorkflowFields'
 import './Trigger.css'
 
-function DailyTriggerSettings({ active }: { active: boolean }) {
+function DailyTriggerSettings({ active, canEdit }: { active: boolean; canEdit: boolean }) {
   const { data, isFetching, refetch } = useDailyTriggerConfig(active)
   const casesQuery = useDailyCases(true, { enabled: active, staleTime: 0 })
   useDailyQueryError(casesQuery, 'Daily 用例加载失败', active)
   const saveConfig = useSaveDailyTriggerConfig()
   const testConnection = useTestDailyTriggerConnection()
+  const syncWorkflow = useSyncDailyTriggerWorkflow()
   const triggerPipeline = useTriggerDailyPipeline()
   const [form] = Form.useForm<DailyTriggerConfigInput>()
   const [historyOpen, setHistoryOpen] = useState(false)
@@ -33,6 +35,18 @@ function DailyTriggerSettings({ active }: { active: boolean }) {
   useEffect(() => {
     form.setFieldsValue({ cron: data?.cron ?? '' })
   }, [data?.cron, form])
+  useEffect(() => {
+    form.setFieldValue('workflowInputs', data?.workflow?.values ?? {})
+  }, [data?.workflow, form])
+  const handleSyncWorkflow = async () => {
+    try {
+      await syncWorkflow.mutateAsync()
+      void message.success('Workflow 参数已同步')
+    } catch (error) {
+      const detail = isAxiosError(error) ? error.response?.data?.detail : null
+      void message.error(typeof detail === 'string' ? detail : 'Workflow 同步失败，请重试')
+    }
+  }
   const handleTestConnection = async () => {
     try {
       await form.validateFields(['githubToken'])
@@ -60,24 +74,27 @@ function DailyTriggerSettings({ active }: { active: boolean }) {
       return
     }
     form.setFieldsValue({ cron: refreshed.data?.cron ?? '', githubToken: '' })
+    form.setFieldValue('workflowInputs', refreshed.data?.workflow?.values ?? {})
     if (refreshed.data?.cron && refreshed.data.cron === draftCron?.trim().replace(/\s+/g, ' ')) {
       await preview.refetch()
     }
   })
   const opening = useDailyTabOpening(active)
-  const loading = active && (opening || isFetching || casesQuery.isFetching || refresh.pending || saveConfig.isPending)
+  const loading = active && (opening || isFetching || casesQuery.isFetching || refresh.pending || saveConfig.isPending || syncWorkflow.isPending)
   const triggerDisabled = !active || loading || saveConfig.isPending || testConnection.isPending || triggerPipeline.isPending
   const controls = useRef<HTMLDivElement>(null)
   useLayoutEffect(() => {
     if (controls.current) controls.current.inert = !active || loading
   }, [active, loading])
-  const handleSave = async ({ cron, githubToken }: DailyTriggerConfigInput) => {
+  const handleSave = async ({ cron, githubToken, workflowInputs }: DailyTriggerConfigInput) => {
     try {
       const saved = await saveConfig.mutateAsync({
         cron: cron?.trim() ?? '',
+        ...(data?.workflow ? { workflowInputs } : {}),
         ...(githubToken?.trim() ? { githubToken: githubToken.trim() } : {}),
       })
       form.setFieldsValue({ cron: saved.cron ?? '', githubToken: '' })
+      form.setFieldValue('workflowInputs', saved.workflow?.values ?? {})
       message.success('配置已保存')
     } catch (error) {
       message.error(isAxiosError<{ detail?: string }>(error)
@@ -108,6 +125,7 @@ function DailyTriggerSettings({ active }: { active: boolean }) {
             labelCol={{ flex: '112px' }}
             wrapperCol={{ flex: 'auto' }}
             labelAlign="left"
+            labelWrap
             requiredMark={false}
             colon
             disabled={saveConfig.isPending || testConnection.isPending || triggerPipeline.isPending}
@@ -138,6 +156,7 @@ function DailyTriggerSettings({ active }: { active: boolean }) {
             >
               <CronExpressionInput allowClear placeholder="留空并保存可取消定时触发" maxLength={120} />
             </Form.Item>
+            <DailyWorkflowFields workflow={data?.workflow} canEdit={canEdit} onSync={() => void handleSyncWorkflow()} />
           </Form>
           <div className="daily-cases-actions daily-trigger-manual-action">
             <Button

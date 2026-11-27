@@ -1,10 +1,12 @@
-"""Read the configured Nightly catalog from GitHub."""
-import json
+"""Read the configured Nightly catalog and dispatch Daily workflows."""
 
 import httpx
 
 from infrastructure.clients.github_http import GitHubAsyncClient
 from infrastructure.core.github_credentials import GitHubCredential
+from tooling.parsers.workflow_dispatch import WorkflowInputValue
+
+DAILY_WORKFLOW = "schedule_daily_test.yaml"
 
 
 async def read_nightly_config(repository: str, branch: str, path: str) -> str:
@@ -21,7 +23,7 @@ async def check_trigger_permission(repository: str, credential: GitHubCredential
     ) as client:
         repo = await client.get(f"/repos/{repository}")
         repo.raise_for_status()
-        workflow = await client.get(f"/repos/{repository}/actions/workflows/schedule_daily_test.yaml")
+        workflow = await client.get(f"/repos/{repository}/actions/workflows/{DAILY_WORKFLOW}")
         workflow.raise_for_status()
 
     if workflow.json().get("state") != "active":
@@ -40,7 +42,7 @@ async def check_trigger_permission(repository: str, credential: GitHubCredential
 
 
 async def dispatch_daily_workflow(
-    repository: str, branch: str, credential: GitHubCredential, cases: dict[str, list[str]],
+    repository: str, branch: str, credential: GitHubCredential, inputs: dict[str, WorkflowInputValue],
 ) -> int:
     headers = {
         "Accept": "application/vnd.github+json",
@@ -50,14 +52,8 @@ async def dispatch_daily_workflow(
         audit_source="daily_config", credential=credential, headers=headers, timeout=30,
     ) as client:
         response = await client.post(
-            f"/repos/{repository}/actions/workflows/schedule_daily_test.yaml/dispatches",
-            json={
-                "ref": branch,
-                "inputs": {
-                    "vllm_ascend_branch": branch,
-                    "daily_test_cases": json.dumps(cases, ensure_ascii=False),
-                },
-            },
+            f"/repos/{repository}/actions/workflows/{DAILY_WORKFLOW}/dispatches",
+            json={"ref": branch, "inputs": inputs},
         )
         response.raise_for_status()
         try:

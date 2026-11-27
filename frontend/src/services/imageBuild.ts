@@ -1,13 +1,7 @@
 import api from './api'
+import type { WorkflowInputDefinition } from '../types/workflowInputs'
 
-export interface ImageBuildWorkflowInput {
-  name: string
-  type: string
-  description: string
-  required: boolean
-  options: string[]
-  default?: string | number | boolean | null
-}
+export type ImageBuildWorkflowInput = WorkflowInputDefinition
 
 export interface ImageBuildWorkflowDefinition {
   branch_name: string

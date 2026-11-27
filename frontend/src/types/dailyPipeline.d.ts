@@ -1,3 +1,5 @@
+import type { WorkflowInputDefinition, WorkflowInputValue } from './workflowInputs'
+
 export interface DailyPipelineSchedule {
   cron: string | null
   timeZone: string
@@ -34,14 +36,24 @@ export interface DailySelectionResult {
   removed: number
 }
 
+export interface DailyTriggerWorkflow {
+  repository: string
+  branch: string
+  path: string
+  inputs: WorkflowInputDefinition[]
+  values: Record<string, WorkflowInputValue>
+}
+
 export interface DailyTriggerConfig {
   cron: string | null
   githubTokenConfigured: boolean
+  workflow?: DailyTriggerWorkflow | null
 }
 
 export interface DailyTriggerConfigInput {
   cron: string
   githubToken?: string
+  workflowInputs?: Record<string, WorkflowInputValue>
 }
 
 export interface DailyTriggerHistoryItem {

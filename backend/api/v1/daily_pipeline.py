@@ -34,7 +34,12 @@ from daily_pipeline.trigger_config import (
     trigger_config,
 )
 from daily_pipeline.version_resolution import share_version_flow, submit_version_action
+from daily_pipeline.workflow_config import WorkflowSyncBusy, sync_daily_workflow
 from infrastructure.clients.daily_pipeline_scheduler import SchedulerUpdateError
+from infrastructure.core.github_audit import (
+    GITHUB_AUDIT_UNAVAILABLE_MESSAGE,
+    GitHubAuditUnavailable,
+)
 from infrastructure.persistence.daily_pipeline_cases import DailyCaseRepository
 from infrastructure.persistence.daily_pipeline_collection import DailyCollectionRepository
 from infrastructure.persistence.daily_pipeline_history import DailyTriggerHistoryRepository
@@ -43,6 +48,7 @@ from infrastructure.persistence.daily_pipeline_notifications import (
     DailyNotificationRecipientRepository,
 )
 from infrastructure.persistence.daily_pipeline_schedules import read_schedule
+from tooling.parsers.workflow_dispatch import WorkflowInputValue
 
 router = APIRouter(prefix="/daily-pipeline", tags=["Daily 流水线"])
 
@@ -153,6 +159,7 @@ class TriggerTokenInput(BaseModel):
 
 class TriggerConfigInput(TriggerTokenInput):
     cron: Annotated[str, StringConstraints(strip_whitespace=True, max_length=120)] | None
+    workflowInputs: dict[str, WorkflowInputValue] | None = None
 
 
 @router.post("/trigger-config/test-connection")
@@ -183,11 +190,26 @@ async def get_trigger_config(user: CurrentUser, db: DbSession):
 async def update_trigger_config(body: TriggerConfigInput, user: CurrentAdminUser, db: DbSession):
     token = body.githubToken.get_secret_value().strip() if body.githubToken else None
     try:
-        return await save_trigger_config(db, body.cron, token)
+        return await save_trigger_config(db, body.cron, token, body.workflowInputs)
     except SchedulerUpdateError as exc:
         raise HTTPException(503, str(exc)) from exc
     except ValueError as exc:
-        raise HTTPException(422, "Cron 表达式无效") from exc
+        raise HTTPException(422, str(exc)) from exc
+
+
+@router.post("/trigger-config/sync-workflow")
+async def sync_trigger_workflow(user: CurrentAdminUser, db: DbSession):
+    try:
+        await sync_daily_workflow(db)
+        return await trigger_config(db)
+    except WorkflowSyncBusy as exc:
+        raise HTTPException(409, str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(422, str(exc)) from exc
+    except httpx.HTTPError as exc:
+        raise HTTPException(502, "无法从 GitHub 读取 Daily Workflow") from exc
+    except GitHubAuditUnavailable as exc:
+        raise HTTPException(503, GITHUB_AUDIT_UNAVAILABLE_MESSAGE) from exc
 
 
 @router.get("/schedule")

@@ -10,7 +10,8 @@ from daily_pipeline.cases import HARDWARE, case_view
 from daily_pipeline.history import history_detail
 from daily_pipeline.recommendation_events import note_recommendation_round
 from daily_pipeline.source_recommendation import begin_recommendation_round
-from infrastructure.clients.daily_pipeline_config import dispatch_daily_workflow
+from daily_pipeline.workflow_config import DEFINITION_KEY, VALUES_KEY, daily_dispatch_inputs
+from infrastructure.clients.daily_pipeline_config import DAILY_WORKFLOW, dispatch_daily_workflow
 from infrastructure.clients.daily_pipeline_scheduler import SchedulerUpdateError, start_collection
 from infrastructure.core.github_audit import (
     GITHUB_AUDIT_UNAVAILABLE_MESSAGE,
@@ -28,7 +29,7 @@ from infrastructure.persistence.daily_pipeline_tracking import (
 )
 
 logger = logging.getLogger(__name__)
-WORKFLOW = "schedule_daily_test.yaml"
+WORKFLOW = DAILY_WORKFLOW
 
 
 async def trigger_daily_pipeline(
@@ -36,7 +37,7 @@ async def trigger_daily_pipeline(
     include_in_recommendation: bool = True,
 ):
     include_in_recommendation = event == "定时触发" or include_in_recommendation
-    settings = await read_settings(db, "repository", "source_branch", "github_token")
+    settings = await read_settings(db, "repository", "source_branch", "github_token", DEFINITION_KEY, VALUES_KEY)
     repository = settings.get("repository") or ""
     branch = settings.get("source_branch") or ""
     credential = daily_github_credential(settings)
@@ -66,7 +67,8 @@ async def trigger_daily_pipeline(
         if not (repository and branch and credential):
             raise ValueError("请先保存 GitHub Token 并配置目标仓库和分支")
         credential.validate()
-        run_id = await dispatch_daily_workflow(repository, branch, credential, cases)
+        inputs = daily_dispatch_inputs(settings, branch, cases)
+        run_id = await dispatch_daily_workflow(repository, branch, credential, inputs)
     except httpx.HTTPStatusError as exc:
         messages = {
             401: "GitHub Token 无效或已过期",

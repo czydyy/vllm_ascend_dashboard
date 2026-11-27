@@ -12,7 +12,7 @@ export default function DailyPipelineConfiguration() {
   const canEdit = user?.role === 'admin' || user?.role === 'super_admin'
   return <DailyCasePage title="配置">
     <Tabs className="daily-stable-tabs" activeKey={activeTab} onChange={setActiveTab} animated={false} items={[
-      { key: 'trigger', label: '流水线触发', forceRender: true, children: <DailyTriggerSettings active={activeTab === 'trigger'} /> },
+      { key: 'trigger', label: '流水线触发', forceRender: true, children: <DailyTriggerSettings active={activeTab === 'trigger'} canEdit={canEdit} /> },
       { key: 'notification', label: '消息通知', forceRender: true, children: <NotificationConfig active={activeTab === 'notification'} canEdit={canEdit} /> },
     ]} />
   </DailyCasePage>

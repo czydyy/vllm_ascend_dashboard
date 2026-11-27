@@ -62,6 +62,11 @@ export const saveDailyTriggerConfig = async (values: DailyTriggerConfigInput): P
   return response.data
 }
 
+export const syncDailyTriggerWorkflow = async (): Promise<DailyTriggerConfig> => {
+  const response = await api.post<DailyTriggerConfig>('/daily-pipeline/trigger-config/sync-workflow', {})
+  return response.data
+}
+
 export const testDailyTriggerConnection = async (githubToken?: string) => {
   const response = await api.post<{ verified: boolean; detail: string }>('/daily-pipeline/trigger-config/test-connection',
     githubToken ? { githubToken } : {})
