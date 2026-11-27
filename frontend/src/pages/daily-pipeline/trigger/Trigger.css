@@ -2,6 +2,15 @@
   position: relative;
 }
 
+.daily-trigger-workflow {
+  margin-bottom: 16px;
+}
+
+.daily-trigger-workflow-heading {
+  display: flex;
+  margin-bottom: 8px;
+}
+
 .daily-trigger-settings-mask {
   position: absolute;
   inset: 0;

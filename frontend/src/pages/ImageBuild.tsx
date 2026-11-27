@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { queryOptions, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { isAxiosError } from 'axios'
-import { Alert, Button, Checkbox, ConfigProvider, Descriptions, Drawer, Flex, Form, Input, InputNumber, Modal, Radio, Select, Space, Switch, Tabs, Tag, Typography, message } from 'antd'
+import { Alert, Button, Checkbox, ConfigProvider, Descriptions, Drawer, Flex, Form, Input, Modal, Radio, Select, Space, Tabs, Tag, Typography, message } from 'antd'
 import { ProTable, type ProColumns } from '@ant-design/pro-components'
 import { ArrowLeftOutlined, DeleteOutlined, EditOutlined, HistoryOutlined, PlayCircleOutlined, PlusOutlined, ReloadOutlined, SaveOutlined, SyncOutlined } from '@ant-design/icons'
 import { useCurrentUser } from '../hooks/useCurrentUser'
@@ -27,6 +27,7 @@ import DailyCasePage from './daily-pipeline/cases/DailyCasePage'
 import { ImageBuildCollection } from './ImageBuildCollection'
 import { dailyTableRefresh } from './daily-pipeline/shared/dailyTableRefresh'
 import './daily-pipeline/shared/DailyStableTabs.css'
+import { renderWorkflowInput } from '../components/WorkflowInputControl'
 
 const triggerTasksQueryKey = ['image-build-trigger-tasks']
 const triggerRecordsQueryKey = ['image-build-trigger-records']
@@ -132,25 +133,7 @@ function renderInput(input: ImageBuildWorkflowInput, chipOptions: string[]) {
   if (chipOptions.length) {
     return <Checkbox.Group options={chipOptions.map((chip) => ({ value: chip, label: chip.toUpperCase() }))} />
   }
-  switch (input.type) {
-    case 'boolean':
-      return <Switch />
-    case 'choice':
-    case 'environment':
-      return (
-        <Select
-          showSearch
-          disabled={input.type === 'environment' && input.options.length === 0}
-          placeholder={input.type === 'environment' ? '选择 GitHub 环境' : undefined}
-          options={input.options.map((option) => ({ value: option, label: option }))}
-        />
-      )
-    case 'number':
-      return <InputNumber style={{ width: '100%' }} />
-    case 'string':
-    default:
-      return <Input />
-  }
+  return renderWorkflowInput(input)
 }
 
 function resolveSourceBranch(value: ImageBuildWorkflowInput['default'], fallback: ImageBuildWorkflowInput['default']) {

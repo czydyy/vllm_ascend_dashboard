@@ -1,7 +1,7 @@
 import type { DailyNotificationConsumptionResult, DailyNotificationConsumptionStatus } from '../types/dailyPipeline'
 import { useEffect, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { rerunDailyFailedCase, rollbackDailyProcessing, shareDailyProcessingFlow, unshareDailyProcessingFlow, updateDailyVersionFlow } from '../services/dailyPipeline'
+import { syncDailyTriggerWorkflow, rerunDailyFailedCase, rollbackDailyProcessing, shareDailyProcessingFlow, unshareDailyProcessingFlow, updateDailyVersionFlow } from '../services/dailyPipeline'
 import { getDailyFailureNotificationConfig, saveDailyFailureNotificationConfig, getDailyNotificationRecipients, saveDailyNotificationRecipient, deleteDailyNotificationRecipient, getDailyNotificationRecords, retryDailyProcessing, manuallyCompleteDailyNode, getDailyOverview, closeDailyIssues, deleteDailyIssues, addDailyCasesFromNightly, deleteDailyCases, deleteDailyTriggerHistory, deleteDailyCollectionRuns, getDailyCases, getDailySchedule, getDailyCollectionRuns, getDailyCollectionDetail, getDailyFailedCases, getDailyFailedCase, getDailyIssueDetail, getDailyIssues, recollectDailyRun, getDailyTriggerConfig, getDailyTriggerHistory, getDailyTriggerHistoryDetail, previewDailySchedule, saveDailyTriggerConfig, testDailyTriggerConnection, triggerDailyPipeline, saveDailySchedule, saveDailyCaseSelection, updateDailyCase, updateDailyCaseStatuses } from '../services/dailyPipeline'
 
 const DAILY_CASES_QUERY_KEY = ['daily-pipeline', 'cases']
@@ -74,6 +74,14 @@ export const useSaveDailyTriggerConfig = () => {
         queryClient.invalidateQueries({ queryKey: DAILY_CASES_QUERY_KEY }),
       ])
     },
+  })
+}
+
+export const useSyncDailyTriggerWorkflow = () => {
+  const client = useQueryClient()
+  return useMutation({
+    mutationFn: syncDailyTriggerWorkflow,
+    onSuccess: (config) => client.setQueryData(DAILY_TRIGGER_CONFIG_QUERY_KEY, config),
   })
 }
 

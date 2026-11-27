@@ -6,6 +6,12 @@ from zoneinfo import ZoneInfo
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from daily_pipeline.cron import schedule_trigger
+from daily_pipeline.workflow_config import (
+    DEFINITION_KEY,
+    VALUES_KEY,
+    save_workflow_values,
+    workflow_config,
+)
 from infrastructure.clients.daily_pipeline_config import check_trigger_permission
 from infrastructure.clients.daily_pipeline_scheduler import SchedulerUpdateError, update_schedule
 from infrastructure.core.github_credentials import daily_github_credential
@@ -20,6 +26,7 @@ from infrastructure.persistence.daily_pipeline_settings import (
     read_settings,
     set_setting,
 )
+from tooling.parsers.workflow_dispatch import WorkflowInputValue
 
 logger = logging.getLogger(__name__)
 TRIGGER_TASK = "trigger_daily_pipeline"
@@ -29,7 +36,12 @@ DEFAULT_TIMEZONE = "Asia/Shanghai"
 async def trigger_config(db: AsyncSession):
     token_configured = await has_setting(db, "github_token")
     schedule = await read_schedule(db, TRIGGER_TASK)
-    return {"githubTokenConfigured": token_configured, "cron": schedule[0] if schedule else None}
+    settings = await read_settings(db, "repository", "source_branch", DEFINITION_KEY, VALUES_KEY)
+    return {
+        "githubTokenConfigured": token_configured,
+        "cron": schedule[0] if schedule else None,
+        "workflow": workflow_config(settings),
+    }
 
 
 async def check_trigger_connection(db: AsyncSession, token: str | None):
@@ -46,18 +58,25 @@ async def check_trigger_connection(db: AsyncSession, token: str | None):
     return {"verified": verified, "detail": detail}
 
 
-async def save_trigger_config(db: AsyncSession, cron: str | None, token: str | None):
+async def save_trigger_config(
+    db: AsyncSession, cron: str | None, token: str | None, workflow_inputs: dict[str, WorkflowInputValue] | None = None,
+):
     cron = (cron or "").strip()
     try:
         if cron:
             schedule = await read_schedule(db, TRIGGER_TASK)
             timezone = schedule[1] if schedule else DEFAULT_TIMEZONE
-            schedule_trigger(cron, timezone)
+            try:
+                schedule_trigger(cron, timezone)
+            except ValueError as exc:
+                raise ValueError("Cron 表达式无效") from exc
             await save_schedule(db, TRIGGER_TASK, cron, timezone)
         else:
             await delete_schedule(db, TRIGGER_TASK)
         if token:
             await set_setting(db, "github_token", encrypt_api_key(token))
+        if workflow_inputs is not None:
+            await save_workflow_values(db, workflow_inputs)
         await db.commit()
     except Exception as exc:
         # Database exceptions can contain the encrypted Token in SQL parameters.

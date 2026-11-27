@@ -2,33 +2,30 @@
 
 from __future__ import annotations
 
-import base64
 import hashlib
 import json
 import logging
-import re
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
-from typing import NotRequired, TypedDict
 
 import httpx
-import yaml  # type: ignore[import-untyped]
 from sqlalchemy import select
 
 from image_build.config import get_image_build_repository
 from infrastructure.clients.github_http import GitHubAsyncClient
+from infrastructure.clients.github_workflows import list_workflow_environments, read_workflow_inputs
 from infrastructure.db.base import SessionLocal
 from infrastructure.db.mysql_lock import mysql_named_lock
 from infrastructure.persistence.models import ImageBuildWorkflowDefinition
+from tooling.parsers.workflow_dispatch import WorkflowInput
+from tooling.parsers.workflow_dispatch import parse_dispatch_inputs as parse_dispatch_inputs
 from workflow_actions.credentials import get_github_credential
 
 WORKFLOW_PATH = ".github/workflows/schedule_nightly_image_build_with_base.yaml"
 
 _PAGE_SIZE = 100
 _MAX_PAGES = 100
-_BOOLEAN_TAG = "tag:yaml.org,2002:bool"
-_TIMESTAMP_TAG = "tag:yaml.org,2002:timestamp"
 logger = logging.getLogger(__name__)
 
 
@@ -53,89 +50,6 @@ async def _workflow_sync_lock() -> AsyncIterator[None]:
         if not acquired:
             raise WorkflowSyncInProgress
         yield
-
-
-class WorkflowInput(TypedDict):
-    name: str
-    type: str
-    description: str
-    required: bool
-    options: list[str]
-    default: NotRequired[str | bool | int | float | None]
-
-
-class _WorkflowLoader(yaml.SafeLoader):
-    # Workflow files use "on" as a key and may include bare strings such as "off".
-    yaml_implicit_resolvers = {
-        key: [entry for entry in entries if entry[0] not in {_BOOLEAN_TAG, _TIMESTAMP_TAG}]
-        for key, entries in yaml.SafeLoader.yaml_implicit_resolvers.items()
-    }
-
-
-_WorkflowLoader.add_implicit_resolver(
-    _BOOLEAN_TAG, re.compile(r"^(true|false)$", re.IGNORECASE), list("tTfF")
-)
-
-
-def parse_dispatch_inputs(source: str) -> list[WorkflowInput] | None:
-    """Return inputs in declaration order, or None if the workflow has no dispatch event."""
-    try:
-        document = yaml.load(source, Loader=_WorkflowLoader)
-    except yaml.YAMLError as exc:
-        raise ValueError("无效的 Workflow YAML") from exc
-    if not isinstance(document, dict):
-        raise ValueError("Workflow YAML 必须是映射")
-
-    events = document.get("on")
-    if events == "workflow_dispatch" or (
-        isinstance(events, list) and "workflow_dispatch" in events
-    ):
-        return []
-    if not isinstance(events, dict) or "workflow_dispatch" not in events:
-        return None
-
-    dispatch = events["workflow_dispatch"]
-    if dispatch is None:
-        return []
-    if not isinstance(dispatch, dict):
-        raise ValueError("无效的 workflow_dispatch 定义")
-    definitions = dispatch.get("inputs")
-    if definitions is None:
-        return []
-    if not isinstance(definitions, dict):
-        raise ValueError("无效的 workflow_dispatch.inputs 定义")
-
-    inputs: list[WorkflowInput] = []
-    for name, definition in definitions.items():
-        if not isinstance(name, str) or not isinstance(definition, dict):
-            raise ValueError("无效的 Workflow 参数")
-        input_type = definition.get("type", "string")
-        description = definition.get("description", "")
-        required = definition.get("required", False)
-        options = definition.get("options", [])
-        if (
-            not isinstance(input_type, str)
-            or not isinstance(description, str)
-            or not isinstance(required, bool)
-            or not isinstance(options, list)
-            or not all(isinstance(option, str) for option in options)
-        ):
-            raise ValueError(f"无效的 Workflow 参数定义: {name}")
-
-        field: WorkflowInput = {
-            "name": name,
-            "type": input_type,
-            "description": description,
-            "required": required,
-            "options": options,
-        }
-        if "default" in definition:
-            value = definition["default"]
-            if value is not None and not isinstance(value, (str, bool, int, float)):
-                raise ValueError(f"无效的 Workflow 参数默认值: {name}")
-            field["default"] = value
-        inputs.append(field)
-    return inputs
 
 
 async def _list_branches(client: httpx.AsyncClient, repository: str) -> dict[str, str]:
@@ -163,47 +77,6 @@ async def _list_branches(client: httpx.AsyncClient, repository: str) -> dict[str
                 raise ValueError("GitHub 返回了空的仓库分支列表")
             return branches
     raise ValueError("GitHub 分支列表未完成分页")
-
-
-async def _list_environments(client: httpx.AsyncClient, repository: str) -> list[str]:
-    names: set[str] = set()
-    for page in range(1, _MAX_PAGES + 1):
-        response = await client.get(
-            f"/repos/{repository}/environments",
-            params={"per_page": _PAGE_SIZE, "page": page},
-        )
-        response.raise_for_status()
-        data = response.json()
-        items = data.get("environments") if isinstance(data, dict) else None
-        if not isinstance(items, list):
-            raise ValueError("无效的 GitHub 环境列表")
-        for item in items:
-            name = item.get("name") if isinstance(item, dict) else None
-            if not isinstance(name, str) or not name:
-                raise ValueError("GitHub 环境记录缺少名称")
-            names.add(name)
-        if "next" not in response.links:
-            return sorted(names)
-    raise ValueError("GitHub 环境列表未完成分页")
-
-
-async def _read_inputs(
-    client: httpx.AsyncClient, repository: str, head_sha: str,
-) -> list[WorkflowInput] | None:
-    response = await client.get(
-        f"/repos/{repository}/contents/{WORKFLOW_PATH}", params={"ref": head_sha}
-    )
-    if response.status_code == 404:
-        return None
-    response.raise_for_status()
-    data = response.json()
-    if not isinstance(data, dict) or data.get("type") != "file" or data.get("encoding") != "base64":
-        raise ValueError("GitHub 返回了无效的 Workflow 文件")
-    content = data.get("content")
-    if not isinstance(content, str):
-        raise ValueError("GitHub Workflow 文件缺少内容")
-    source = base64.b64decode("".join(content.split()), validate=True).decode("utf-8")
-    return parse_dispatch_inputs(source)
 
 
 async def _save_definition(repository: str, branch_name: str, inputs: list[WorkflowInput] | None) -> bool:
@@ -296,14 +169,14 @@ class ImageBuildWorkflowSync:
             if self._unsupported_heads.get(branch) == sha:
                 continue
             try:
-                inputs = await _read_inputs(client, repository, sha)
+                inputs = await read_workflow_inputs(client, repository, WORKFLOW_PATH, sha)
                 environment_inputs = [field for field in (inputs or []) if field["type"] == "environment"]
                 if environment_inputs:
                     # Environment names belong to the repository and are shared by all branches.
                     if not checked_environments:
                         checked_environments = True
                         try:
-                            environment_options = await _list_environments(client, repository)
+                            environment_options = await list_workflow_environments(client, repository)
                         except (httpx.HTTPError, ValueError) as exc:
                             logger.warning("Could not sync image build workflow environments: %s", exc)
                     if environment_options is None:
